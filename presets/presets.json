@@ -1,0 +1,148 @@
+[
+  {
+    "id": "invoices-by-number",
+    "category": "Invoices and billing documents",
+    "name": "Split by invoice number",
+    "strategy": "pattern",
+    "fallback": "ai",
+    "prompt": "Split this batch so each invoice is one part. Use the invoice number as the part title.",
+    "pattern": "(?i)invoice\\s*(no\\.?|number|#)\\s*[:#]?\\s*[A-Z0-9-]+"
+  },
+  {
+    "id": "invoices-by-vendor",
+    "category": "Invoices and billing documents",
+    "name": "Split by vendor",
+    "strategy": "ai",
+    "prompt": "Split this batch so all pages from the same vendor form one part. Use the vendor name as the part title."
+  },
+  {
+    "id": "contracts-by-agreement",
+    "category": "Contracts and legal documents",
+    "name": "Split by agreement",
+    "strategy": "ai",
+    "prompt": "Split this bundle so each separate agreement is one part. Use the agreement title as the part title."
+  },
+  {
+    "id": "contracts-exhibits",
+    "category": "Contracts and legal documents",
+    "name": "Separate exhibits and schedules",
+    "strategy": "ai",
+    "prompt": "Split the main agreement from each exhibit, schedule and annex. Use the exhibit or schedule name as the part title."
+  },
+  {
+    "id": "statements-by-account",
+    "category": "Bank statements and financial reports",
+    "name": "Split by account",
+    "strategy": "pattern",
+    "fallback": "ai",
+    "prompt": "Split so each bank account is one part. Use the account name or last four digits as the part title.",
+    "pattern": "(?i)account\\s*(no\\.?|number|#)\\s*[:#]?\\s*[0-9* -]{4,}"
+  },
+  {
+    "id": "statements-by-month",
+    "category": "Bank statements and financial reports",
+    "name": "Split by month",
+    "strategy": "ai",
+    "prompt": "Split so each statement period (month) is one part. Use the month and year as the part title."
+  },
+  {
+    "id": "academic-course-by-chapter",
+    "category": "Academic and educational documents",
+    "name": "Split course material by chapter",
+    "strategy": "outline",
+    "fallback": "ai",
+    "prompt": "Split this course material so each chapter is one part. Use chapter titles as part titles."
+  },
+  {
+    "id": "academic-exams-by-student",
+    "category": "Academic and educational documents",
+    "name": "Split exams by student",
+    "strategy": "ai",
+    "prompt": "Split these exam scripts so each student is one part. Use the student name or ID as the part title."
+  },
+  {
+    "id": "academic-notes-by-topic",
+    "category": "Academic and educational documents",
+    "name": "Split notes by topic",
+    "strategy": "ai",
+    "prompt": "Split these notes so each topic is one part. Use the topic heading as the part title."
+  },
+  {
+    "id": "academic-answers-from-questions",
+    "category": "Academic and educational documents",
+    "name": "Separate answer sheets from question sheets",
+    "strategy": "ai",
+    "prompt": "Split so question sheets and answer sheets are separate parts. Title each part Questions or Answers."
+  },
+  {
+    "id": "medical-by-patient",
+    "category": "Medical and healthcare records",
+    "name": "Split by patient",
+    "strategy": "ai",
+    "prompt": "Split these records so each patient is one part. Use the patient name or record number as the part title."
+  },
+  {
+    "id": "medical-by-visit",
+    "category": "Medical and healthcare records",
+    "name": "Split by visit date",
+    "strategy": "ai",
+    "prompt": "Split these records so each visit is one part. Use the visit date as the part title."
+  },
+  {
+    "id": "hr-by-employee",
+    "category": "HR and employee documents",
+    "name": "Split by employee",
+    "strategy": "pattern",
+    "fallback": "ai",
+    "prompt": "Split so each employee is one part. Use the employee name or ID as the part title.",
+    "pattern": "(?i)employee\\s*(id|no\\.?|number)\\s*[:#]?\\s*[A-Z0-9-]+"
+  },
+  {
+    "id": "insurance-by-policy",
+    "category": "Insurance documents",
+    "name": "Split by policy or claim",
+    "strategy": "pattern",
+    "fallback": "ai",
+    "prompt": "Split so each policy or claim is one part. Use the policy or claim number as the part title.",
+    "pattern": "(?i)(policy|claim)\\s*(no\\.?|number|#)\\s*[:#]?\\s*[A-Z0-9-]+"
+  },
+  {
+    "id": "shipping-by-shipment",
+    "category": "Shipping, logistics and customs documents",
+    "name": "Split by shipment or bill of lading",
+    "strategy": "pattern",
+    "fallback": "ai",
+    "prompt": "Split so each shipment or bill of lading is one part. Use the B/L or shipment number as the part title.",
+    "pattern": "(?i)(bill of lading|b/l)\\s*(no\\.?|number|#)?\\s*[:#]?\\s*[A-Z0-9-]+"
+  },
+  {
+    "id": "government-by-form",
+    "category": "Government and administrative forms",
+    "name": "Split by form type or applicant",
+    "strategy": "ai",
+    "prompt": "Split so each form is one part. Use the form type and applicant name as the part title."
+  },
+  {
+    "id": "scanned-blank-pages",
+    "category": "Scanned document batches",
+    "name": "Split at blank pages",
+    "strategy": "blank",
+    "fallback": "ai",
+    "prompt": "Split this scanned batch where a new document begins. Blank pages usually separate documents."
+  },
+  {
+    "id": "marketing-by-section",
+    "category": "Marketing and creative documents",
+    "name": "Split by section or campaign",
+    "strategy": "ai",
+    "prompt": "Split so each section or campaign is one part. Use the section or campaign name as the part title."
+  },
+  {
+    "id": "books-by-chapter",
+    "category": "Books and general reading documents",
+    "name": "Split by chapter or part",
+    "strategy": "outline",
+    "fallback": "ai",
+    "prompt": "Split this book so each chapter is one part. Use chapter titles as part titles."
+  }
+]
