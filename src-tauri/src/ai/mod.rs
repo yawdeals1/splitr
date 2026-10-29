@@ -2,6 +2,7 @@
 //! the rest of the app doesn't know which one answers. Only the AI strategy calls these (NFR-06).
 
 pub mod claude;
+pub mod response;
 
 use std::collections::BTreeMap;
 
@@ -53,8 +54,8 @@ pub struct AiRequest {
     pub pages: Vec<PageExcerpt>,
 }
 
-/// A platform that turns a request into the model's reply text. The reply is parsed and
-/// validated by the caller (FR-35, #16).
+/// A platform that turns a request into the model's reply text. `response` parses and validates
+/// the reply (FR-35).
 pub trait Provider {
     async fn complete(&self, request: &AiRequest) -> Result<String>;
 }
