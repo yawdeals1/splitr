@@ -19,6 +19,7 @@ export const AI_SERVICES: AiService[] = [
   { id: "chatgpt", label: "ChatGPT account", name: "ChatGPT", company: "OpenAI", keyHint: "" },
   { id: "anthropic", label: "Claude API key", name: "Claude", company: "Anthropic", keyHint: "sk-ant-…" },
   { id: "openai", label: "OpenAI API key", name: "OpenAI", company: "OpenAI", keyHint: "sk-proj-…" },
+  { id: "gemini", label: "Gemini API key", name: "Gemini", company: "Google", keyHint: "AIza…" },
 ];
 
 /** The service with this id, or the ChatGPT account for an id this version doesn't know. */

@@ -30,6 +30,7 @@ test("aiBlockMessage says what to do", () => {
 test("aiService finds a service, and falls back to the ChatGPT account", () => {
   assert.equal(aiService("anthropic").company, "Anthropic");
   assert.equal(aiService("openai").name, "OpenAI");
+  assert.equal(aiService("gemini").company, "Google");
   assert.equal(aiService("someday").id, "chatgpt");
   assert.equal(aiService(undefined).id, "chatgpt");
   assert.equal(usesKey(aiService("openai")), true);

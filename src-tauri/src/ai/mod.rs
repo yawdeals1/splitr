@@ -2,6 +2,7 @@
 //! the rest of the app doesn't know which one answers. Only the AI strategy calls these (NFR-06).
 
 pub mod claude;
+pub mod gemini;
 pub mod http;
 pub mod openai;
 
@@ -12,6 +13,7 @@ use tokio::sync::watch;
 
 use crate::error::{Result, SplitError};
 use claude::Claude;
+use gemini::Gemini;
 use openai::OpenAi;
 
 /// The AI service Smart mode uses until the user picks another: their ChatGPT account (#31).
@@ -69,22 +71,23 @@ pub async fn complete(platform: &str, key: String, model: String, request: &AiRe
     match platform {
         "anthropic" => Claude::new(key, model)?.complete(request).await,
         "openai" => OpenAi::new(key, model)?.complete(request).await,
+        "gemini" => Gemini::new(key, model)?.complete(request).await,
         _ => Err(unsupported(platform)),
     }
 }
 
 /// Whether Smart mode can send requests to `platform` yet.
 pub fn is_supported(platform: &str) -> bool {
-    matches!(platform, "anthropic" | "openai")
+    matches!(platform, "anthropic" | "openai" | "gemini")
 }
 
 /// Why Smart mode can't use `platform` yet.
 pub fn unsupported(platform: &str) -> SplitError {
     SplitError::Ai(match platform {
-        "chatgpt" => "Signing in with ChatGPT isn't available yet. Choose Claude or OpenAI under AI in Settings to use \
+        "chatgpt" => "Signing in with ChatGPT isn't available yet. Choose Claude, OpenAI or Gemini under AI in Settings to use \
                       an API key for now"
             .into(),
-        _ => "Smart mode can't use this AI service yet. Choose Claude or OpenAI under AI in Settings".into(),
+        _ => "Smart mode can't use this AI service yet. Choose Claude, OpenAI or Gemini under AI in Settings".into(),
     })
 }
 
@@ -168,10 +171,10 @@ mod tests {
 
     #[test]
     fn only_finished_providers_are_offered() {
-        assert!(is_supported("anthropic") && is_supported("openai"));
-        assert!(!is_supported("chatgpt") && !is_supported("gemini"));
+        assert!(is_supported("anthropic") && is_supported("openai") && is_supported("gemini"));
+        assert!(!is_supported("chatgpt") && !is_supported("openrouter"));
         assert!(unsupported("chatgpt").to_string().contains("ChatGPT isn't available yet"));
-        let err = tauri::async_runtime::block_on(complete("gemini", "k".into(), "m".into(), &AiRequest {
+        let err = tauri::async_runtime::block_on(complete("openrouter", "k".into(), "m".into(), &AiRequest {
             instruction: "x".into(),
             pages: vec![],
         }))
