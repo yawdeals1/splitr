@@ -53,7 +53,7 @@ pub fn run() {
             commands::render_page,
             commands::export_parts,
             commands::export_zip,
-            commands::part_names,
+            commands::export_names,
             commands::save_user_preset,
             commands::delete_user_preset,
             commands::get_settings,

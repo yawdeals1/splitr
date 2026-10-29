@@ -104,7 +104,7 @@ Splitr checks the list after every change. If something doesn't fit, for example
    | `{title}` | The part's title |
    | `{original}` | The name of the PDF you opened |
 
-   For example, `{original} - {index} - {title}` gives `Textbook - 03 - Memory Hierarchy.pdf`. A part without a title drops the title and the separator before it, so you get `Textbook - 04.pdf`. Characters that aren't allowed in file names are replaced. If two parts would get the same name, Splitr adds a number such as " (2)" to the second one.
+   For example, `{original} - {index} - {title}` gives `Textbook - 03 - Memory Hierarchy.pdf`. A part without a title drops the title, the separator before it and any brackets around it, so you get `Textbook - 04.pdf`. Characters that aren't allowed in file names are replaced, and very long names are shortened. If two parts would get the same name, Splitr adds a number such as " (2)" to the second one.
 
    The list under the template shows the names your parts will get, and changes as you edit the template or the titles.
 2. Optionally, tick **Bundle into one ZIP file**. The ZIP is named after the PDF you opened.

@@ -75,3 +75,15 @@ export interface ExportRequest {
   folder: string;
   names: string[];
 }
+
+/** Mirrors naming::ExportNames: the names for one export, without extensions (FR-51 to FR-53). */
+export interface ExportNames {
+  parts: string[];
+  zip: string;
+}
+
+/** Mirrors export::SavedParts: the files an export wrote, and how many got a number added (FR-52). */
+export interface SavedParts {
+  paths: string[];
+  renamed: number;
+}

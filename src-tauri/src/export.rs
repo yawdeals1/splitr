@@ -10,7 +10,7 @@ use std::fs;
 use std::io::{self, BufWriter, Write};
 use std::path::{Path, PathBuf};
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use tempfile::NamedTempFile;
 use zip::write::SimpleFileOptions;
 use zip::{CompressionMethod, ZipWriter};
@@ -32,11 +32,21 @@ pub struct ExportRequest {
     pub names: Vec<String>,
 }
 
+/// What an export saved. Mirrored by `SavedParts` in `src/types.ts`.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SavedParts {
+    /// The files written, in part order.
+    pub paths: Vec<String>,
+    /// How many got a number added because the folder already had a file of that name (FR-52).
+    pub renamed: usize,
+}
+
 /// Writes each part as its own file in the folder (FR-50). Names are sanitized and get a numeric
-/// suffix rather than replace an existing file (FR-52). Returns the paths written, in part order.
-pub fn export(request: &ExportRequest) -> Result<Vec<String>> {
+/// suffix rather than replace an existing file (FR-52).
+pub fn export(request: &ExportRequest) -> Result<SavedParts> {
     let (pdf, folder) = prepare(request)?;
-    let targets = output_paths(folder, &request.names)?;
+    let (targets, renamed) = output_paths(folder, &request.names)?;
 
     let mut written = Vec::with_capacity(request.ranges.len());
     for range in &request.ranges {
@@ -49,16 +59,16 @@ pub fn export(request: &ExportRequest) -> Result<Vec<String>> {
         written.push(temp);
     }
     let saved = persist_all(written, targets)?;
-    Ok(saved.into_iter().map(|p| p.to_string_lossy().into_owned()).collect())
+    Ok(SavedParts { paths: saved.into_iter().map(|p| p.to_string_lossy().into_owned()).collect(), renamed })
 }
 
-/// Like [`export`], but bundles the parts into one ZIP in the folder, named after `zip_name`
-/// (FR-53). Entries are stored, not compressed: PDF content is compressed already. Returns the
-/// ZIP's path.
+/// Like [`export`], but bundles the parts into one ZIP in the folder, named `zip_name` plus ".zip"
+/// (FR-53), or with " (2)"... if that exists. Entries are stored, not compressed: PDF content is
+/// compressed already. Returns the ZIP's path.
 pub fn export_zip(request: &ExportRequest, zip_name: &str) -> Result<String> {
     let (pdf, folder) = prepare(request)?;
     let mut taken = taken_names(folder, "zip")?;
-    let name = naming::dedupe(&naming::sanitize(naming::strip_pdf(zip_name)), &mut taken);
+    let name = naming::unique(zip_name, &mut taken);
     let target = folder.join(format!("{name}.zip"));
 
     // The temp file deletes itself if anything below fails.
@@ -70,7 +80,7 @@ pub fn export_zip(request: &ExportRequest, zip_name: &str) -> Result<String> {
         .last_modified_time(now());
     let mut entries = HashSet::new();
     for (range, name) in request.ranges.iter().zip(&request.names) {
-        let entry = format!("{}.pdf", naming::dedupe(&naming::sanitize(name), &mut entries));
+        let entry = format!("{}.pdf", naming::unique(name, &mut entries));
         zip.start_file(entry, options).map_err(zip_failed)?;
         pdf.write_part(range.start, range.end, &mut zip)?;
     }
@@ -127,13 +137,22 @@ fn persist_all(written: Vec<NamedTempFile>, targets: Vec<PathBuf>) -> Result<Vec
 }
 
 /// The final path of each part: the sanitized name plus ".pdf", with " (2)", " (3)"... added when
-/// another part or a PDF already in the folder has that name (FR-52).
-fn output_paths(folder: &Path, names: &[String]) -> Result<Vec<PathBuf>> {
+/// another part or a PDF already in the folder has that name (FR-52). Also returns how many names
+/// got a number.
+fn output_paths(folder: &Path, names: &[String]) -> Result<(Vec<PathBuf>, usize)> {
     let mut taken = taken_names(folder, "pdf")?;
-    Ok(names
+    let mut renamed = 0;
+    let paths = names
         .iter()
-        .map(|name| folder.join(format!("{}.pdf", naming::dedupe(&naming::sanitize(name), &mut taken))))
-        .collect())
+        .map(|name| {
+            let safe = naming::unique(name, &mut taken);
+            if safe != naming::sanitize(name) {
+                renamed += 1;
+            }
+            folder.join(format!("{safe}.pdf"))
+        })
+        .collect();
+    Ok((paths, renamed))
 }
 
 /// The names, in lower case and without the extension, of the files in `folder` that end in
@@ -166,20 +185,19 @@ fn zip_failed(e: zip::result::ZipError) -> SplitError {
     }
 }
 
-/// A readable reason for a file error, without the OS error code (the user sees it).
+/// A readable reason for a file error, without the OS error code. It follows "The parts could not
+/// be saved, so no files were written: ", so it starts in lower case.
 fn reason(e: &io::Error) -> String {
     match e.kind() {
-        io::ErrorKind::PermissionDenied => "Splitr isn't allowed to write to this folder. Choose another folder".into(),
+        io::ErrorKind::PermissionDenied => "this folder doesn't allow saving files. Choose another folder".into(),
         io::ErrorKind::StorageFull => "the disk is full. Free some space or choose another folder".into(),
         io::ErrorKind::NotFound => "the folder was moved or deleted while saving".into(),
         io::ErrorKind::AlreadyExists => "a file with the same name appeared while saving. Try again".into(),
         io::ErrorKind::ReadOnlyFilesystem => "this drive is read-only. Choose another folder".into(),
         _ => {
             let text = e.to_string();
-            match text.find(" (os error ") {
-                Some(at) => text[..at].to_string(),
-                None => text,
-            }
+            let text = text.find(" (os error ").map_or(text.as_str(), |at| &text[..at]);
+            format!("the system reported \"{text}\". Check the folder and try again")
         }
     }
 }
@@ -216,7 +234,9 @@ mod tests {
         let folder = dir.path().to_string_lossy().into_owned();
         let parts = [Range::new(1, 2), Range::new(3, 4)];
 
-        let paths = export(&request(&source, None, &parts, &folder, &["book", "book - 02"])).unwrap();
+        let saved = export(&request(&source, None, &parts, &folder, &["book", "book - 02"])).unwrap();
+        let paths = saved.paths;
+        assert_eq!(saved.renamed, 1, "book.pdf was already there");
 
         assert_eq!(listing(dir.path()), ["book (2).pdf", "book - 02.pdf", "book.pdf"]);
         assert_eq!(paths, [dir.path().join("book (2).pdf"), dir.path().join("book - 02.pdf")].map(|p| p.to_string_lossy().into_owned()));
@@ -254,7 +274,8 @@ mod tests {
         fs::write(dir.path().join("notes.txt"), b"").unwrap();
         let names = ["Book - 01", "Book - 02", "book - 02", "a/b", "notes"].map(String::from);
 
-        let paths = output_paths(dir.path(), &names).unwrap();
+        let (paths, renamed) = output_paths(dir.path(), &names).unwrap();
+        assert_eq!(renamed, 2);
         let files: Vec<_> = paths.iter().map(|p| p.file_name().unwrap().to_string_lossy().into_owned()).collect();
         assert_eq!(files, ["Book - 01 (2).pdf", "Book - 02.pdf", "book - 02 (2).pdf", "a_b.pdf", "notes.pdf"]);
         assert!(paths.iter().all(|p| p.parent() == Some(dir.path())));
@@ -301,7 +322,7 @@ mod tests {
         let folder = out.path().to_string_lossy().into_owned();
         let job = request(&source, None, &[Range::new(1, 1), Range::new(2, 4)], &folder, &["book - 01", "book - 01"]);
 
-        let zip = export_zip(&job, "book.pdf").unwrap();
+        let zip = export_zip(&job, "book").unwrap();
         assert_eq!(zip, out.path().join("book.zip").to_string_lossy());
         assert_eq!(listing(out.path()), ["book.zip"]);
         assert_eq!(zip_contents(&zip), [("book - 01.pdf".to_string(), 1), ("book - 01 (2).pdf".to_string(), 3)]);
@@ -309,7 +330,7 @@ mod tests {
 
         // A second export never replaces the first ZIP, whatever its letter case.
         fs::rename(&zip, out.path().join("Book.ZIP")).unwrap();
-        let again = export_zip(&job, "book.pdf").unwrap();
+        let again = export_zip(&job, "book").unwrap();
         assert_eq!(again, out.path().join("book (2).zip").to_string_lossy());
     }
 
@@ -356,15 +377,18 @@ mod tests {
         fs::write(out.path().join("Report.ZIP"), b"").unwrap();
         let job = request(&source, None, &[Range::new(1, 4)], &folder, &["x"]);
 
-        assert_eq!(export_zip(&job, "report.pdf").unwrap(), out.path().join("report (2).zip").to_string_lossy());
+        assert_eq!(export_zip(&job, "report").unwrap(), out.path().join("report (2).zip").to_string_lossy());
         assert_eq!(export_zip(&job, "a:b").unwrap(), out.path().join("a_b.zip").to_string_lossy());
     }
 
     #[test]
     fn file_errors_read_without_os_codes() {
         let denied = io::Error::from_raw_os_error(if cfg!(windows) { 5 } else { 13 });
-        assert_eq!(reason(&denied), "Splitr isn't allowed to write to this folder. Choose another folder");
-        assert_eq!(reason(&io::Error::other("disk on fire")), "disk on fire");
+        assert_eq!(reason(&denied), "this folder doesn't allow saving files. Choose another folder");
+        assert_eq!(
+            reason(&io::Error::other("disk on fire")),
+            "the system reported \"disk on fire\". Check the folder and try again"
+        );
         let coded = io::Error::from_raw_os_error(if cfg!(windows) { 1117 } else { 5 });
         assert!(!reason(&coded).contains("os error"), "{}", reason(&coded));
     }

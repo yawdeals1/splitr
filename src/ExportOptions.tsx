@@ -8,7 +8,7 @@ interface Props {
   names: string[];
   zip: boolean;
   onZip: (zip: boolean) => void;
-  /** The ZIP's name, without ".zip". */
+  /** The ZIP's name, without ".zip". Export adds " (2)" if the folder already has one. */
   zipName: string;
 }
 

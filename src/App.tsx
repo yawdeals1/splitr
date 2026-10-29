@@ -9,7 +9,7 @@ import { AiConsent } from "./AiConsent";
 import { AiSettings, useApiKey } from "./AiSettings";
 import { ExportOptions } from "./ExportOptions";
 import { baseName, formatSize, rejectReason } from "./file";
-import { renamedCount, savedMessage, zipName } from "./naming";
+import { savedMessage } from "./naming";
 import { PageGrid } from "./PageGrid";
 import { PageViewer } from "./PageViewer";
 import { PasswordPrompt } from "./PasswordPrompt";
@@ -20,6 +20,7 @@ import { showTheme } from "./theme";
 import {
   PASSWORD_REQUIRED,
   WRONG_PASSWORD,
+  type ExportNames,
   type ExportRequest,
   type PdfInfo,
   type Preset,
@@ -27,6 +28,7 @@ import {
   type PresetList,
   type Range,
   type RangeMode,
+  type SavedParts,
   type Settings,
   type Theme,
 } from "./types";
@@ -67,7 +69,7 @@ function App({ initialSettings }: { initialSettings: Settings | null }) {
   // FR-51: the name template being edited; null shows the saved one. Saved with each export.
   const [template, setTemplate] = useState<string | null>(null);
   // FR-51: what the template makes of the current parts' titles, from the backend.
-  const [names, setNames] = useState<string[]>([]);
+  const [names, setNames] = useState<ExportNames | null>(null);
   // FR-53: bundle the parts into one ZIP.
   const [zip, setZip] = useState(false);
   // FR-55: a file the last export saved, so "Open folder" can show it.
@@ -180,9 +182,9 @@ function App({ initialSettings }: { initialSettings: Settings | null }) {
   // FR-51: the names follow the template and the part titles as they're typed.
   const titles = JSON.stringify(ranges.map((r) => r.title));
   useEffect(() => {
-    if (!pdf || ranges.length === 0) return;
+    if (!pdf || ranges.length === 0) return setNames(null);
     let current = true;
-    partNames(pdf.fileName, nameTemplate, ranges)
+    exportNames(pdf.fileName, nameTemplate, ranges)
       .then((n) => current && setNames(n))
       .catch((e) => current && setError(String(e)));
     return () => {
@@ -333,16 +335,16 @@ function App({ initialSettings }: { initialSettings: Settings | null }) {
       if (!folder) return;
       setExporting(true);
       // Named afresh, so a preview still on its way can't give the files old names.
-      const fileNames = await partNames(file.fileName, nameTemplate, parts);
-      const request: ExportRequest = { path: file.path, password: password.current, ranges: parts, folder, names: fileNames };
+      const fileNames = await exportNames(file.fileName, nameTemplate, parts);
+      const request: ExportRequest = { path: file.path, password: password.current, ranges: parts, folder, names: fileNames.parts };
       if (zip) {
-        const saved = await invoke<string>("export_zip", { request, zipName: zipName(file.fileName) });
+        const saved = await invoke<string>("export_zip", { request, zipName: fileNames.zip });
         setNotice(savedMessage(parts.length, folder, 0, saved));
         setSavedFile(saved);
       } else {
-        const saved = await invoke<string[]>("export_parts", { request });
-        setNotice(savedMessage(saved.length, folder, renamedCount(fileNames, saved)));
-        setSavedFile(saved[0] ?? null);
+        const saved = await invoke<SavedParts>("export_parts", { request });
+        setNotice(savedMessage(saved.paths.length, folder, saved.renamed));
+        setSavedFile(saved.paths[0] ?? null);
       }
       // Remembering the folder and template is a convenience, so a failure here isn't shown.
       await updateSettings({ lastOutputFolder: folder, nameTemplate });
@@ -443,10 +445,10 @@ function App({ initialSettings }: { initialSettings: Settings | null }) {
             <ExportOptions
               template={nameTemplate}
               onTemplate={setTemplate}
-              names={names}
+              names={names?.parts ?? []}
               zip={zip}
               onZip={setZip}
-              zipName={zipName(pdf.fileName)}
+              zipName={names?.zip ?? ""}
             />
           </ReviewScreen>
         )}
@@ -639,7 +641,7 @@ function App({ initialSettings }: { initialSettings: Settings | null }) {
 
 export default App;
 
-/** FR-51: the file names the template gives these parts, from the backend. */
-function partNames(fileName: string, template: string, parts: Range[]): Promise<string[]> {
-  return invoke<string[]>("part_names", { template, original: fileName, titles: parts.map((r) => r.title) });
+/** FR-51 to FR-53: the file names the template gives these parts, and the ZIP's, from the backend. */
+function exportNames(fileName: string, template: string, parts: Range[]): Promise<ExportNames> {
+  return invoke<ExportNames>("export_names", { template, original: fileName, titles: parts.map((r) => r.title) });
 }
