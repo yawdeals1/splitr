@@ -2,6 +2,7 @@
 //!
 //! API keys never go here: they live only in the OS credential store (NFR-05).
 
+use std::collections::BTreeMap;
 use std::fs;
 use std::io::ErrorKind;
 use std::path::Path;
@@ -11,6 +12,7 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
+use crate::ai;
 use crate::error::{Result, SplitError};
 
 pub const FILE_NAME: &str = "settings.json";
@@ -38,6 +40,10 @@ pub struct Settings {
     pub ai_enabled: bool,
     /// Whether the user accepted the AI notice (FR-61).
     pub ai_consent: bool,
+    /// The AI service Smart mode uses: "chatgpt" for the ChatGPT account, or a key platform.
+    pub ai_platform: String,
+    /// Models the user chose, by service. A service that isn't here uses its default.
+    pub ai_models: BTreeMap<String, String>,
 }
 
 impl Default for Settings {
@@ -49,16 +55,35 @@ impl Default for Settings {
             blank_threshold: 0,
             ai_enabled: true,
             ai_consent: false,
+            ai_platform: ai::DEFAULT_PLATFORM.into(),
+            ai_models: BTreeMap::new(),
         }
     }
 }
 
 impl Settings {
+    /// The model to use with `platform`: the user's choice, else the default, else none.
+    pub fn model_for(&self, platform: &str) -> Option<String> {
+        self.ai_models
+            .get(platform)
+            .cloned()
+            .or_else(|| ai::default_model(platform).map(String::from))
+    }
+
     /// Replaces values the app can't use with their defaults.
     fn normalized(mut self) -> Self {
         if self.name_template.trim().is_empty() {
             self.name_template = Self::default().name_template;
         }
+        if !ai::is_platform(&self.ai_platform) {
+            self.ai_platform = Self::default().ai_platform;
+        }
+        // A blank model means the default, so it isn't kept.
+        self.ai_models = std::mem::take(&mut self.ai_models)
+            .into_iter()
+            .map(|(platform, model)| (platform, model.trim().to_string()))
+            .filter(|(platform, model)| ai::is_platform(platform) && !model.is_empty())
+            .collect();
         if self.last_output_folder.as_deref().is_some_and(|f| f.trim().is_empty()) {
             self.last_output_folder = None;
         }
@@ -89,6 +114,8 @@ pub fn load(path: &Path) -> Result<Settings> {
         blank_threshold: field(&fields, "blankThreshold", defaults.blank_threshold),
         ai_enabled: field(&fields, "aiEnabled", defaults.ai_enabled),
         ai_consent: field(&fields, "aiConsent", defaults.ai_consent),
+        ai_platform: field(&fields, "aiPlatform", defaults.ai_platform),
+        ai_models: field(&fields, "aiModels", defaults.ai_models),
     }
     .normalized())
 }
@@ -162,6 +189,8 @@ mod tests {
             blank_threshold: 5,
             ai_enabled: false,
             ai_consent: true,
+            ai_platform: "anthropic".into(),
+            ai_models: BTreeMap::from([("anthropic".into(), "claude-haiku-5-5".into())]),
         };
         save(&path, &settings).unwrap();
         assert_eq!(load(&path).unwrap(), settings);
@@ -220,10 +249,20 @@ mod tests {
         let dir = temp_dir("partial");
         let path = dir.join(FILE_NAME);
         fs::create_dir_all(&dir).unwrap();
-        fs::write(&path, r#"{"theme": "light", "nameTemplate": "  "}"#).unwrap();
+        fs::write(
+            &path,
+            r#"{"theme": "light", "nameTemplate": "  ", "aiPlatform": "nope",
+                "aiModels": {"anthropic": " ", "openai": " gpt-x ", "nope": "m"}}"#,
+        )
+        .unwrap();
         let loaded = load(&path).unwrap();
         assert_eq!(loaded.theme, Theme::Light);
         assert_eq!(loaded.name_template, Settings::default().name_template);
+        assert_eq!(loaded.ai_platform, "chatgpt");
+        assert_eq!(loaded.ai_models, BTreeMap::from([("openai".into(), "gpt-x".into())]));
+        assert_eq!(loaded.model_for("anthropic").as_deref(), Some("claude-opus-5-5"));
+        assert_eq!(loaded.model_for("openai").as_deref(), Some("gpt-x"));
+        assert_eq!(loaded.model_for("custom"), None);
         fs::remove_dir_all(dir).unwrap();
     }
 

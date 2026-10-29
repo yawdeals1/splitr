@@ -1,3 +1,4 @@
+mod ai;
 mod commands;
 mod error;
 mod export;
@@ -32,6 +33,7 @@ pub fn run() {
             };
             Viewer::remove_stale_sessions(&cache_root);
             app.manage(Viewer::new(cache_root));
+            app.manage(ai::AiCalls::default());
 
             // Load PDFium from the bundled resource folder. A failure is reported by every PDF command.
             match app.path().resource_dir() {
@@ -61,6 +63,9 @@ pub fn run() {
             commands::save_api_key,
             commands::api_key_status,
             commands::delete_api_key,
+            commands::ask_ai,
+            commands::cancel_ai,
+            commands::default_ai_models,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
