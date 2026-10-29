@@ -49,7 +49,8 @@ body {
   gap: 16px;
   min-height: 0;
   padding: 24px;
-  overflow: hidden;
+  /* The page grid scrolls on its own; anything else taller than the window scrolls here. */
+  overflow: auto;
 }
 
 .dropzone {
@@ -266,7 +267,8 @@ button.primary {
   font-size: 13px;
 }
 
-/* FR-11: the larger page view; the page is at most 900px wide (VIEW_WIDTH in PageViewer.tsx). */
+/* FR-11: the larger page view. The page is 160px to 900px wide and leaves 96px for the dialog
+   margin and the page padding (VIEW_MIN_WIDTH, VIEW_WIDTH and VIEW_MARGIN in thumbnails.ts). */
 .page-viewer {
   max-width: calc(100vw - 48px);
   max-height: calc(100vh - 48px);

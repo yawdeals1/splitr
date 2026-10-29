@@ -89,14 +89,25 @@ pub fn open_document(path: &str, password: Option<&str>) -> Result<(PdfInfo, Pdf
     Ok((info, document))
 }
 
-/// Renders page `page` (1-based) of `document` as a JPEG `width` pixels wide (FR-10, FR-11).
+/// Rendered pages are never taller than this, so a very long page (a receipt, a scroll) can't
+/// need a huge bitmap. Such a page renders narrower than asked, keeping its aspect ratio.
+pub const MAX_RENDER_HEIGHT: u32 = 4800;
+
+/// Renders page `page` (1-based) of `document` as a JPEG `width` pixels wide, or narrower when
+/// the page would be taller than `MAX_RENDER_HEIGHT` (FR-10, FR-11).
 pub fn render_page(document: &PdfDocument, page: u32, width: u32) -> Result<Vec<u8>> {
     let failed = |e: String| SplitError::RenderFailed(page, e);
-    let index = i32::try_from(page.saturating_sub(1)).map_err(|e| failed(e.to_string()))?;
+    let page_count = u32::try_from(document.pages().len()).unwrap_or(0);
+    if page == 0 || page > page_count {
+        return Err(SplitError::PageOutOfRange(page, page_count));
+    }
+    let index = i32::try_from(page - 1).map_err(|e| failed(e.to_string()))?;
     let width = i32::try_from(width).map_err(|e| failed(e.to_string()))?;
+    let max_height = i32::try_from(MAX_RENDER_HEIGHT).map_err(|e| failed(e.to_string()))?;
     let pdf_page = document.pages().get(index).map_err(|e| failed(e.to_string()))?;
+    let config = PdfRenderConfig::new().set_target_width(width).set_maximum_height(max_height);
     let image = pdf_page
-        .render_with_config(&PdfRenderConfig::new().set_target_width(width))
+        .render_with_config(&config)
         .and_then(|bitmap| bitmap.as_image())
         .map_err(|e| failed(e.to_string()))?;
     let mut jpeg = Vec::new();
@@ -318,8 +329,29 @@ pub(crate) mod tests {
         start_engine();
         let dir = tempfile::tempdir().unwrap();
         let (_, doc) = open_document(&save(&dir, "a.pdf", document(1)), None).unwrap();
-        let err = render_page(&doc, 5, 100).unwrap_err();
-        assert!(err.to_string().starts_with("Page 5 could not be shown"), "{err}");
+        for page in [0, 5] {
+            let err = render_page(&doc, page, 100).unwrap_err();
+            assert!(matches!(err, SplitError::PageOutOfRange(p, 1) if p == page), "{err}");
+        }
+    }
+
+    #[test]
+    fn a_very_tall_page_renders_no_taller_than_the_limit() {
+        start_engine();
+        let dir = tempfile::tempdir().unwrap();
+        let mut doc = document(1);
+        // A 612 x 30,000 point page, like a long receipt.
+        let page_id = doc.page_iter().next().unwrap();
+        doc.get_object_mut(page_id)
+            .and_then(Object::as_dict_mut)
+            .unwrap()
+            .set("MediaBox", vec![0.into(), 0.into(), 612.into(), 30_000.into()]);
+        let (_, doc) = open_document(&save(&dir, "receipt.pdf", doc), None).unwrap();
+
+        let jpeg = render_page(&doc, 1, 2400).unwrap();
+        let image = image::load_from_memory_with_format(&jpeg, ImageFormat::Jpeg).unwrap();
+        assert!(image.height() <= MAX_RENDER_HEIGHT, "{}", image.height());
+        assert!(image.width() < 2400, "{}", image.width());
     }
 
     /// The interface shows a password prompt by matching these messages.

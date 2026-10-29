@@ -1,44 +1,13 @@
 // Lazy thumbnail grid (FR-10, NFR-03). Only pages near the visible area are rendered and kept in
 // memory; pages scrolled far away release their image, so a 1,000-page file stays light.
 import { memo, useEffect, useRef, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
-import { Cancelled, createQueue, renderWidth } from "./thumbnails";
+import { renderWidth } from "./thumbnails";
+import { usePageImage } from "./usePageImage";
 
 /** Thumbnail width in CSS pixels; must match `.page-grid` in App.css. */
 const THUMB_WIDTH = 140;
 /** Pages within this distance of the visible area render ahead of scrolling. */
 const PREFETCH_MARGIN = "600px 0px";
-
-// Two renders at a time keeps the grid responsive; PDFium handles one page at a time anyway.
-const schedule = createQueue(2);
-
-/** The image of one page while `active`, as an object URL, or why it couldn't be rendered. */
-export function usePageImage(path: string, page: number, width: number, active: boolean) {
-  const [image, setImage] = useState<{ url?: string; error?: string }>({});
-
-  useEffect(() => {
-    if (!active) return;
-    let alive = true;
-    let url: string | undefined;
-    const job = schedule(() => invoke<ArrayBuffer>("render_page", { path, page, width }));
-    job.result.then(
-      (bytes) => {
-        if (!alive) return;
-        url = URL.createObjectURL(new Blob([bytes], { type: "image/jpeg" }));
-        setImage({ url });
-      },
-      (e) => alive && !(e instanceof Cancelled) && setImage({ error: String(e) }),
-    );
-    return () => {
-      alive = false;
-      job.cancel();
-      if (url) URL.revokeObjectURL(url);
-      setImage({});
-    };
-  }, [path, page, width, active]);
-
-  return image;
-}
 
 interface Props {
   path: string;

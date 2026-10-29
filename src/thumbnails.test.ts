@@ -1,7 +1,7 @@
 // Unit tests for thumbnails.ts. Run with `npm test` (Node's built-in test runner).
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { Cancelled, createQueue, renderWidth } from "./thumbnails.ts";
+import { Cancelled, createQueue, renderWidth, viewWidth } from "./thumbnails.ts";
 
 /** A task that finishes when `finish` is called, recording when it started. */
 function deferred(name: string, started: string[]) {
@@ -57,11 +57,20 @@ test("cancelling a running task rejects its result and frees its slot", async ()
   const running = schedule(a.task);
   schedule(b.task);
 
+  // The next task starts as soon as the running one is cancelled, before it finishes.
   running.cancel();
-  a.finish();
   await assert.rejects(running.result, Cancelled);
+  assert.deepEqual(started, ["a", "b"]);
+
+  // When the cancelled task finishes later, it doesn't free a second slot.
+  const c = deferred("c", started);
+  schedule(c.task);
+  a.finish();
   await tick();
   assert.deepEqual(started, ["a", "b"]);
+  b.finish();
+  await tick();
+  assert.deepEqual(started, ["a", "b", "c"]);
 });
 
 test("a failed task rejects with its error and the queue continues", async () => {
@@ -70,6 +79,22 @@ test("a failed task rejects with its error and the queue continues", async () =>
   const next = schedule(() => Promise.resolve("ok"));
   await assert.rejects(failed.result, /Page 3/);
   assert.equal(await next.result, "ok");
+});
+
+test("a task that throws before returning a promise frees its slot", async () => {
+  const schedule = createQueue(1);
+  const thrown = schedule<string>(() => {
+    throw new Error("bad arguments");
+  });
+  const next = schedule(() => Promise.resolve("ok"));
+  await assert.rejects(thrown.result, /bad arguments/);
+  assert.equal(await next.result, "ok");
+});
+
+test("viewWidth fits the window and stays within bounds", () => {
+  assert.equal(viewWidth(1920), 900);
+  assert.equal(viewWidth(800), 704);
+  assert.equal(viewWidth(50), 160);
 });
 
 test("renderWidth covers the screen pixels in steps of 64", () => {

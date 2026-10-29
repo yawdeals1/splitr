@@ -1,10 +1,18 @@
 // Larger view of one page (FR-11). Arrow keys move between pages; Escape closes (NFR-11).
-import { useEffect, useRef } from "react";
-import { usePageImage } from "./PageGrid";
-import { renderWidth } from "./thumbnails";
+import { useEffect, useRef, useState } from "react";
+import { renderWidth, viewWidth } from "./thumbnails";
+import { usePageImage } from "./usePageImage";
 
-/** Widest the page is shown, in CSS pixels; must match `.page-viewer` in App.css. */
-const VIEW_WIDTH = 900;
+/** The page's CSS width, following the window size (VIEW_MARGIN matches `.page-viewer` in App.css). */
+function useViewWidth() {
+  const [width, setWidth] = useState(() => viewWidth(window.innerWidth));
+  useEffect(() => {
+    const onResize = () => setWidth(viewWidth(window.innerWidth));
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+  return width;
+}
 
 interface Props {
   path: string;
@@ -16,7 +24,7 @@ interface Props {
 
 export function PageViewer({ path, page, pageCount, onPage, onClose }: Props) {
   const dialog = useRef<HTMLDialogElement>(null);
-  const cssWidth = Math.min(VIEW_WIDTH, window.innerWidth - 96);
+  const cssWidth = useViewWidth();
   const { url, error } = usePageImage(path, page, renderWidth(cssWidth, window.devicePixelRatio || 1), true);
   const go = (to: number) => onPage(Math.min(pageCount, Math.max(1, to)));
 

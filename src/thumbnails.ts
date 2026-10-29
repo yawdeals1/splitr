@@ -9,7 +9,10 @@ export class Cancelled extends Error {
 
 export interface Scheduled<T> {
   result: Promise<T>;
-  /** Drops the task if it hasn't started. A started task finishes, but its result rejects with Cancelled. */
+  /**
+   * Drops the task if it hasn't started. A started task can't be stopped: it frees its slot at once,
+   * so the next task starts, and its result rejects with Cancelled.
+   */
   cancel(): void;
 }
 
@@ -27,18 +30,28 @@ export function createQueue(limit: number) {
 
   return function schedule<T>(task: () => Promise<T>): Scheduled<T> {
     let cancelled = false;
+    let started = false;
+    let released = false;
     let start!: () => void;
     let fail!: (reason: unknown) => void;
+
+    // Frees this task's slot exactly once, whether it finished, failed or was cancelled.
+    function release() {
+      if (released) return;
+      released = true;
+      running--;
+      next();
+    }
+
     const result = new Promise<T>((resolve, reject) => {
       fail = reject;
       start = () => {
+        started = true;
         running++;
-        task()
+        // `new Promise` also catches a task that throws before returning its promise.
+        new Promise<T>((run) => run(task()))
           .then((value) => (cancelled ? reject(new Cancelled()) : resolve(value)), reject)
-          .finally(() => {
-            running--;
-            next();
-          });
+          .finally(release);
       };
     });
     waiting.push(start);
@@ -51,6 +64,7 @@ export function createQueue(limit: number) {
         const i = waiting.indexOf(start);
         if (i >= 0) waiting.splice(i, 1);
         fail(new Cancelled());
+        if (started) release();
       },
     };
   };
@@ -63,4 +77,16 @@ export function createQueue(limit: number) {
 export function renderWidth(cssWidth: number, pixelRatio: number): number {
   const step = 64;
   return Math.max(step, Math.ceil((cssWidth * pixelRatio) / step) * step);
+}
+
+/** Widest the page view shows a page, in CSS pixels. */
+export const VIEW_WIDTH = 900;
+/** Room the page view leaves around the page, in CSS pixels. */
+export const VIEW_MARGIN = 96;
+/** Narrowest the page view shows a page, in CSS pixels. */
+export const VIEW_MIN_WIDTH = 160;
+
+/** The CSS width of the page in the page view for a window `windowWidth` wide (FR-11). */
+export function viewWidth(windowWidth: number): number {
+  return Math.max(VIEW_MIN_WIDTH, Math.min(VIEW_WIDTH, windowWidth - VIEW_MARGIN));
 }
