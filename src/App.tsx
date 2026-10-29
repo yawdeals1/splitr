@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
-import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open } from "@tauri-apps/plugin-dialog";
 import { aiBlock, aiBlockMessage, usesAi } from "./ai";
 import { AiConsent } from "./AiConsent";
@@ -14,7 +13,7 @@ import { PasswordPrompt } from "./PasswordPrompt";
 import { PresetEditor } from "./PresetEditor";
 import { ReviewScreen } from "./ReviewScreen";
 import { useSettings } from "./settings";
-import { applyTheme, themeAttribute } from "./theme";
+import { showTheme } from "./theme";
 import {
   PASSWORD_REQUIRED,
   WRONG_PASSWORD,
@@ -72,26 +71,22 @@ function App() {
   // NFR-11: where focus goes when the control that had it disappears.
   const presetSelect = useRef<HTMLSelectElement>(null);
   const splitButton = useRef<HTMLButtonElement>(null);
+  const openButton = useRef<HTMLButtonElement>(null);
   // Set when Escape cancels "Confirm delete", so the "Delete preset" button that replaces it takes focus.
   const refocusDelete = useRef(false);
   const { settings, loadError, update: updateSettings, saved: savedSettings } = useSettings();
   const theme = settings?.theme ?? "system";
 
   // FR-63: show the saved theme, in the page and (where the OS allows) the window title bar.
-  useEffect(() => {
-    applyTheme(document.documentElement, theme);
-    getCurrentWindow()
-      .setTheme(themeAttribute(theme))
-      .catch(() => {});
-  }, [theme]);
+  useEffect(() => showTheme(theme), [theme]);
 
   async function chooseTheme(value: Theme) {
-    applyTheme(document.documentElement, value);
+    showTheme(value);
     const problem = await updateSettings({ theme: value });
     if (problem) {
       // Go back to what is saved now, not to the theme when this click happened: an earlier
       // click's save may have finished in the meantime.
-      applyTheme(document.documentElement, savedSettings()?.theme ?? "system");
+      showTheme(savedSettings()?.theme ?? "system");
       setError(`The theme could not be saved: ${problem}`);
     }
   }
@@ -182,6 +177,12 @@ function App() {
       unlisten.then((stop) => stop());
     };
   }, [openDropped]);
+
+  // NFR-11: after a file opens, focus goes to "Open another". The control that had it may be gone
+  // (the review screen closes) or was disabled while the file loaded.
+  useEffect(() => {
+    if (opened) openButton.current?.focus();
+  }, [opened]);
 
   // NFR-11: Ctrl+O / Cmd+O opens the file picker.
   useEffect(() => {
@@ -337,10 +338,11 @@ function App() {
                   {pdf.pageCount} {pdf.pageCount === 1 ? "page" : "pages"} · {formatSize(pdf.sizeBytes)}
                 </span>
               </div>
-              {/* Takes focus when this header appears (NFR-11): the first file opens, or a password
-                  prompt closes. Opening another file keeps focus where it was. */}
+              {/* Takes focus when a file opens (the effect on `opened`) and when a password prompt is
+                  cancelled (autoFocus), so focus never drops to the page (NFR-11). */}
               <button
                 type="button"
+                ref={openButton}
                 onClick={chooseFile}
                 disabled={opening}
                 autoFocus
