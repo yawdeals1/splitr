@@ -3,10 +3,13 @@ import { flushSync } from "react-dom";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open } from "@tauri-apps/plugin-dialog";
+import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import { aiBlock, aiBlockMessage, usesAi } from "./ai";
 import { AiConsent } from "./AiConsent";
 import { AiSettings, useApiKey } from "./AiSettings";
-import { baseName, formatSize, partNames, rejectReason } from "./file";
+import { ExportOptions } from "./ExportOptions";
+import { baseName, formatSize, rejectReason } from "./file";
+import { DEFAULT_TEMPLATE, savedMessage, usableTemplate } from "./naming";
 import { PageGrid } from "./PageGrid";
 import { PageViewer } from "./PageViewer";
 import { PasswordPrompt } from "./PasswordPrompt";
@@ -17,12 +20,15 @@ import { showTheme } from "./theme";
 import {
   PASSWORD_REQUIRED,
   WRONG_PASSWORD,
+  type ExportNames,
+  type ExportRequest,
   type PdfInfo,
   type Preset,
   type PresetInput,
   type PresetList,
   type Range,
   type RangeMode,
+  type SavedParts,
   type Settings,
   type Theme,
 } from "./types";
@@ -60,6 +66,14 @@ function App({ initialSettings }: { initialSettings: Settings | null }) {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [exporting, setExporting] = useState(false);
+  // FR-51: the name template being edited; null shows the saved one. Saved with each export.
+  const [template, setTemplate] = useState<string | null>(null);
+  // FR-51: what the template makes of the current parts' titles, from the backend.
+  const [names, setNames] = useState<ExportNames | null>(null);
+  // FR-53: bundle the parts into one ZIP.
+  const [zip, setZip] = useState(false);
+  // FR-55: a file the last export saved, so "Open folder" can show it.
+  const [savedFile, setSavedFile] = useState<string | null>(null);
   const apiKey = useApiKey();
   // FR-61: true while the AI notice is showing.
   const [askConsent, setAskConsent] = useState(false);
@@ -78,6 +92,9 @@ function App({ initialSettings }: { initialSettings: Settings | null }) {
   const refocusDelete = useRef(false);
   const { settings, loadError, update: updateSettings } = useSettings(initialSettings);
   const theme = settings?.theme;
+  const typedTemplate = template ?? settings?.nameTemplate ?? DEFAULT_TEMPLATE;
+  // A blank field names files with the default, and the default is what gets saved.
+  const nameTemplate = usableTemplate(typedTemplate);
 
   // FR-63: show the saved theme, in the page and (where the OS allows) the window title bar. This is
   // the only place that shows it. It runs before paint, and not before settings have loaded, so the
@@ -106,6 +123,7 @@ function App({ initialSettings }: { initialSettings: Settings | null }) {
   const openPath = useCallback(async (path: string, pw?: string) => {
     setError("");
     setNotice("");
+    setSavedFile(null);
     setOpening(true);
     try {
       setPdf(await invoke<PdfInfo>("open_pdf", { path, password: pw }));
@@ -162,6 +180,23 @@ function App({ initialSettings }: { initialSettings: Settings | null }) {
       busy.current = false;
     }
   }, [openPath]);
+
+  // FR-51: the names follow the template and the part titles once typing pauses. A failed preview
+  // only hides the names; export names the parts again and reports its own errors.
+  const titles = JSON.stringify(ranges.map((r) => r.title));
+  useEffect(() => {
+    if (!pdf || ranges.length === 0) return setNames(null);
+    let current = true;
+    const timer = setTimeout(() => {
+      exportNames(pdf.fileName, nameTemplate, ranges)
+        .then((n) => current && setNames(n))
+        .catch(() => current && setNames(null));
+    }, PREVIEW_DELAY_MS);
+    return () => {
+      current = false;
+      clearTimeout(timer);
+    };
+  }, [pdf, nameTemplate, titles]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // FR-01: Tauri drag-drop events give real file paths, which HTML drag events don't.
   useEffect(() => {
@@ -253,6 +288,7 @@ function App({ initialSettings }: { initialSettings: Settings | null }) {
   async function split(consented = false) {
     setError("");
     setNotice("");
+    setSavedFile(null);
     if (!pdf) return setError("Open a PDF first.");
     let next: Range[];
     try {
@@ -288,12 +324,13 @@ function App({ initialSettings }: { initialSettings: Settings | null }) {
     await split(true);
   }
 
-  // FR-50: ask for a folder, then save one PDF per part there.
+  // FR-50 to FR-53: ask for a folder, then save one PDF per part there, or one ZIP of them all.
   async function saveParts(file: PdfInfo, parts: Range[]) {
     if (busy.current) return;
     busy.current = true;
     setError("");
     setNotice("");
+    setSavedFile(null);
     try {
       const folder = await open({
         directory: true,
@@ -303,22 +340,34 @@ function App({ initialSettings }: { initialSettings: Settings | null }) {
       });
       if (!folder) return;
       setExporting(true);
-      const names = partNames(file.fileName, parts.map((r) => r.title));
-      const saved = await invoke<string[]>("export_parts", {
-        path: file.path,
-        password: password.current,
-        ranges: parts,
-        folder,
-        names,
-      });
-      setNotice(`Saved ${saved.length} ${saved.length === 1 ? "file" : "files"} to ${folder}`);
-      // Remembering the folder is a convenience, so a failure here isn't shown.
-      await updateSettings({ lastOutputFolder: folder });
+      // Named afresh, so a preview still on its way can't give the files old names.
+      const fileNames = await exportNames(file.fileName, nameTemplate, parts);
+      const request: ExportRequest = { path: file.path, password: password.current, ranges: parts, folder, names: fileNames.parts };
+      if (zip) {
+        const saved = await invoke<string>("export_zip", { request, zipName: fileNames.zip });
+        setNotice(savedMessage(parts.length, folder, 0, saved));
+        setSavedFile(saved);
+      } else {
+        const saved = await invoke<SavedParts>("export_parts", { request });
+        setNotice(savedMessage(saved.paths.length, folder, saved.renamed));
+        setSavedFile(saved.paths[0] ?? null);
+      }
+      // Remembering the folder and template is a convenience, so a failure here isn't shown.
+      await updateSettings({ lastOutputFolder: folder, nameTemplate });
     } catch (e) {
       setError(String(e));
     } finally {
       setExporting(false);
       busy.current = false;
+    }
+  }
+
+  // FR-55: show the saved files in the system file manager.
+  async function openFolder(path: string) {
+    try {
+      await revealItemInDir(path);
+    } catch (e) {
+      setError(`The folder could not be opened: ${e}`);
     }
   }
 
@@ -398,7 +447,16 @@ function App({ initialSettings }: { initialSettings: Settings | null }) {
             }}
             exporting={exporting}
             onExport={() => saveParts(pdf, ranges)}
-          />
+          >
+            <ExportOptions
+              template={typedTemplate}
+              onTemplate={setTemplate}
+              names={names?.parts ?? []}
+              zip={zip}
+              onZip={setZip}
+              zipName={names?.zip ?? ""}
+            />
+          </ReviewScreen>
         )}
       </section>
 
@@ -549,7 +607,16 @@ function App({ initialSettings }: { initialSettings: Settings | null }) {
           Split
         </button>
         {error && <p className="error" role="alert">{error}</p>}
-        {notice && <p className="notice" role="status">{notice}</p>}
+        {notice && (
+          <div className="notice" role="status">
+            <p>{notice}</p>
+            {savedFile && (
+              <button type="button" onClick={() => openFolder(savedFile)}>
+                Open folder
+              </button>
+            )}
+          </div>
+        )}
         {askConsent && <AiConsent onAgree={consentGiven} onCancel={() => setAskConsent(false)} />}
 
         <fieldset className="modes theme">
@@ -579,3 +646,11 @@ function App({ initialSettings }: { initialSettings: Settings | null }) {
 }
 
 export default App;
+
+/** How long typing must pause before the file names are previewed again. */
+const PREVIEW_DELAY_MS = 200;
+
+/** FR-51 to FR-53: the file names the template gives these parts, and the ZIP's, from the backend. */
+function exportNames(fileName: string, template: string, parts: Range[]): Promise<ExportNames> {
+  return invoke<ExportNames>("export_names", { template, original: fileName, titles: parts.map((r) => r.title) });
+}

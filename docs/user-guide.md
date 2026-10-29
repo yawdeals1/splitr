@@ -96,19 +96,20 @@ Splitr checks the list after every change. If something doesn't fit, for example
 
 ## Export
 
-1. Click **Export** on the review screen.
-2. Choose the folder to save into. Splitr remembers it for next time.
-3. Set the file names with a template. These words are replaced for each part:
+1. Under **File names** on the review screen, set the template. These words are replaced for each part:
 
    | Token | Becomes |
    | --- | --- |
-   | `{index}` | The part number: 01, 02, 03 and so on |
+   | `{index}` | The part number: 01, 02, 03 and so on (001, 002... when there are 100 parts or more) |
    | `{title}` | The part's title |
    | `{original}` | The name of the PDF you opened |
 
-   For example, `{original} - {index} - {title}` gives `Textbook - 03 - Memory Hierarchy.pdf`. Characters that aren't allowed in file names are replaced. If two parts would get the same name, Splitr adds a number such as " (2)" to the second one.
-4. Optionally, choose to bundle all parts into one ZIP file.
-5. When it's done, click **Open folder** to see your files.
+   For example, `{original} - {index} - {title}` gives `Textbook - 03 - Memory Hierarchy.pdf`. A part without a title drops the title, the separator before it and any brackets around it, so you get `Textbook - 04.pdf`. Characters that aren't allowed in file names are replaced, and very long names are shortened. If two parts would get the same name, Splitr adds a number such as " (2)" to the second one.
+
+   The list under the template shows the names your parts will get, and changes as you edit the template or the titles.
+2. Optionally, tick **Bundle into one ZIP file**. The ZIP is named after the PDF you opened.
+3. Click **Export** and choose the folder to save into. Splitr remembers the folder and the template for next time. If the folder already has a file with one of the names, Splitr adds a number rather than replace it, and says so.
+4. When it's done, click **Open folder** to see your files.
 
 If an export fails part way, for example because the disk is full, Splitr leaves no half-written files behind.
 

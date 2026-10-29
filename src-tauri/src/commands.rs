@@ -9,7 +9,8 @@ use tauri::{AppHandle, Manager};
 use crate::ai::claude::Claude;
 use crate::ai::{self, AiCalls, AiRequest, Provider};
 use crate::error::{Result, SplitError};
-use crate::export;
+use crate::export::{self, ExportRequest, SavedParts};
+use crate::naming;
 use crate::keystore::{self, KeyStatus, OsStore};
 use crate::pdf::PdfInfo;
 use crate::presets::{self, Preset};
@@ -179,19 +180,32 @@ pub async fn render_page(app: AppHandle, path: String, page: u32, width: u32) ->
         .map(Response::new)
 }
 
-/// Saves each range as its own PDF in `folder`, named from `names` (FR-50 to FR-52), off the UI
-/// thread (NFR-02). Returns the paths written. `password` is only needed for encrypted files.
-#[tauri::command]
-pub async fn export_parts(
-    path: String,
-    password: Option<String>,
-    ranges: Vec<Range>,
-    folder: String,
-    names: Vec<String>,
-) -> Result<Vec<String>> {
-    tauri::async_runtime::spawn_blocking(move || export::export(&path, password.as_deref(), &ranges, &folder, &names))
+/// Runs an export off the UI thread (NFR-02): writing large parts takes a while.
+async fn export_off_ui<T: Send + 'static>(work: impl FnOnce() -> Result<T> + Send + 'static) -> Result<T> {
+    tauri::async_runtime::spawn_blocking(work)
         .await
-        .map_err(|e| SplitError::ExportFailed(e.to_string()))?
+        .map_err(|e| SplitError::ExportFailed(format!("the export stopped unexpectedly ({e})")))?
+}
+
+/// Saves each part as its own PDF in the chosen folder, named from `request.names` (FR-50 to FR-52).
+#[tauri::command]
+pub async fn export_parts(request: ExportRequest) -> Result<SavedParts> {
+    export_off_ui(move || export::export(&request)).await
+}
+
+/// Like `export_parts`, but bundles the parts into `<zip_name>.zip` in the folder (FR-53).
+/// `zip_name` comes from `export_names`.
+#[tauri::command]
+pub async fn export_zip(request: ExportRequest, zip_name: String) -> Result<String> {
+    export_off_ui(move || export::export_zip(&request, &zip_name)).await
+}
+
+/// File names (without extensions) for parts with these titles, from the user's template, and for
+/// the ZIP (FR-51 to FR-53). The interface shows them as a preview and passes them to the export
+/// commands, so the two can't disagree.
+#[tauri::command]
+pub fn export_names(template: String, original: String, titles: Vec<String>) -> naming::ExportNames {
+    naming::export_names(&template, &original, &titles)
 }
 
 #[tauri::command]

@@ -54,6 +54,8 @@ pub fn run() {
             commands::open_pdf,
             commands::render_page,
             commands::export_parts,
+            commands::export_zip,
+            commands::export_names,
             commands::save_user_preset,
             commands::delete_user_preset,
             commands::get_settings,
