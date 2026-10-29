@@ -54,13 +54,17 @@ Use this when the split points depend on what's on the pages.
 2. Choose a **Split preset** from that category, such as *Split by invoice number* or *Split by chapter*.
 3. Click **Split**.
 
-Each preset first tries a fast method that works offline:
+Presets work in one of two ways.
 
-- **Bookmarks:** one part per top-level bookmark (table of contents entry) in the PDF.
-- **Text pattern:** a new part wherever a page matches, for example "Invoice No. 1042".
-- **Blank pages:** a new part at each blank separator page, which is useful for scanned batches.
+Some presets use a fast method that works offline:
 
-If that finds nothing, and you've turned on AI, the preset asks the AI instead.
+- **Bookmarks:** one part per top-level bookmark (table of contents entry) in the PDF, for example *Split by chapter*.
+- **Text pattern:** a new part wherever a page matches, for example "Invoice No. 1042" for *Split by invoice number*.
+- **Blank pages:** a new part at each blank separator page, for *Split at blank pages*.
+
+If the PDF has no bookmarks, or nothing on its pages matches, and you've turned on AI, the preset asks the AI instead. If AI is off, Splitr says it found no split points. When the offline method does find split points, the AI isn't used, so check the parts on the review screen.
+
+Other presets need the AI from the start, because the split depends on what the pages mean, for example *Split by vendor*, *Split exams by student* or *Split by patient*. These only work when AI is turned on.
 
 **Custom prompt.** If no preset fits, choose **Custom prompt** in **Split preset** and describe the split in your own words, for example *Split whenever a new client name appears*. To reuse it later, click **Save as preset**, give it a name and a category, and click **Save preset**. Your presets appear in the lists with the built-in ones. Select one to **Edit preset** or **Delete preset** it.
 
@@ -102,7 +106,7 @@ Splitr checks the list after every change. If something doesn't fit, for example
    | `{title}` | The part's title |
    | `{original}` | The name of the PDF you opened |
 
-   For example, `{original} - {index} - {title}` gives `Textbook - 03 - Memory Hierarchy.pdf`. Characters that aren't allowed in file names are replaced. If a file with the same name exists, Splitr adds a number such as " (2)" instead of overwriting it.
+   For example, `{original} - {index} - {title}` gives `Textbook - 03 - Memory Hierarchy.pdf`. Characters that aren't allowed in file names are replaced. If two parts would get the same name, Splitr adds a number such as " (2)" to the second one.
 4. Optionally, choose to bundle all parts into one ZIP file.
 5. When it's done, click **Open folder** to see your files.
 
@@ -122,6 +126,6 @@ Splitr checks for new versions and offers to install them.
 | --- | --- |
 | "This PDF is password protected" | Enter the file's password when asked |
 | "This PDF has no bookmarks" | Try a Text pattern or Custom prompt preset, or use Custom or Fixed mode |
-| "No split points were found" | The preset found nothing to split on. Try another preset, a custom prompt, or Custom mode |
-| No text found on scanned pages | Scanned pages are images with no text, so Smart mode can't read them yet. Use Custom, Fixed or blank-page splitting. Text recognition (OCR) is planned |
+| "No split points were found" | The preset found nothing to split on. If AI is off, turn it on so the preset can ask the AI. Otherwise try another preset, a custom prompt, or Custom mode |
+| No text found on scanned pages | Scanned pages are images with no text, so Smart mode can't read them yet, and *Split at blank pages* would treat every page as blank. Use Custom or Fixed mode. Text recognition (OCR) is planned |
 | A warning when installing or first opening Splitr | See [Why your computer warns you](download.md#why-your-computer-warns-you) |

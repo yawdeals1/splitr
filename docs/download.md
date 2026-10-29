@@ -2,9 +2,12 @@
 
 Splitr splits one PDF into several files by chapter, invoice, student or any condition you pick. Your files stay on your computer.
 
-**[Download the latest version](https://github.com/yawdeals1/splitr/releases/latest)**
+<!-- Maintainers: release.yml creates each release as a draft. Publish the draft on GitHub before
+     sharing this page; a draft is not shown on the Releases page to anyone outside the repo. -->
 
-On the release page, open **Assets** and pick the file for your computer:
+**[Download Splitr from the Releases page](https://github.com/yawdeals1/splitr/releases)**
+
+On the Releases page, the newest version is at the top. Open its **Assets** and pick the file for your computer:
 
 | Your computer | Download | Notes |
 | --- | --- | --- |
@@ -68,7 +71,7 @@ Splitr then appears in your applications. To uninstall: `sudo apt remove splitr`
 ## Privacy
 
 - Splitr opens and splits PDFs on your computer. It never changes your original file.
-- Splits by pages, bookmarks, text patterns or blank pages work fully offline.
+- Custom and Fixed splits, and the bookmark, text pattern and blank page methods that some presets use, work fully offline. Splitr only goes online for AI, and only when you've turned AI on.
 - The optional Smart (AI) mode sends only short text excerpts of each page to the AI service you choose, with your own API key, and only after you agree. You can turn it off in Settings.
 - Your API keys are kept in your system's secure storage (Windows Credential Manager, macOS Keychain or Linux Secret Service), never in a plain file.
 - Splitr collects no analytics.
