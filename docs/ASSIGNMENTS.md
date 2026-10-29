@@ -13,7 +13,7 @@ The split follows code areas, so the two tracks rarely touch the same files. Swa
 
 | Issue | Title | Branch |
 | --- | --- | --- |
-| #2 | PDF engine: bundle and load PDFium | `phase-0/2-bundle-pdfium` |
+| #2 | PDF engine: bundle and load PDFium (done, #37) | `phase-0/2-bundle-pdfium` |
 | #3 | Open PDF: file info, password prompt and clear errors | `phase-0/3-open-pdf` |
 | #6 | Export parts with lopdf | `phase-0/6-export-parts` |
 | #7 | Extract page text and outline into DocumentText | `phase-1/7-extract-text` |
@@ -57,7 +57,7 @@ Some issues wait on the other track. Start with work that has no blockers, and r
 
 | Waiting issue | Needs first |
 | --- | --- |
-| #5 thumbnails (@iamromelalvin7) | #2 PDFium, #3 open PDF (@yawdeals1) |
+| #5 thumbnails (@iamromelalvin7) | #3 open PDF (@yawdeals1) |
 | #9 review screen (@iamromelalvin7) | #8 run_preset (@yawdeals1) |
 | #10 naming, ZIP, open folder (@iamromelalvin7) | #6 export (@yawdeals1) |
 | #17 custom prompt preset, #18 mocked AI tests (@iamromelalvin7) | #15 Claude client, #16 parsing (@yawdeals1) |
@@ -65,7 +65,7 @@ Some issues wait on the other track. Start with work that has no blockers, and r
 | #28, #29, #30, #32 providers (@iamromelalvin7) | #15 Claude client, which sets the provider interface (@yawdeals1) |
 | #22 acceptance pass (@iamromelalvin7) | everything in phases 0 to 3 |
 
-Unblocked starting points: Caleb on #2, @iamromelalvin7 on #4 and #11.
+Unblocked starting points: Caleb on #3 (#2 is done), @iamromelalvin7 on #4 and #11.
 
 ## Working on your branch
 
