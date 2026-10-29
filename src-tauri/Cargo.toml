@@ -32,6 +32,9 @@ image = { version = "0.25", default-features = false, features = ["jpeg"] }
 # Private, randomly named thumbnail folder per session (NFR-07), see src/viewer.rs, and temp
 # files for parts before they are renamed (NFR-09), see src/export.rs.
 tempfile = "3"
+# API keys live only in the OS credential store (FR-60, NFR-05), see src/keystore.rs: Windows
+# Credential Manager, the macOS Keychain, or the Secret Service (GNOME Keyring, KWallet) on Linux.
+keyring = { version = "3.6", features = ["apple-native", "windows-native", "sync-secret-service", "crypto-rust"] }
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration
 [profile.release]
