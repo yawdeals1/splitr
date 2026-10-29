@@ -111,7 +111,7 @@ Status key: [x] done, [ ] to do. Each phase ends when its exit criterion is met 
 ### Phase 3: Packaging and updates
 - [ ] Tauri updater plugin; updater signing key in GitHub secrets only (FR-64) (#19)
 - [ ] Release workflow publishes the update manifest (#19)
-- [ ] Light and dark themes with a manual toggle, plus a keyboard navigation pass (FR-63, NFR-11) (#20)
+- [x] Light and dark themes with a manual toggle, plus a keyboard navigation pass (FR-63, NFR-11) (#20)
 - [ ] Check that installers are under 25 MB (NFR-13) (#21)
 - **Exit:** installers run on clean Windows, macOS and Linux machines.
 
