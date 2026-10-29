@@ -21,6 +21,14 @@ pub enum SplitError {
     SettingsLoad(String),
     #[error("Could not save settings: {0}")]
     SettingsSave(String),
+    // API keys (FR-60, NFR-05). Messages never include the key.
+    #[error("{0}")]
+    ApiKey(String),
+    // Calls to the AI provider (#15). Messages never include the key.
+    #[error("{0}")]
+    Ai(String),
+    #[error("The AI request was cancelled")]
+    AiCancelled,
     // Opening a PDF (FR-03, FR-05). The interface matches the two password messages to show a
     // password prompt; `src/types.ts` holds the same text, checked by a test in `pdf.rs`.
     #[error("This PDF is password protected. Enter its password to open it.")]

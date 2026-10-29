@@ -1,12 +1,17 @@
 //! Tauri commands called from the React interface.
 
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use tauri::ipc::Response;
 use tauri::{AppHandle, Manager};
 
+use crate::ai::claude::Claude;
+use crate::ai::{self, AiCalls, AiRequest, Provider};
 use crate::error::{Result, SplitError};
-use crate::export;
+use crate::export::{self, ExportRequest, SavedParts};
+use crate::naming;
+use crate::keystore::{self, KeyStatus, OsStore};
 use crate::pdf::PdfInfo;
 use crate::presets::{self, Preset};
 use crate::ranges::{self, Range};
@@ -14,6 +19,9 @@ use crate::settings::{self, Settings};
 use crate::strategy::{DocumentText, FixedStrategy, Strategy};
 use crate::user_presets::{self, PresetInput, PresetList};
 use crate::viewer::Viewer;
+
+/// The credential store entry for the Claude key (`keystore::PLATFORMS`).
+const CLAUDE_PLATFORM: &str = "anthropic";
 
 fn user_presets_path(app: &AppHandle) -> Result<PathBuf> {
     let dir = app.path().app_config_dir().map_err(|e| {
@@ -81,6 +89,72 @@ pub async fn save_settings(app: AppHandle, settings: Settings) -> Result<Setting
         .map_err(|e| SplitError::SettingsSave(e.to_string()))?
 }
 
+/// Runs a credential store call off the UI thread (NFR-02): the store may wait for the user to
+/// unlock it.
+async fn key_store<T: Send + 'static>(work: impl FnOnce() -> Result<T> + Send + 'static) -> Result<T> {
+    tauri::async_runtime::spawn_blocking(work)
+        .await
+        .map_err(|e| SplitError::ApiKey(format!("The credential store didn't respond ({e})")))?
+}
+
+/// Saves an API key in the OS credential store (FR-60, NFR-05). Only its last 4 characters come back.
+#[tauri::command]
+pub async fn save_api_key(platform: String, key: String) -> Result<KeyStatus> {
+    key_store(move || keystore::save(&OsStore, &platform, &key)).await
+}
+
+/// Whether a key is saved for `platform`, and its last 4 characters. Never the key itself (NFR-05).
+#[tauri::command]
+pub async fn api_key_status(platform: String) -> Result<KeyStatus> {
+    key_store(move || keystore::status(&OsStore, &platform)).await
+}
+
+#[tauri::command]
+pub async fn delete_api_key(platform: String) -> Result<KeyStatus> {
+    key_store(move || keystore::delete(&OsStore, &platform)).await
+}
+
+/// Sends one chunk of page excerpts to Claude and returns its reply text, which the caller parses
+/// and validates (FR-33 to FR-36). Runs only when AI is on and the user accepted the notice
+/// (FR-61, FR-62). The key is read from the credential store for this call only (NFR-05).
+#[tauri::command]
+pub async fn ask_ai(app: AppHandle, request: AiRequest) -> Result<String> {
+    let settings = get_settings(app.clone()).await?;
+    if !settings.ai_enabled {
+        return Err(SplitError::Ai("AI is turned off. Turn it on in Settings to use Smart mode with AI".into()));
+    }
+    if !settings.ai_consent {
+        return Err(SplitError::Ai("Accept the AI notice before Splitr sends page excerpts to Claude".into()));
+    }
+    let platform = settings.ai_platform.as_str();
+    if platform != CLAUDE_PLATFORM {
+        // ChatGPT (#31) and the other platforms (#28 to #32) plug in here.
+        return Err(SplitError::Ai(match platform {
+            "chatgpt" => "Signing in with ChatGPT isn't available yet. Choose Claude under AI in Settings to use                           an API key for now"
+                .into(),
+            _ => "Smart mode can only use Claude for now. Choose Claude under AI in Settings".into(),
+        }));
+    }
+    let model = settings
+        .model_for(platform)
+        .ok_or_else(|| SplitError::Ai("Enter a model name under AI in Settings".into()))?;
+    let key = key_store(|| keystore::key_for(&OsStore, CLAUDE_PLATFORM)).await?;
+    let claude = Claude::new(key, model)?;
+    app.state::<AiCalls>().run(claude.complete(&request)).await
+}
+
+/// The model each AI service uses when the user hasn't chosen one, for the settings screen.
+#[tauri::command]
+pub fn default_ai_models() -> BTreeMap<String, String> {
+    ai::default_models()
+}
+
+/// Stops the AI calls in progress. They end with `SplitError::AiCancelled`.
+#[tauri::command]
+pub fn cancel_ai(app: AppHandle) {
+    app.state::<AiCalls>().cancel();
+}
+
 #[tauri::command]
 pub async fn delete_user_preset(app: AppHandle, id: String) -> Result<()> {
     let path = user_presets_path(&app)?;
@@ -106,19 +180,32 @@ pub async fn render_page(app: AppHandle, path: String, page: u32, width: u32) ->
         .map(Response::new)
 }
 
-/// Saves each range as its own PDF in `folder`, named from `names` (FR-50 to FR-52), off the UI
-/// thread (NFR-02). Returns the paths written. `password` is only needed for encrypted files.
-#[tauri::command]
-pub async fn export_parts(
-    path: String,
-    password: Option<String>,
-    ranges: Vec<Range>,
-    folder: String,
-    names: Vec<String>,
-) -> Result<Vec<String>> {
-    tauri::async_runtime::spawn_blocking(move || export::export(&path, password.as_deref(), &ranges, &folder, &names))
+/// Runs an export off the UI thread (NFR-02): writing large parts takes a while.
+async fn export_off_ui<T: Send + 'static>(work: impl FnOnce() -> Result<T> + Send + 'static) -> Result<T> {
+    tauri::async_runtime::spawn_blocking(work)
         .await
-        .map_err(|e| SplitError::ExportFailed(e.to_string()))?
+        .map_err(|e| SplitError::ExportFailed(format!("the export stopped unexpectedly ({e})")))?
+}
+
+/// Saves each part as its own PDF in the chosen folder, named from `request.names` (FR-50 to FR-52).
+#[tauri::command]
+pub async fn export_parts(request: ExportRequest) -> Result<SavedParts> {
+    export_off_ui(move || export::export(&request)).await
+}
+
+/// Like `export_parts`, but bundles the parts into `<zip_name>.zip` in the folder (FR-53).
+/// `zip_name` comes from `export_names`.
+#[tauri::command]
+pub async fn export_zip(request: ExportRequest, zip_name: String) -> Result<String> {
+    export_off_ui(move || export::export_zip(&request, &zip_name)).await
+}
+
+/// File names (without extensions) for parts with these titles, from the user's template, and for
+/// the ZIP (FR-51 to FR-53). The interface shows them as a preview and passes them to the export
+/// commands, so the two can't disagree.
+#[tauri::command]
+pub fn export_names(template: String, original: String, titles: Vec<String>) -> naming::ExportNames {
+    naming::export_names(&template, &original, &titles)
 }
 
 #[tauri::command]

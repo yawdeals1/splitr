@@ -9,7 +9,7 @@ New to Splitr? Install it from the [download page](download.md), then try [your 
 - **Left:** your PDF. Before a file is open, this is the drop area. After a split, the parts to review appear here.
 - **Right:** split options: the **Range mode** switch (Custom, Fixed, Smart), the options for that mode, and the **Split** button.
 
-Everything can be done with the keyboard. **Tab** moves between controls, **Space** or **Enter** presses a button, and the arrow keys change the range mode.
+Everything can be done with the keyboard. **Tab** moves between controls, **Space** or **Enter** presses a button, and the arrow keys change the range mode. The page thumbnails count as one stop for **Tab**: use the arrow keys, **Home** and **End** to move between pages, and **Enter** to open the larger view.
 
 ## Your first split
 
@@ -96,26 +96,27 @@ Splitr checks the list after every change. If something doesn't fit, for example
 
 ## Export
 
-1. Click **Export** on the review screen.
-2. Choose the folder to save into. Splitr remembers it for next time.
-3. Set the file names with a template. These words are replaced for each part:
+1. Under **File names** on the review screen, set the template. These words are replaced for each part:
 
    | Token | Becomes |
    | --- | --- |
-   | `{index}` | The part number: 01, 02, 03 and so on |
+   | `{index}` | The part number: 01, 02, 03 and so on (001, 002... when there are 100 parts or more) |
    | `{title}` | The part's title |
    | `{original}` | The name of the PDF you opened |
 
-   For example, `{original} - {index} - {title}` gives `Textbook - 03 - Memory Hierarchy.pdf`. Characters that aren't allowed in file names are replaced. If two parts would get the same name, Splitr adds a number such as " (2)" to the second one.
-4. Optionally, choose to bundle all parts into one ZIP file.
-5. When it's done, click **Open folder** to see your files.
+   For example, `{original} - {index} - {title}` gives `Textbook - 03 - Memory Hierarchy.pdf`. A part without a title drops the title, the separator before it and any brackets around it, so you get `Textbook - 04.pdf`. Characters that aren't allowed in file names are replaced, and very long names are shortened. If two parts would get the same name, Splitr adds a number such as " (2)" to the second one.
+
+   The list under the template shows the names your parts will get, and changes as you edit the template or the titles.
+2. Optionally, tick **Bundle into one ZIP file**. The ZIP is named after the PDF you opened.
+3. Click **Export** and choose the folder to save into. Splitr remembers the folder and the template for next time. If the folder already has a file with one of the names, Splitr adds a number rather than replace it, and says so.
+4. When it's done, click **Open folder** to see your files.
 
 If an export fails part way, for example because the disk is full, Splitr leaves no half-written files behind.
 
 ## Settings
 
-- **Theme:** Light, Dark, or System to follow your computer.
-- **AI:** turn Smart mode's AI on or off, and add or remove API keys. Only the last 4 characters of a saved key are shown.
+- **Theme:** Light, Dark, or System to follow your computer. It's at the bottom of the split options on the right.
+- **AI:** turn Smart mode's AI on or off, and add or remove API keys. Only the last 4 characters of a saved key are shown. **AI service** picks what Smart mode uses: your ChatGPT account (the default) or a Claude API key. **Model** sets the model for that service; leave it blank for the default (GPT-6.1 Sol for ChatGPT, Claude Opus 5.5 for Claude).
 - **Blank page sensitivity:** how much may be on a page (such as a page number) for it to still count as blank.
 
 Splitr checks for new versions and offers to install them.

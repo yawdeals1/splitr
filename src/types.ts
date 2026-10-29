@@ -55,5 +55,39 @@ export interface Settings {
   lastOutputFolder: string | null;
   nameTemplate: string;
   blankThreshold: number;
+  /** AI features are on (FR-62). */
+  aiEnabled: boolean;
   aiConsent: boolean;
+  /** The AI service Smart mode uses: "chatgpt" (the default) or a key platform such as "anthropic". */
+  aiPlatform: string;
+  /** Models the user chose, by service. A service that isn't listed uses its default. */
+  aiModels: Record<string, string>;
+}
+
+/** Mirrors keystore::KeyStatus: all the interface learns about a saved API key (NFR-05). */
+export interface KeyStatus {
+  platform: string;
+  /** The key's last 4 characters, or null when none is saved. */
+  last4: string | null;
+}
+
+/** Mirrors export::ExportRequest: which parts to save, where, and their names without ".pdf". */
+export interface ExportRequest {
+  path: string;
+  password?: string;
+  ranges: Range[];
+  folder: string;
+  names: string[];
+}
+
+/** Mirrors naming::ExportNames: the names for one export, without extensions (FR-51 to FR-53). */
+export interface ExportNames {
+  parts: string[];
+  zip: string;
+}
+
+/** Mirrors export::SavedParts: the files an export wrote, and how many got a number added (FR-52). */
+export interface SavedParts {
+  paths: string[];
+  renamed: number;
 }

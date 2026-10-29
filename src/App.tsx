@@ -1,29 +1,47 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open } from "@tauri-apps/plugin-dialog";
-import { baseName, formatSize, partNames, rejectReason } from "./file";
+import { revealItemInDir } from "@tauri-apps/plugin-opener";
+import { aiBlock, aiBlockMessage, usesAi } from "./ai";
+import { AiConsent } from "./AiConsent";
+import { AiSettings, useApiKey } from "./AiSettings";
+import { ExportOptions } from "./ExportOptions";
+import { baseName, formatSize, rejectReason } from "./file";
+import { DEFAULT_TEMPLATE, savedMessage, usableTemplate } from "./naming";
 import { PageGrid } from "./PageGrid";
 import { PageViewer } from "./PageViewer";
 import { PasswordPrompt } from "./PasswordPrompt";
 import { PresetEditor } from "./PresetEditor";
 import { ReviewScreen } from "./ReviewScreen";
 import { useSettings } from "./settings";
+import { showTheme } from "./theme";
 import {
   PASSWORD_REQUIRED,
   WRONG_PASSWORD,
+  type ExportNames,
+  type ExportRequest,
   type PdfInfo,
   type Preset,
   type PresetInput,
   type PresetList,
   type Range,
   type RangeMode,
+  type SavedParts,
+  type Settings,
+  type Theme,
 } from "./types";
 import "./App.css";
 
 const CUSTOM_PROMPT = "__custom__";
+const THEMES: { value: Theme; label: string }[] = [
+  { value: "system", label: "System" },
+  { value: "light", label: "Light" },
+  { value: "dark", label: "Dark" },
+];
 
-function App() {
+function App({ initialSettings }: { initialSettings: Settings | null }) {
   const [pdf, setPdf] = useState<PdfInfo | null>(null);
   // Counts successful opens, so reopening the same file shows its pages afresh.
   const [opened, setOpened] = useState(0);
@@ -48,13 +66,47 @@ function App() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [exporting, setExporting] = useState(false);
-  const { settings, update: updateSettings } = useSettings();
+  // FR-51: the name template being edited; null shows the saved one. Saved with each export.
+  const [template, setTemplate] = useState<string | null>(null);
+  // FR-51: what the template makes of the current parts' titles, from the backend.
+  const [names, setNames] = useState<ExportNames | null>(null);
+  // FR-53: bundle the parts into one ZIP.
+  const [zip, setZip] = useState(false);
+  // FR-55: a file the last export saved, so "Open folder" can show it.
+  const [savedFile, setSavedFile] = useState<string | null>(null);
+  const apiKey = useApiKey();
+  // FR-61: true while the AI notice is showing.
+  const [askConsent, setAskConsent] = useState(false);
   // FR-03: the open PDF's password, kept in memory only, so export can read the file again.
   const password = useRef<string | undefined>(undefined);
   const [presetDraft, setPresetDraft] = useState<PresetInput | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
   // True while a file dialog is showing or a PDF is opening; drops and Ctrl+O bypass the disabled buttons.
   const busy = useRef(false);
+  // NFR-11: where focus goes when the control that had it disappears.
+  const presetSelect = useRef<HTMLSelectElement>(null);
+  const splitButton = useRef<HTMLButtonElement>(null);
+  const openButton = useRef<HTMLButtonElement>(null);
+  const chooseButton = useRef<HTMLButtonElement>(null);
+  // Set when Escape cancels "Confirm delete", so the "Delete preset" button that replaces it takes focus.
+  const refocusDelete = useRef(false);
+  const { settings, loadError, update: updateSettings } = useSettings(initialSettings);
+  const theme = settings?.theme;
+  const typedTemplate = template ?? settings?.nameTemplate ?? DEFAULT_TEMPLATE;
+  // A blank field names files with the default, and the default is what gets saved.
+  const nameTemplate = usableTemplate(typedTemplate);
+
+  // FR-63: show the saved theme, in the page and (where the OS allows) the window title bar. This is
+  // the only place that shows it. It runs before paint, and not before settings have loaded, so the
+  // theme main.tsx loaded is never replaced by "system" for a moment.
+  useLayoutEffect(() => {
+    if (theme) showTheme(theme);
+  }, [theme]);
+
+  async function chooseTheme(value: Theme) {
+    const problem = await updateSettings({ theme: value });
+    if (problem) setError(`The theme could not be saved: ${problem}`);
+  }
 
   const loadPresets = () =>
     invoke<PresetList>("list_presets")
@@ -71,6 +123,7 @@ function App() {
   const openPath = useCallback(async (path: string, pw?: string) => {
     setError("");
     setNotice("");
+    setSavedFile(null);
     setOpening(true);
     try {
       setPdf(await invoke<PdfInfo>("open_pdf", { path, password: pw }));
@@ -128,6 +181,23 @@ function App() {
     }
   }, [openPath]);
 
+  // FR-51: the names follow the template and the part titles once typing pauses. A failed preview
+  // only hides the names; export names the parts again and reports its own errors.
+  const titles = JSON.stringify(ranges.map((r) => r.title));
+  useEffect(() => {
+    if (!pdf || ranges.length === 0) return setNames(null);
+    let current = true;
+    const timer = setTimeout(() => {
+      exportNames(pdf.fileName, nameTemplate, ranges)
+        .then((n) => current && setNames(n))
+        .catch(() => current && setNames(null));
+    }, PREVIEW_DELAY_MS);
+    return () => {
+      current = false;
+      clearTimeout(timer);
+    };
+  }, [pdf, nameTemplate, titles]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // FR-01: Tauri drag-drop events give real file paths, which HTML drag events don't.
   useEffect(() => {
     const unlisten = getCurrentWebview().onDragDropEvent(({ payload }) => {
@@ -142,6 +212,16 @@ function App() {
       unlisten.then((stop) => stop());
     };
   }, [openDropped]);
+
+  // NFR-11: when a file finishes opening, or fails to, focus that dropped to the page goes to the
+  // open button. The control that had it may be gone (the review screen closes) or was disabled
+  // while the file loaded. Focus that is still on a control (a drop while typing a range) stays.
+  const wasOpening = useRef(false);
+  useEffect(() => {
+    const focusLost = !document.activeElement || document.activeElement === document.body;
+    if (wasOpening.current && !opening && focusLost) (openButton.current ?? chooseButton.current)?.focus();
+    wasOpening.current = opening;
+  }, [opening]);
 
   // NFR-11: Ctrl+O / Cmd+O opens the file picker.
   useEffect(() => {
@@ -176,6 +256,12 @@ function App() {
     setCategory(preset.category);
     setPresetId(preset.id);
     setPresetDraft(null);
+    presetSelect.current?.focus();
+  }
+
+  function cancelPresetEdit() {
+    setPresetDraft(null);
+    presetSelect.current?.focus();
   }
 
   async function deletePreset(id: string) {
@@ -187,11 +273,22 @@ function App() {
       setError(String(e));
     }
     setConfirmDelete(false);
+    presetSelect.current?.focus();
   }
 
-  async function split() {
+  // NFR-11: Enter in a range field runs the split.
+  function splitOnEnter(e: React.KeyboardEvent) {
+    if (e.key === "Enter" && !e.nativeEvent.isComposing) {
+      e.preventDefault();
+      split();
+    }
+  }
+
+  // `consented` is true right after the user agrees, before the saved setting reaches `settings`.
+  async function split(consented = false) {
     setError("");
     setNotice("");
+    setSavedFile(null);
     if (!pdf) return setError("Open a PDF first.");
     let next: Range[];
     try {
@@ -200,6 +297,13 @@ function App() {
       } else if (mode === "fixed") {
         next = await invoke<Range[]>("fixed_ranges", { pageCount: pdf.pageCount, every: fixedEvery });
       } else {
+        // FR-60 to FR-62: AI runs only when it is on, a key is saved and the user agreed to the notice.
+        if (usesAi(presetId === CUSTOM_PROMPT ? null : selectedPreset ?? null)) {
+          if (!settings) throw "Settings are still loading.";
+          const block = aiBlock({ ...settings, aiConsent: settings.aiConsent || consented }, apiKey.hasKey);
+          if (block === "consent") return setAskConsent(true);
+          if (block) throw aiBlockMessage(block);
+        }
         throw "Smart split is not implemented yet.";
       }
     } catch (e) {
@@ -213,12 +317,20 @@ function App() {
     setRanges(next);
   }
 
-  // FR-50: ask for a folder, then save one PDF per part there.
+  async function consentGiven() {
+    setAskConsent(false);
+    const problem = await updateSettings({ aiConsent: true });
+    if (problem) return setError(`Your answer could not be saved: ${problem}`);
+    await split(true);
+  }
+
+  // FR-50 to FR-53: ask for a folder, then save one PDF per part there, or one ZIP of them all.
   async function saveParts(file: PdfInfo, parts: Range[]) {
     if (busy.current) return;
     busy.current = true;
     setError("");
     setNotice("");
+    setSavedFile(null);
     try {
       const folder = await open({
         directory: true,
@@ -228,22 +340,34 @@ function App() {
       });
       if (!folder) return;
       setExporting(true);
-      const names = partNames(file.fileName, parts.map((r) => r.title));
-      const saved = await invoke<string[]>("export_parts", {
-        path: file.path,
-        password: password.current,
-        ranges: parts,
-        folder,
-        names,
-      });
-      setNotice(`Saved ${saved.length} ${saved.length === 1 ? "file" : "files"} to ${folder}`);
-      // Remembering the folder is a convenience, so a failure here isn't shown.
-      await updateSettings({ lastOutputFolder: folder });
+      // Named afresh, so a preview still on its way can't give the files old names.
+      const fileNames = await exportNames(file.fileName, nameTemplate, parts);
+      const request: ExportRequest = { path: file.path, password: password.current, ranges: parts, folder, names: fileNames.parts };
+      if (zip) {
+        const saved = await invoke<string>("export_zip", { request, zipName: fileNames.zip });
+        setNotice(savedMessage(parts.length, folder, 0, saved));
+        setSavedFile(saved);
+      } else {
+        const saved = await invoke<SavedParts>("export_parts", { request });
+        setNotice(savedMessage(saved.paths.length, folder, saved.renamed));
+        setSavedFile(saved.paths[0] ?? null);
+      }
+      // Remembering the folder and template is a convenience, so a failure here isn't shown.
+      await updateSettings({ lastOutputFolder: folder, nameTemplate });
     } catch (e) {
       setError(String(e));
     } finally {
       setExporting(false);
       busy.current = false;
+    }
+  }
+
+  // FR-55: show the saved files in the system file manager.
+  async function openFolder(path: string) {
+    try {
+      await revealItemInDir(path);
+    } catch (e) {
+      setError(`The folder could not be opened: ${e}`);
     }
   }
 
@@ -267,11 +391,21 @@ function App() {
                   {pdf.pageCount} {pdf.pageCount === 1 ? "page" : "pages"} · {formatSize(pdf.sizeBytes)}
                 </span>
               </div>
-              <button type="button" onClick={chooseFile} disabled={opening}>
+              {/* Takes focus when this header appears (autoFocus: the first file opens, or a password
+                  prompt closes) and when focus was lost while a file loaded (the effect on `opening`),
+                  so focus never drops to the page (NFR-11). */}
+              <button
+                type="button"
+                ref={openButton}
+                onClick={chooseFile}
+                disabled={opening}
+                autoFocus
+                aria-keyshortcuts="Control+O Meta+O"
+              >
                 Open another
               </button>
             </header>
-            <PageGrid key={opened} path={pdf.path} pageCount={pdf.pageCount} onOpen={setViewing} />
+            <PageGrid key={opened} path={pdf.path} pageCount={pdf.pageCount} ranges={ranges} onOpen={setViewing} />
             {viewing !== null && (
               <PageViewer
                 key={opened}
@@ -286,7 +420,14 @@ function App() {
         ) : (
           <div className={dragging ? "dropzone dragging" : "dropzone"}>
             <p>{opening ? "Opening…" : "Drop a PDF here"}</p>
-            <button type="button" onClick={chooseFile} disabled={opening} aria-keyshortcuts="Control+O Meta+O">
+            <button
+              type="button"
+              ref={chooseButton}
+              onClick={chooseFile}
+              disabled={opening}
+              autoFocus
+              aria-keyshortcuts="Control+O Meta+O"
+            >
               Choose file
             </button>
           </div>
@@ -299,10 +440,23 @@ function App() {
             ranges={ranges}
             allowGaps={allowGaps}
             onChange={setRanges}
-            onBack={() => setRanges([])}
+            onBack={() => {
+              // Commit the closed review screen first, so nothing that mounts with it can take focus back.
+              flushSync(() => setRanges([]));
+              splitButton.current?.focus();
+            }}
             exporting={exporting}
             onExport={() => saveParts(pdf, ranges)}
-          />
+          >
+            <ExportOptions
+              template={typedTemplate}
+              onTemplate={setTemplate}
+              names={names?.parts ?? []}
+              zip={zip}
+              onZip={setZip}
+              zipName={names?.zip ?? ""}
+            />
+          </ReviewScreen>
         )}
       </section>
 
@@ -320,14 +474,25 @@ function App() {
         {mode === "custom" && (
           <label>
             Page ranges
-            <input value={customRanges} onChange={(e) => setCustomRanges(e.target.value)} placeholder="1-14, 15-30, 31" />
+            <input
+              value={customRanges}
+              onChange={(e) => setCustomRanges(e.target.value)}
+              onKeyDown={splitOnEnter}
+              placeholder="1-14, 15-30, 31"
+            />
           </label>
         )}
 
         {mode === "fixed" && (
           <label>
             Split every N pages
-            <input type="number" min={1} value={fixedEvery} onChange={(e) => setFixedEvery(Number(e.target.value))} />
+            <input
+              type="number"
+              min={1}
+              value={fixedEvery}
+              onChange={(e) => setFixedEvery(Number(e.target.value))}
+              onKeyDown={splitOnEnter}
+            />
           </label>
         )}
 
@@ -344,6 +509,7 @@ function App() {
             <label>
               Split preset
               <select
+                ref={presetSelect}
                 value={presetId}
                 onChange={(e) => {
                   setPresetId(e.target.value);
@@ -365,7 +531,7 @@ function App() {
                 draft={presetDraft}
                 categories={categories}
                 onSaved={presetSaved}
-                onCancel={() => setPresetDraft(null)}
+                onCancel={cancelPresetEdit}
               />
             ) : presetId === CUSTOM_PROMPT ? (
               <>
@@ -402,28 +568,89 @@ function App() {
                     Edit preset
                   </button>
                   {confirmDelete ? (
-                    <button type="button" className="danger" autoFocus onClick={() => deletePreset(selectedPreset.id)}>
+                    <button
+                      type="button"
+                      className="danger"
+                      autoFocus
+                      onClick={() => deletePreset(selectedPreset.id)}
+                      onKeyDown={(e) => {
+                        if (e.key !== "Escape") return;
+                        refocusDelete.current = true;
+                        setConfirmDelete(false);
+                      }}
+                    >
                       Confirm delete
                     </button>
                   ) : (
-                    <button type="button" onClick={() => setConfirmDelete(true)}>
+                    <button
+                      type="button"
+                      ref={(button) => {
+                        // NFR-11: focus moves back here when Escape removes "Confirm delete".
+                        if (button && refocusDelete.current) {
+                          refocusDelete.current = false;
+                          button.focus();
+                        }
+                      }}
+                      onClick={() => setConfirmDelete(true)}
+                    >
                       Delete preset
                     </button>
                   )}
                 </div>
               )
             )}
+            <AiSettings settings={settings} apiKey={apiKey} onChange={updateSettings} />
           </>
         )}
 
-        <button type="button" className="primary" onClick={split}>
+        <button type="button" className="primary" onClick={() => split()} ref={splitButton}>
           Split
         </button>
         {error && <p className="error" role="alert">{error}</p>}
-        {notice && <p className="notice" role="status">{notice}</p>}
+        {notice && (
+          <div className="notice" role="status">
+            <p>{notice}</p>
+            {savedFile && (
+              <button type="button" onClick={() => openFolder(savedFile)}>
+                Open folder
+              </button>
+            )}
+          </div>
+        )}
+        {askConsent && <AiConsent onAgree={consentGiven} onCancel={() => setAskConsent(false)} />}
+
+        <fieldset className="modes theme">
+          <legend>Theme</legend>
+          {THEMES.map(({ value, label }) => (
+            <label key={value} className={(theme ?? "system") === value ? "active" : ""}>
+              <input
+                type="radio"
+                name="theme"
+                value={value}
+                checked={(theme ?? "system") === value}
+                disabled={!settings}
+                onChange={() => chooseTheme(value)}
+              />
+              {label}
+            </label>
+          ))}
+          {loadError && (
+            <p className="error" role="alert">
+              Settings could not be loaded, so the theme can't be changed: {loadError}
+            </p>
+          )}
+        </fieldset>
       </aside>
     </main>
   );
 }
 
 export default App;
+
+/** How long typing must pause before the file names are previewed again. */
+const PREVIEW_DELAY_MS = 200;
+
+/** FR-51 to FR-53: the file names the template gives these parts, and the ZIP's, from the backend. */
+function exportNames(fileName: string, template: string, parts: Range[]): Promise<ExportNames> {
+  return invoke<ExportNames>("export_names", { template, original: fileName, titles: parts.map((r) => r.title) });
+}

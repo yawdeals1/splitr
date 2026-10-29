@@ -86,16 +86,16 @@ Status key: [x] done, [ ] to do. Each phase ends when its exit criterion is met 
 - [ ] Extract page text and the outline from PDFium into `DocumentText` (#7)
 - [ ] `run_preset` command: run the preset's strategy, then its `fallback` on `NoOutline`/`NothingFound` (FR-30) (#8)
 - [x] Review screen: list of parts, editing boundaries, adding, removing, renaming and deleting parts (FR-40 to FR-42) (#9)
-- [ ] Split marks on thumbnails (FR-12) (#48)
-- [ ] Naming template UI, optional ZIP, an "Open folder" button (FR-51 to FR-55) (#10)
+- [x] Split marks on thumbnails (FR-12) (#48)
+- [x] Naming template UI, optional ZIP, an "Open folder" button (FR-51 to FR-55) (#10)
 - [x] Settings file: theme, last folder, template, blank threshold (SRS 6.4) (#11)
 - [ ] Build a test set of 10 or more varied PDFs in `tests/fixtures/`, using only public or generated files with no personal data (#12)
 - **Exit:** 10 varied test PDFs split correctly with rules only.
 
 ### Phase 2: AI engine (Smart mode)
-- [ ] API key settings stored with `keyring`, an AI on/off switch and a consent dialog (FR-60 to FR-62) (#13)
+- [x] API key settings stored with `keyring`, an AI on/off switch and a consent dialog (FR-60 to FR-62) (#13)
 - [ ] Build excerpts (first and last lines of each page), in overlapping chunks for large files (FR-33, FR-34, NFR-04) (#14)
-- [ ] Claude API client in Rust (`reqwest`, HTTPS), using the Appendix A prompt; the model is configurable in settings (#15)
+- [x] Claude API client in Rust (`reqwest`, HTTPS), using the Appendix A prompt; the model is configurable in settings (#15)
 - [ ] Strict JSON parsing, merging chunk results, `validate`, retrying once and then manual fixing (FR-35, FR-36) (#16)
 - [x] Save a custom prompt as a user preset (FR-71) (#17)
 - [ ] Integration tests with a mocked AI provider (#18)
@@ -111,7 +111,7 @@ Status key: [x] done, [ ] to do. Each phase ends when its exit criterion is met 
 ### Phase 3: Packaging and updates
 - [ ] Tauri updater plugin; updater signing key in GitHub secrets only (FR-64) (#19)
 - [ ] Release workflow publishes the update manifest (#19)
-- [ ] Light and dark themes with a manual toggle, plus a keyboard navigation pass (FR-63, NFR-11) (#20)
+- [x] Light and dark themes with a manual toggle, plus a keyboard navigation pass (FR-63, NFR-11) (#20)
 - [ ] Check that installers are under 25 MB (NFR-13) (#21)
 - **Exit:** installers run on clean Windows, macOS and Linux machines.
 

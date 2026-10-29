@@ -1,6 +1,8 @@
+mod ai;
 mod commands;
 mod error;
 mod export;
+mod keystore;
 mod naming;
 mod pdf;
 mod presets;
@@ -31,6 +33,7 @@ pub fn run() {
             };
             Viewer::remove_stale_sessions(&cache_root);
             app.manage(Viewer::new(cache_root));
+            app.manage(ai::AiCalls::default());
 
             // Load PDFium from the bundled resource folder. A failure is reported by every PDF command.
             match app.path().resource_dir() {
@@ -51,10 +54,18 @@ pub fn run() {
             commands::open_pdf,
             commands::render_page,
             commands::export_parts,
+            commands::export_zip,
+            commands::export_names,
             commands::save_user_preset,
             commands::delete_user_preset,
             commands::get_settings,
             commands::save_settings,
+            commands::save_api_key,
+            commands::api_key_status,
+            commands::delete_api_key,
+            commands::ask_ai,
+            commands::cancel_ai,
+            commands::default_ai_models,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
