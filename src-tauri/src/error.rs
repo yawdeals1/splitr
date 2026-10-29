@@ -17,6 +17,24 @@ pub enum SplitError {
     PdfEngine(String),
     #[error("{0}")]
     Presets(String),
+    // Opening a PDF (FR-03, FR-05). The interface matches the two password messages to show a
+    // password prompt; `src/types.ts` holds the same text, checked by a test in `pdf.rs`.
+    #[error("This PDF is password protected. Enter its password to open it.")]
+    PasswordRequired,
+    #[error("The password is incorrect. Try again.")]
+    WrongPassword,
+    #[error("This PDF uses a type of protection Splitr can't open")]
+    UnsupportedSecurity,
+    #[error("The file {0} was not found. It may have been moved or deleted")]
+    FileNotFound(String),
+    #[error("Splitr can't read {0}. Check that you have permission to open it")]
+    FileUnreadable(String),
+    #[error("{0} is damaged or is not a PDF")]
+    CorruptPdf(String),
+    #[error("{0} has no pages")]
+    EmptyPdf(String),
+    #[error("{0} could not be opened: {1}")]
+    OpenFailed(String, String),
 }
 
 impl Serialize for SplitError {

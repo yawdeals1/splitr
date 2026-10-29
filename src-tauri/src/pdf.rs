@@ -4,10 +4,11 @@
 //! The PDFium library ships as a Tauri resource in `pdfium/` (SRS 2.5, 5.3, NFR-12), fetched by
 //! `scripts/fetch-pdfium.mjs`. The original file is never modified (FR-04).
 
+use std::io::ErrorKind;
 use std::path::Path;
 use std::sync::OnceLock;
 
-use pdfium_render::prelude::Pdfium;
+use pdfium_render::prelude::{Pdfium, PdfiumError, PdfiumInternalError};
 use serde::Serialize;
 
 use crate::error::{Result, SplitError};
@@ -56,14 +57,61 @@ pub struct PdfInfo {
     pub size_bytes: u64,
 }
 
-pub fn open(_path: &str) -> Result<PdfInfo> {
-    engine()?;
-    Err(SplitError::NotImplemented("Opening PDFs"))
+/// Opens the PDF at `path` read-only and returns its name, page count and size (FR-01, FR-02).
+/// `password` unlocks an encrypted file (FR-03). Every failure is a specific, user-facing error,
+/// so the app stays usable (FR-05, NFR-08). The file is only read, never written (FR-04).
+pub fn open(path: &str, password: Option<&str>) -> Result<PdfInfo> {
+    let file_path = Path::new(path);
+    let file_name = file_path
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| path.to_string());
+
+    let metadata = std::fs::metadata(file_path).map_err(|e| io_error(&e, &file_name))?;
+    if !metadata.is_file() {
+        return Err(SplitError::CorruptPdf(file_name));
+    }
+
+    let password = password.filter(|p| !p.is_empty());
+    let document = engine()?
+        .load_pdf_from_file(file_path, password)
+        .map_err(|e| load_error(e, &file_name, password.is_some()))?;
+
+    let page_count = u32::try_from(document.pages().len()).unwrap_or(0);
+    if page_count == 0 {
+        return Err(SplitError::EmptyPdf(file_name));
+    }
+
+    Ok(PdfInfo { path: path.to_string(), file_name, page_count, size_bytes: metadata.len() })
+}
+
+fn io_error(e: &std::io::Error, file_name: &str) -> SplitError {
+    match e.kind() {
+        ErrorKind::NotFound => SplitError::FileNotFound(file_name.to_string()),
+        _ => SplitError::FileUnreadable(file_name.to_string()),
+    }
+}
+
+/// Maps a PDFium load error to a message the user can act on.
+fn load_error(e: PdfiumError, file_name: &str, had_password: bool) -> SplitError {
+    match e {
+        PdfiumError::PdfiumLibraryInternalError(internal) => match internal {
+            PdfiumInternalError::PasswordError if had_password => SplitError::WrongPassword,
+            PdfiumInternalError::PasswordError => SplitError::PasswordRequired,
+            PdfiumInternalError::SecurityError => SplitError::UnsupportedSecurity,
+            PdfiumInternalError::FormatError => SplitError::CorruptPdf(file_name.to_string()),
+            PdfiumInternalError::FileError => SplitError::FileUnreadable(file_name.to_string()),
+            other => SplitError::OpenFailed(file_name.to_string(), format!("{other:?}")),
+        },
+        PdfiumError::IoError(io) => io_error(&io, file_name),
+        other => SplitError::OpenFailed(file_name.to_string(), other.to_string()),
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use lopdf::{Document, Object, Stream, dictionary};
     use std::path::PathBuf;
 
     #[test]
@@ -76,9 +124,161 @@ mod tests {
     /// Needs `npm run fetch-pdfium` first; CI runs it before `cargo test`.
     #[test]
     fn loads_the_bundled_library() {
-        let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("pdfium");
-        init(&dir).unwrap();
+        start_engine();
         let doc = engine().unwrap().create_new_pdf().unwrap();
         assert_eq!(doc.pages().len(), 0);
+    }
+
+    fn start_engine() {
+        init(&PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("pdfium")).unwrap();
+    }
+
+    /// A PDF with `pages` text pages. The trailer `/ID` is there because encryption needs it.
+    fn document(pages: usize) -> Document {
+        let mut doc = Document::with_version("1.5");
+        doc.trailer.set(
+            "ID",
+            Object::Array(vec![
+                Object::string_literal(b"0123456789abcdef"),
+                Object::string_literal(b"fedcba9876543210"),
+            ]),
+        );
+        let pages_id = doc.new_object_id();
+        let font_id = doc.add_object(dictionary! {
+            "Type" => "Font", "Subtype" => "Type1", "BaseFont" => "Helvetica",
+        });
+        let kids: Vec<Object> = (1..=pages)
+            .map(|n| {
+                let content = format!("BT /F1 12 Tf 100 700 Td (Page {n}) Tj ET");
+                let contents_id = doc.add_object(Stream::new(dictionary! {}, content.into_bytes()));
+                doc.add_object(dictionary! {
+                    "Type" => "Page",
+                    "Parent" => pages_id,
+                    "MediaBox" => vec![0.into(), 0.into(), 612.into(), 792.into()],
+                    "Resources" => dictionary! { "Font" => dictionary! { "F1" => font_id } },
+                    "Contents" => contents_id,
+                })
+                .into()
+            })
+            .collect();
+        doc.objects.insert(
+            pages_id,
+            Object::Dictionary(dictionary! { "Type" => "Pages", "Kids" => kids, "Count" => pages as i64 }),
+        );
+        let catalog_id = doc.add_object(dictionary! { "Type" => "Catalog", "Pages" => pages_id });
+        doc.trailer.set("Root", catalog_id);
+        doc
+    }
+
+    fn encrypted(pages: usize, user_password: &str) -> Document {
+        let mut doc = document(pages);
+        let state = lopdf::EncryptionState::try_from(lopdf::EncryptionVersion::V2 {
+            document: &doc,
+            owner_password: "owner-secret",
+            user_password,
+            key_length: 128,
+            permissions: lopdf::Permissions::all(),
+        })
+        .unwrap();
+        doc.encrypt(&state).unwrap();
+        doc
+    }
+
+    fn save(dir: &tempfile::TempDir, name: &str, mut doc: Document) -> String {
+        let path = dir.path().join(name);
+        doc.save(&path).unwrap();
+        path.to_string_lossy().into_owned()
+    }
+
+    fn write(dir: &tempfile::TempDir, name: &str, bytes: &[u8]) -> String {
+        let path = dir.path().join(name);
+        std::fs::write(&path, bytes).unwrap();
+        path.to_string_lossy().into_owned()
+    }
+
+    #[test]
+    fn opens_a_normal_pdf() {
+        start_engine();
+        let dir = tempfile::tempdir().unwrap();
+        let path = save(&dir, "report.pdf", document(3));
+
+        let info = open(&path, None).unwrap();
+        assert_eq!(info.file_name, "report.pdf");
+        assert_eq!(info.page_count, 3);
+        assert_eq!(info.size_bytes, std::fs::metadata(&path).unwrap().len());
+        assert_eq!(info.path, path);
+    }
+
+    #[test]
+    fn opening_leaves_the_original_byte_for_byte_unchanged() {
+        start_engine();
+        let dir = tempfile::tempdir().unwrap();
+        let path = save(&dir, "original.pdf", document(2));
+        let locked = save(&dir, "locked.pdf", encrypted(2, "secret"));
+        let before = (std::fs::read(&path).unwrap(), std::fs::read(&locked).unwrap());
+
+        open(&path, None).unwrap();
+        open(&locked, Some("secret")).unwrap();
+        let _ = open(&locked, Some("wrong"));
+
+        assert_eq!(before, (std::fs::read(&path).unwrap(), std::fs::read(&locked).unwrap()));
+    }
+
+    #[test]
+    fn encrypted_pdf_asks_for_a_password_then_opens_with_it() {
+        start_engine();
+        let dir = tempfile::tempdir().unwrap();
+        let path = save(&dir, "locked.pdf", encrypted(4, "secret"));
+
+        assert!(matches!(open(&path, None), Err(SplitError::PasswordRequired)));
+        assert!(matches!(open(&path, Some("")), Err(SplitError::PasswordRequired)));
+        assert!(matches!(open(&path, Some("wrong")), Err(SplitError::WrongPassword)));
+        assert_eq!(open(&path, Some("secret")).unwrap().page_count, 4);
+    }
+
+    #[test]
+    fn encrypted_pdf_without_a_user_password_opens_directly() {
+        start_engine();
+        let dir = tempfile::tempdir().unwrap();
+        let path = save(&dir, "restricted.pdf", encrypted(2, ""));
+        assert_eq!(open(&path, None).unwrap().page_count, 2);
+    }
+
+    #[test]
+    fn corrupt_and_non_pdf_files_give_clear_errors() {
+        start_engine();
+        let dir = tempfile::tempdir().unwrap();
+        let mut bytes = Vec::new();
+        document(3).save_to(&mut bytes).unwrap();
+        let truncated = write(&dir, "truncated.pdf", &bytes[..bytes.len() / 3]);
+        let text = write(&dir, "notes.pdf", b"just some text, not a PDF");
+        let empty = write(&dir, "empty.pdf", b"");
+
+        for path in [&truncated, &text, &empty] {
+            let err = open(path, None).unwrap_err();
+            assert!(matches!(err, SplitError::CorruptPdf(_)), "{path}: {err}");
+            assert!(err.to_string().ends_with("is damaged or is not a PDF"), "{err}");
+        }
+    }
+
+    #[test]
+    fn missing_file_and_folder_give_clear_errors() {
+        start_engine();
+        let dir = tempfile::tempdir().unwrap();
+        let missing = dir.path().join("gone.pdf");
+        let err = open(&missing.to_string_lossy(), None).unwrap_err();
+        assert_eq!(err.to_string(), "The file gone.pdf was not found. It may have been moved or deleted");
+
+        let folder = open(&dir.path().to_string_lossy(), None).unwrap_err();
+        assert!(matches!(folder, SplitError::CorruptPdf(_)), "{folder}");
+    }
+
+    /// The interface shows a password prompt by matching these messages.
+    #[test]
+    fn password_messages_match_the_frontend() {
+        let types = include_str!("../../src/types.ts");
+        for err in [SplitError::PasswordRequired, SplitError::WrongPassword] {
+            assert!(types.contains(&format!("\"{err}\"")), "src/types.ts is missing \"{err}\"");
+        }
     }
 }
