@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open } from "@tauri-apps/plugin-dialog";
 import { aiBlock, aiBlockMessage, usesAi } from "./ai";
 import { AiConsent } from "./AiConsent";
@@ -12,6 +14,7 @@ import { PasswordPrompt } from "./PasswordPrompt";
 import { PresetEditor } from "./PresetEditor";
 import { ReviewScreen } from "./ReviewScreen";
 import { useSettings } from "./settings";
+import { applyTheme, themeAttribute } from "./theme";
 import {
   PASSWORD_REQUIRED,
   WRONG_PASSWORD,
@@ -21,10 +24,16 @@ import {
   type PresetList,
   type Range,
   type RangeMode,
+  type Theme,
 } from "./types";
 import "./App.css";
 
 const CUSTOM_PROMPT = "__custom__";
+const THEMES: { value: Theme; label: string }[] = [
+  { value: "system", label: "System" },
+  { value: "light", label: "Light" },
+  { value: "dark", label: "Dark" },
+];
 
 function App() {
   const [pdf, setPdf] = useState<PdfInfo | null>(null);
@@ -51,7 +60,6 @@ function App() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [exporting, setExporting] = useState(false);
-  const { settings, update: updateSettings } = useSettings();
   const apiKey = useApiKey();
   // FR-61: true while the AI notice is showing.
   const [askConsent, setAskConsent] = useState(false);
@@ -61,6 +69,32 @@ function App() {
   const [confirmDelete, setConfirmDelete] = useState(false);
   // True while a file dialog is showing or a PDF is opening; drops and Ctrl+O bypass the disabled buttons.
   const busy = useRef(false);
+  // NFR-11: where focus goes when the control that had it disappears.
+  const presetSelect = useRef<HTMLSelectElement>(null);
+  const splitButton = useRef<HTMLButtonElement>(null);
+  // Set when Escape cancels "Confirm delete", so the "Delete preset" button that replaces it takes focus.
+  const refocusDelete = useRef(false);
+  const { settings, loadError, update: updateSettings, saved: savedSettings } = useSettings();
+  const theme = settings?.theme ?? "system";
+
+  // FR-63: show the saved theme, in the page and (where the OS allows) the window title bar.
+  useEffect(() => {
+    applyTheme(document.documentElement, theme);
+    getCurrentWindow()
+      .setTheme(themeAttribute(theme))
+      .catch(() => {});
+  }, [theme]);
+
+  async function chooseTheme(value: Theme) {
+    applyTheme(document.documentElement, value);
+    const problem = await updateSettings({ theme: value });
+    if (problem) {
+      // Go back to what is saved now, not to the theme when this click happened: an earlier
+      // click's save may have finished in the meantime.
+      applyTheme(document.documentElement, savedSettings()?.theme ?? "system");
+      setError(`The theme could not be saved: ${problem}`);
+    }
+  }
 
   const loadPresets = () =>
     invoke<PresetList>("list_presets")
@@ -182,6 +216,12 @@ function App() {
     setCategory(preset.category);
     setPresetId(preset.id);
     setPresetDraft(null);
+    presetSelect.current?.focus();
+  }
+
+  function cancelPresetEdit() {
+    setPresetDraft(null);
+    presetSelect.current?.focus();
   }
 
   async function deletePreset(id: string) {
@@ -193,6 +233,15 @@ function App() {
       setError(String(e));
     }
     setConfirmDelete(false);
+    presetSelect.current?.focus();
+  }
+
+  // NFR-11: Enter in a range field runs the split.
+  function splitOnEnter(e: React.KeyboardEvent) {
+    if (e.key === "Enter" && !e.nativeEvent.isComposing) {
+      e.preventDefault();
+      split();
+    }
   }
 
   // `consented` is true right after the user agrees, before the saved setting reaches `settings`.
@@ -288,7 +337,15 @@ function App() {
                   {pdf.pageCount} {pdf.pageCount === 1 ? "page" : "pages"} · {formatSize(pdf.sizeBytes)}
                 </span>
               </div>
-              <button type="button" onClick={chooseFile} disabled={opening}>
+              {/* Takes focus when this header appears (NFR-11): the first file opens, or a password
+                  prompt closes. Opening another file keeps focus where it was. */}
+              <button
+                type="button"
+                onClick={chooseFile}
+                disabled={opening}
+                autoFocus
+                aria-keyshortcuts="Control+O Meta+O"
+              >
                 Open another
               </button>
             </header>
@@ -307,7 +364,7 @@ function App() {
         ) : (
           <div className={dragging ? "dropzone dragging" : "dropzone"}>
             <p>{opening ? "Opening…" : "Drop a PDF here"}</p>
-            <button type="button" onClick={chooseFile} disabled={opening} aria-keyshortcuts="Control+O Meta+O">
+            <button type="button" onClick={chooseFile} disabled={opening} autoFocus aria-keyshortcuts="Control+O Meta+O">
               Choose file
             </button>
           </div>
@@ -320,7 +377,11 @@ function App() {
             ranges={ranges}
             allowGaps={allowGaps}
             onChange={setRanges}
-            onBack={() => setRanges([])}
+            onBack={() => {
+              // Commit the closed review screen first, so nothing that mounts with it can take focus back.
+              flushSync(() => setRanges([]));
+              splitButton.current?.focus();
+            }}
             exporting={exporting}
             onExport={() => saveParts(pdf, ranges)}
           />
@@ -341,14 +402,25 @@ function App() {
         {mode === "custom" && (
           <label>
             Page ranges
-            <input value={customRanges} onChange={(e) => setCustomRanges(e.target.value)} placeholder="1-14, 15-30, 31" />
+            <input
+              value={customRanges}
+              onChange={(e) => setCustomRanges(e.target.value)}
+              onKeyDown={splitOnEnter}
+              placeholder="1-14, 15-30, 31"
+            />
           </label>
         )}
 
         {mode === "fixed" && (
           <label>
             Split every N pages
-            <input type="number" min={1} value={fixedEvery} onChange={(e) => setFixedEvery(Number(e.target.value))} />
+            <input
+              type="number"
+              min={1}
+              value={fixedEvery}
+              onChange={(e) => setFixedEvery(Number(e.target.value))}
+              onKeyDown={splitOnEnter}
+            />
           </label>
         )}
 
@@ -365,6 +437,7 @@ function App() {
             <label>
               Split preset
               <select
+                ref={presetSelect}
                 value={presetId}
                 onChange={(e) => {
                   setPresetId(e.target.value);
@@ -386,7 +459,7 @@ function App() {
                 draft={presetDraft}
                 categories={categories}
                 onSaved={presetSaved}
-                onCancel={() => setPresetDraft(null)}
+                onCancel={cancelPresetEdit}
               />
             ) : presetId === CUSTOM_PROMPT ? (
               <>
@@ -423,11 +496,31 @@ function App() {
                     Edit preset
                   </button>
                   {confirmDelete ? (
-                    <button type="button" className="danger" autoFocus onClick={() => deletePreset(selectedPreset.id)}>
+                    <button
+                      type="button"
+                      className="danger"
+                      autoFocus
+                      onClick={() => deletePreset(selectedPreset.id)}
+                      onKeyDown={(e) => {
+                        if (e.key !== "Escape") return;
+                        refocusDelete.current = true;
+                        setConfirmDelete(false);
+                      }}
+                    >
                       Confirm delete
                     </button>
                   ) : (
-                    <button type="button" onClick={() => setConfirmDelete(true)}>
+                    <button
+                      type="button"
+                      ref={(button) => {
+                        // NFR-11: focus moves back here when Escape removes "Confirm delete".
+                        if (button && refocusDelete.current) {
+                          refocusDelete.current = false;
+                          button.focus();
+                        }
+                      }}
+                      onClick={() => setConfirmDelete(true)}
+                    >
                       Delete preset
                     </button>
                   )}
@@ -438,12 +531,34 @@ function App() {
           </>
         )}
 
-        <button type="button" className="primary" onClick={() => split()}>
+        <button type="button" className="primary" onClick={() => split()} ref={splitButton}>
           Split
         </button>
         {error && <p className="error" role="alert">{error}</p>}
         {notice && <p className="notice" role="status">{notice}</p>}
         {askConsent && <AiConsent onAgree={consentGiven} onCancel={() => setAskConsent(false)} />}
+
+        <fieldset className="modes theme">
+          <legend>Theme</legend>
+          {THEMES.map(({ value, label }) => (
+            <label key={value} className={theme === value ? "active" : ""}>
+              <input
+                type="radio"
+                name="theme"
+                value={value}
+                checked={theme === value}
+                disabled={!settings}
+                onChange={() => chooseTheme(value)}
+              />
+              {label}
+            </label>
+          ))}
+          {loadError && (
+            <p className="error" role="alert">
+              Settings could not be loaded, so the theme can't be changed: {loadError}
+            </p>
+          )}
+        </fieldset>
       </aside>
     </main>
   );
