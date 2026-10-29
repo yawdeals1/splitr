@@ -17,6 +17,10 @@ pub enum SplitError {
     PdfEngine(String),
     #[error("{0}")]
     Presets(String),
+    #[error("Could not load settings: {0}")]
+    SettingsLoad(String),
+    #[error("Could not save settings: {0}")]
+    SettingsSave(String),
     // Opening a PDF (FR-03, FR-05). The interface matches the two password messages to show a
     // password prompt; `src/types.ts` holds the same text, checked by a test in `pdf.rs`.
     #[error("This PDF is password protected. Enter its password to open it.")]

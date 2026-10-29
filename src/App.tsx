@@ -1,13 +1,30 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { getCurrentWebview } from "@tauri-apps/api/webview";
+import { open } from "@tauri-apps/plugin-dialog";
+import { baseName, formatSize, rejectReason } from "./file";
+import { PasswordPrompt } from "./PasswordPrompt";
 import { PresetEditor } from "./PresetEditor";
-import type { PdfInfo, Preset, PresetInput, PresetList, Range, RangeMode } from "./types";
+import {
+  PASSWORD_REQUIRED,
+  WRONG_PASSWORD,
+  type PdfInfo,
+  type Preset,
+  type PresetInput,
+  type PresetList,
+  type Range,
+  type RangeMode,
+} from "./types";
 import "./App.css";
 
 const CUSTOM_PROMPT = "__custom__";
 
 function App() {
-  const [pdf] = useState<PdfInfo | null>(null);
+  const [pdf, setPdf] = useState<PdfInfo | null>(null);
+  const [dragging, setDragging] = useState(false);
+  const [opening, setOpening] = useState(false);
+  // FR-03: an encrypted file waiting for its password.
+  const [locked, setLocked] = useState<{ path: string; message: string } | null>(null);
   const [mode, setMode] = useState<RangeMode>("smart");
   const [presets, setPresets] = useState<Preset[]>([]);
   const [category, setCategory] = useState("");
@@ -19,6 +36,8 @@ function App() {
   const [error, setError] = useState("");
   const [presetDraft, setPresetDraft] = useState<PresetInput | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  // True while a file dialog is showing or a PDF is opening; drops and Ctrl+O bypass the disabled buttons.
+  const busy = useRef(false);
 
   const loadPresets = () =>
     invoke<PresetList>("list_presets")
@@ -30,6 +49,90 @@ function App() {
   useEffect(() => {
     loadPresets();
   }, []);
+
+  // FR-01 to FR-05: open one PDF and show its details, ask for its password, or say why it can't be opened.
+  const openPath = useCallback(async (path: string, password?: string) => {
+    setError("");
+    setOpening(true);
+    try {
+      setPdf(await invoke<PdfInfo>("open_pdf", { path, password }));
+      setRanges([]);
+      setLocked(null);
+    } catch (e) {
+      const message = String(e);
+      if (message === PASSWORD_REQUIRED || message === WRONG_PASSWORD) setLocked({ path, message });
+      else {
+        setLocked(null);
+        setError(message);
+      }
+    } finally {
+      setOpening(false);
+    }
+  }, []);
+
+  // FR-03: retry with the password. It goes only to open_pdf and isn't kept.
+  const unlock = useCallback(async (path: string, password: string) => {
+    if (busy.current) return;
+    busy.current = true;
+    try {
+      await openPath(path, password);
+    } finally {
+      busy.current = false;
+    }
+  }, [openPath]);
+
+  const openDropped = useCallback(async (paths: string[]) => {
+    if (busy.current) return;
+    const reason = rejectReason(paths);
+    if (reason) return setError(reason);
+    busy.current = true;
+    try {
+      await openPath(paths[0]);
+    } finally {
+      busy.current = false;
+    }
+  }, [openPath]);
+
+  const chooseFile = useCallback(async () => {
+    if (busy.current) return;
+    busy.current = true;
+    try {
+      // Both letter cases: GTK file filters on Linux are case-sensitive.
+      const path = await open({ multiple: false, directory: false, filters: [{ name: "PDF", extensions: ["pdf", "PDF"] }] });
+      if (path) await openPath(path);
+    } catch (e) {
+      setError(`The file picker could not open: ${e}`);
+    } finally {
+      busy.current = false;
+    }
+  }, [openPath]);
+
+  // FR-01: Tauri drag-drop events give real file paths, which HTML drag events don't.
+  useEffect(() => {
+    const unlisten = getCurrentWebview().onDragDropEvent(({ payload }) => {
+      if (payload.type === "enter" || payload.type === "over") setDragging(true);
+      else if (payload.type === "leave") setDragging(false);
+      else if (payload.type === "drop") {
+        setDragging(false);
+        openDropped(payload.paths);
+      }
+    });
+    return () => {
+      unlisten.then((stop) => stop());
+    };
+  }, [openDropped]);
+
+  // NFR-11: Ctrl+O / Cmd+O opens the file picker.
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "o") {
+        e.preventDefault();
+        if (!e.repeat) chooseFile();
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [chooseFile]);
 
   const categories = useMemo(() => [...new Set(presets.map((p) => p.category))], [presets]);
   const categoryPresets = presets.filter((p) => p.category === category);
@@ -84,14 +187,30 @@ function App() {
   return (
     <main className="layout">
       <section className="canvas" aria-label="Document">
-        {pdf ? (
-          <p>
-            {pdf.fileName} · {pdf.pageCount} pages
-          </p>
+        {locked ? (
+          <PasswordPrompt
+            fileName={baseName(locked.path)}
+            message={locked.message}
+            busy={opening}
+            onSubmit={(password) => unlock(locked.path, password)}
+            onCancel={() => setLocked(null)}
+          />
+        ) : pdf ? (
+          <header className={dragging ? "file-info dragging" : "file-info"}>
+            <div>
+              <strong>{pdf.fileName}</strong>
+              <span>
+                {pdf.pageCount} {pdf.pageCount === 1 ? "page" : "pages"} · {formatSize(pdf.sizeBytes)}
+              </span>
+            </div>
+            <button type="button" onClick={chooseFile} disabled={opening}>
+              Open another
+            </button>
+          </header>
         ) : (
-          <div className="dropzone">
-            <p>Drop a PDF here</p>
-            <button type="button" disabled title="Coming in Phase 0">
+          <div className={dragging ? "dropzone dragging" : "dropzone"}>
+            <p>{opening ? "Opening…" : "Drop a PDF here"}</p>
+            <button type="button" onClick={chooseFile} disabled={opening} aria-keyshortcuts="Control+O Meta+O">
               Choose file
             </button>
           </div>

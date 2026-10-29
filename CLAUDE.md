@@ -76,7 +76,7 @@ Status key: [x] done, [ ] to do. Each phase ends when its exit criterion is met 
 - [x] Range parsing and validation, file naming, preset loading, with tests
 - [x] Bundle a PDFium library per platform (pdfium-binaries) as a Tauri resource, and load it in `pdf.rs` (#2)
 - [x] `open_pdf`: name, page count and size; password prompt; clear errors for corrupt files (FR-01 to FR-05) (#3)
-- [ ] File picker and drag and drop (`@tauri-apps/plugin-dialog`) (#4)
+- [x] File picker and drag and drop (`@tauri-apps/plugin-dialog`) (#4)
 - [ ] Lazy thumbnail grid with a larger page view; thumbnails cached in a per-session temp folder (FR-10, FR-11, NFR-03) (#5)
 - [ ] `export_parts` with `lopdf`: write each range to a chosen folder, temp-then-rename, keep links and bookmarks where possible (FR-50, FR-54, NFR-09) (#6)
 - **Exit:** a custom range split saves correctly on the developer's machine.
@@ -87,7 +87,7 @@ Status key: [x] done, [ ] to do. Each phase ends when its exit criterion is met 
 - [ ] `run_preset` command: run the preset's strategy, then its `fallback` on `NoOutline`/`NothingFound` (FR-30) (#8)
 - [ ] Review screen: list of parts, editing boundaries, adding, removing, renaming and deleting parts, split marks on thumbnails (FR-12, FR-40 to FR-42) (#9)
 - [ ] Naming template UI, optional ZIP, an "Open folder" button (FR-51 to FR-55) (#10)
-- [ ] Settings file: theme, last folder, template, blank threshold (SRS 6.4) (#11)
+- [x] Settings file: theme, last folder, template, blank threshold (SRS 6.4) (#11)
 - [ ] Build a test set of 10 or more varied PDFs in `tests/fixtures/`, using only public or generated files with no personal data (#12)
 - **Exit:** 10 varied test PDFs split correctly with rules only.
 
