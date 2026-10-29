@@ -145,7 +145,15 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 /// Unix), and locks its lock file for as long as the app runs.
 fn start_session(cache_root: &Path) -> std::io::Result<Session> {
     fs::create_dir_all(cache_root)?;
-    let dir = tempfile::Builder::new().prefix(SESSION_PREFIX).tempdir_in(cache_root)?;
+    let mut builder = tempfile::Builder::new();
+    builder.prefix(SESSION_PREFIX);
+    // Created with these permissions, so the folder is never readable by others, even briefly.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        builder.permissions(fs::Permissions::from_mode(0o700));
+    }
+    let dir = builder.tempdir_in(cache_root)?;
     let lock = File::create(dir.path().join(LOCK_FILE))?;
     lock.try_lock()?;
     Ok(Session { dir, lock_file: lock, opened: 0 })
