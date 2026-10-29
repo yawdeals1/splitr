@@ -1,8 +1,7 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
-import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open } from "@tauri-apps/plugin-dialog";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import { aiBlock, aiBlockMessage, usesAi } from "./ai";
@@ -17,7 +16,7 @@ import { PasswordPrompt } from "./PasswordPrompt";
 import { PresetEditor } from "./PresetEditor";
 import { ReviewScreen } from "./ReviewScreen";
 import { useSettings } from "./settings";
-import { applyTheme, themeAttribute } from "./theme";
+import { showTheme } from "./theme";
 import {
   PASSWORD_REQUIRED,
   WRONG_PASSWORD,
@@ -28,6 +27,7 @@ import {
   type PresetList,
   type Range,
   type RangeMode,
+  type Settings,
   type Theme,
 } from "./types";
 import "./App.css";
@@ -39,7 +39,7 @@ const THEMES: { value: Theme; label: string }[] = [
   { value: "dark", label: "Dark" },
 ];
 
-function App() {
+function App({ initialSettings }: { initialSettings: Settings | null }) {
   const [pdf, setPdf] = useState<PdfInfo | null>(null);
   // Counts successful opens, so reopening the same file shows its pages afresh.
   const [opened, setOpened] = useState(0);
@@ -84,29 +84,24 @@ function App() {
   // NFR-11: where focus goes when the control that had it disappears.
   const presetSelect = useRef<HTMLSelectElement>(null);
   const splitButton = useRef<HTMLButtonElement>(null);
+  const openButton = useRef<HTMLButtonElement>(null);
+  const chooseButton = useRef<HTMLButtonElement>(null);
   // Set when Escape cancels "Confirm delete", so the "Delete preset" button that replaces it takes focus.
   const refocusDelete = useRef(false);
-  const { settings, loadError, update: updateSettings, saved: savedSettings } = useSettings();
-  const theme = settings?.theme ?? "system";
+  const { settings, loadError, update: updateSettings } = useSettings(initialSettings);
+  const theme = settings?.theme;
   const nameTemplate = template ?? settings?.nameTemplate ?? "{original} - {index} - {title}";
 
-  // FR-63: show the saved theme, in the page and (where the OS allows) the window title bar.
-  useEffect(() => {
-    applyTheme(document.documentElement, theme);
-    getCurrentWindow()
-      .setTheme(themeAttribute(theme))
-      .catch(() => {});
+  // FR-63: show the saved theme, in the page and (where the OS allows) the window title bar. This is
+  // the only place that shows it. It runs before paint, and not before settings have loaded, so the
+  // theme main.tsx loaded is never replaced by "system" for a moment.
+  useLayoutEffect(() => {
+    if (theme) showTheme(theme);
   }, [theme]);
 
   async function chooseTheme(value: Theme) {
-    applyTheme(document.documentElement, value);
     const problem = await updateSettings({ theme: value });
-    if (problem) {
-      // Go back to what is saved now, not to the theme when this click happened: an earlier
-      // click's save may have finished in the meantime.
-      applyTheme(document.documentElement, savedSettings()?.theme ?? "system");
-      setError(`The theme could not be saved: ${problem}`);
-    }
+    if (problem) setError(`The theme could not be saved: ${problem}`);
   }
 
   const loadPresets = () =>
@@ -209,6 +204,16 @@ function App() {
       unlisten.then((stop) => stop());
     };
   }, [openDropped]);
+
+  // NFR-11: when a file finishes opening, or fails to, focus that dropped to the page goes to the
+  // open button. The control that had it may be gone (the review screen closes) or was disabled
+  // while the file loaded. Focus that is still on a control (a drop while typing a range) stays.
+  const wasOpening = useRef(false);
+  useEffect(() => {
+    const focusLost = !document.activeElement || document.activeElement === document.body;
+    if (wasOpening.current && !opening && focusLost) (openButton.current ?? chooseButton.current)?.focus();
+    wasOpening.current = opening;
+  }, [opening]);
 
   // NFR-11: Ctrl+O / Cmd+O opens the file picker.
   useEffect(() => {
@@ -378,10 +383,12 @@ function App() {
                   {pdf.pageCount} {pdf.pageCount === 1 ? "page" : "pages"} · {formatSize(pdf.sizeBytes)}
                 </span>
               </div>
-              {/* Takes focus when this header appears (NFR-11): the first file opens, or a password
-                  prompt closes. Opening another file keeps focus where it was. */}
+              {/* Takes focus when this header appears (autoFocus: the first file opens, or a password
+                  prompt closes) and when focus was lost while a file loaded (the effect on `opening`),
+                  so focus never drops to the page (NFR-11). */}
               <button
                 type="button"
+                ref={openButton}
                 onClick={chooseFile}
                 disabled={opening}
                 autoFocus
@@ -405,7 +412,14 @@ function App() {
         ) : (
           <div className={dragging ? "dropzone dragging" : "dropzone"}>
             <p>{opening ? "Opening…" : "Drop a PDF here"}</p>
-            <button type="button" onClick={chooseFile} disabled={opening} autoFocus aria-keyshortcuts="Control+O Meta+O">
+            <button
+              type="button"
+              ref={chooseButton}
+              onClick={chooseFile}
+              disabled={opening}
+              autoFocus
+              aria-keyshortcuts="Control+O Meta+O"
+            >
               Choose file
             </button>
           </div>
@@ -600,12 +614,12 @@ function App() {
         <fieldset className="modes theme">
           <legend>Theme</legend>
           {THEMES.map(({ value, label }) => (
-            <label key={value} className={theme === value ? "active" : ""}>
+            <label key={value} className={(theme ?? "system") === value ? "active" : ""}>
               <input
                 type="radio"
                 name="theme"
                 value={value}
-                checked={theme === value}
+                checked={(theme ?? "system") === value}
                 disabled={!settings}
                 onChange={() => chooseTheme(value)}
               />

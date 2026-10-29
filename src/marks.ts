@@ -28,10 +28,32 @@ export function pageMarks(ranges: Range[], pageCount: number): PageMark[] {
   });
 }
 
-/** What a screen reader hears for a page tile, such as "Page 5, starts part 2: Results". */
-export function pageLabel(page: number, mark: PageMark | undefined): string {
-  if (!mark) return `Page ${page}`;
-  if (mark.part === null) return `Page ${page}, left out`;
-  if (mark.starts) return `Page ${page}, starts part ${mark.part}${mark.title ? `: ${mark.title}` : ""}`;
-  return `Page ${page}, part ${mark.part}`;
+/** How a page tile shows its mark (FR-12). */
+export interface TileMark {
+  /** "left-out", "starts-part", or undefined for an ordinary page. */
+  className: string | undefined;
+  /** The badge on the first page of a part, such as "Part 2 · Results"; null on other pages. */
+  badge: string | null;
+  /** The part's title, shown as the badge's tooltip; "" for none. */
+  title: string;
+  /** What a screen reader hears, such as "Page 5, starts part 2: Results". */
+  label: string;
+}
+
+/**
+ * The class, badge and label for page `page` (FR-12). The class and the badge come from the same
+ * branch, so a tile can't get the start-of-part edge without its badge, or a badge while left out.
+ */
+export function tileMark(page: number, mark: PageMark | undefined): TileMark {
+  const plain = { className: undefined, badge: null, title: "" };
+  if (!mark) return { ...plain, label: `Page ${page}` };
+  if (mark.part === null) return { ...plain, className: "left-out", label: `Page ${page}, left out` };
+  if (!mark.starts) return { ...plain, label: `Page ${page}, part ${mark.part}` };
+  const titled = (separator: string) => (mark.title ? `${separator}${mark.title}` : "");
+  return {
+    className: "starts-part",
+    badge: `Part ${mark.part}${titled(" · ")}`,
+    title: mark.title,
+    label: `Page ${page}, starts part ${mark.part}${titled(": ")}`,
+  };
 }

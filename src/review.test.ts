@@ -3,6 +3,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   canJoin,
+  focusAfter,
   gaps,
   mergeWithNext,
   pageCount,
@@ -101,4 +102,14 @@ test("accepts only whole pages within the document", () => {
   assert.equal(parsePage("7", 12), 7);
   assert.equal(parsePage(" 12 ", 12), 12);
   for (const text of ["", "0", "-2", "13", "1e10", "2.5", "abc"]) assert.equal(parsePage(text, 12), null, text);
+});
+
+test("focusAfter moves focus to the part an edit leaves in place", () => {
+  // A split focuses the new part's title; a join, the joined part's.
+  assert.equal(focusAfter({ kind: "split", part: 1 }), "title-2");
+  assert.equal(focusAfter({ kind: "join", part: 1 }), "title-1");
+  // A delete focuses the part that moved up, or the new last part.
+  assert.equal(focusAfter({ kind: "delete", part: 0, parts: 3 }), "title-0");
+  assert.equal(focusAfter({ kind: "delete", part: 2, parts: 3 }), "title-1");
+  assert.equal(focusAfter({ kind: "close-split", part: 4 }), "add-split-4");
 });

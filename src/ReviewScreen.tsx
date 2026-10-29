@@ -3,6 +3,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import {
   canJoin,
+  focusAfter,
   gaps,
   mergeWithNext,
   pageCount,
@@ -104,19 +105,19 @@ export function ReviewScreen({ totalPages, ranges, allowGaps, onChange, onBack, 
     const next = page === null ? null : splitAt(ranges, splitting.index, page);
     if (next) {
       restructure(next);
-      setFocusNext(`title-${splitting.index + 1}`);
+      setFocusNext(focusAfter({ kind: "split", part: splitting.index }));
     } else setSplitError(`Choose a page from ${part.start + 1} to ${part.end} to start the new part.`);
   }
 
   function deletePart(i: number) {
     setLeftOut([...leftOut, { start: ranges[i].start, end: ranges[i].end }]);
     restructure(removePart(ranges, i));
-    setFocusNext(`title-${Math.min(i, ranges.length - 2)}`);
+    setFocusNext(focusAfter({ kind: "delete", part: i, parts: ranges.length }));
   }
 
   function closeSplit(i: number) {
     cancelSplit();
-    setFocusNext(`add-split-${i}`);
+    setFocusNext(focusAfter({ kind: "close-split", part: i }));
   }
 
   const skipped = uncoveredPages(ranges, totalPages);
@@ -226,7 +227,7 @@ export function ReviewScreen({ totalPages, ranges, allowGaps, onChange, onBack, 
                       }
                       onClick={() => {
                         restructure(mergeWithNext(ranges, i));
-                        setFocusNext(`title-${i}`);
+                        setFocusNext(focusAfter({ kind: "join", part: i }));
                       }}
                     >
                       Join next
