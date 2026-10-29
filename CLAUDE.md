@@ -54,9 +54,14 @@ Splitr (working name) is Smart PDF Splitter: a local-first desktop app for Windo
 
 ### Workflow
 
-- Work on a branch, open a PR, and merge only when CI is green.
+- Every item in the build plan has a GitHub issue (number in brackets). One issue = one branch = one PR.
+- Branch names: `phase-N/<short-name>`, for example `phase-0/open-pdf`.
+- Never push to `main`. It is protected: changes land only through a PR with green CI (`frontend` and `rust` jobs). Only the repository owner may bypass, and agents must not use the bypass.
+- The PR body says `Closes #N` and fills in the PR template, including the security checklist. The owner reviews and merges; agents never merge their own PRs.
+- Keep each PR to its one issue. Put extra work you discover in a new issue instead of the current PR.
 - Run `cargo test` and `npm run build` before pushing.
 - Commit messages: imperative summary line, then a body that names the requirement IDs touched.
+- When a PR merges, tick its item in the build plan in the same PR (in both CLAUDE.md and AGENTS.md).
 
 ## Build plan
 
@@ -64,48 +69,49 @@ Status key: [x] done, [ ] to do. Each phase ends when its exit criterion is met 
 
 ### Phase 0: Prototype (open, preview, custom split)
 - [x] Tauri + React scaffold, CI, release workflow
+- [x] Repo workflow: issues per section, PR template, protected `main` (#1)
 - [x] Range parsing and validation, file naming, preset loading, with tests
-- [ ] Bundle a PDFium library per platform (pdfium-binaries) as a Tauri resource, and load it in `pdf.rs`
-- [ ] `open_pdf`: name, page count and size; password prompt; clear errors for corrupt files (FR-01 to FR-05)
-- [ ] File picker and drag and drop (`@tauri-apps/plugin-dialog`)
-- [ ] Lazy thumbnail grid with a larger page view; thumbnails cached in a per-session temp folder (FR-10, FR-11, NFR-03)
-- [ ] `export_parts` with `lopdf`: write each range to a chosen folder, temp-then-rename, keep links and bookmarks where possible (FR-50, FR-54, NFR-09)
+- [ ] Bundle a PDFium library per platform (pdfium-binaries) as a Tauri resource, and load it in `pdf.rs` (#2)
+- [ ] `open_pdf`: name, page count and size; password prompt; clear errors for corrupt files (FR-01 to FR-05) (#3)
+- [ ] File picker and drag and drop (`@tauri-apps/plugin-dialog`) (#4)
+- [ ] Lazy thumbnail grid with a larger page view; thumbnails cached in a per-session temp folder (FR-10, FR-11, NFR-03) (#5)
+- [ ] `export_parts` with `lopdf`: write each range to a chosen folder, temp-then-rename, keep links and bookmarks where possible (FR-50, FR-54, NFR-09) (#6)
 - **Exit:** a custom range split saves correctly on the developer's machine.
 
 ### Phase 1: Rule engine and review screen
 - [x] Fixed, outline, pattern and blank page strategy logic, with tests
-- [ ] Extract page text and the outline from PDFium into `DocumentText`
-- [ ] `run_preset` command: run the preset's strategy, then its `fallback` on `NoOutline`/`NothingFound` (FR-30)
-- [ ] Review screen: list of parts, editing boundaries, adding, removing, renaming and deleting parts, split marks on thumbnails (FR-12, FR-40 to FR-42)
-- [ ] Naming template UI, optional ZIP, an "Open folder" button (FR-51 to FR-55)
-- [ ] Settings file: theme, last folder, template, blank threshold (SRS 6.4)
-- [ ] Build a test set of 10 or more varied PDFs in `tests/fixtures/`, using only public or generated files with no personal data
+- [ ] Extract page text and the outline from PDFium into `DocumentText` (#7)
+- [ ] `run_preset` command: run the preset's strategy, then its `fallback` on `NoOutline`/`NothingFound` (FR-30) (#8)
+- [ ] Review screen: list of parts, editing boundaries, adding, removing, renaming and deleting parts, split marks on thumbnails (FR-12, FR-40 to FR-42) (#9)
+- [ ] Naming template UI, optional ZIP, an "Open folder" button (FR-51 to FR-55) (#10)
+- [ ] Settings file: theme, last folder, template, blank threshold (SRS 6.4) (#11)
+- [ ] Build a test set of 10 or more varied PDFs in `tests/fixtures/`, using only public or generated files with no personal data (#12)
 - **Exit:** 10 varied test PDFs split correctly with rules only.
 
 ### Phase 2: AI engine (Smart mode)
-- [ ] API key settings stored with `keyring`, an AI on/off switch and a consent dialog (FR-60 to FR-62)
-- [ ] Build excerpts (first and last lines of each page), in overlapping chunks for large files (FR-33, FR-34, NFR-04)
-- [ ] Claude API client in Rust (`reqwest`, HTTPS), using the Appendix A prompt; the model is configurable in settings
-- [ ] Strict JSON parsing, merging chunk results, `validate`, retrying once and then manual fixing (FR-35, FR-36)
-- [ ] Save a custom prompt as a user preset (FR-71)
-- [ ] Integration tests with a mocked AI provider
+- [ ] API key settings stored with `keyring`, an AI on/off switch and a consent dialog (FR-60 to FR-62) (#13)
+- [ ] Build excerpts (first and last lines of each page), in overlapping chunks for large files (FR-33, FR-34, NFR-04) (#14)
+- [ ] Claude API client in Rust (`reqwest`, HTTPS), using the Appendix A prompt; the model is configurable in settings (#15)
+- [ ] Strict JSON parsing, merging chunk results, `validate`, retrying once and then manual fixing (FR-35, FR-36) (#16)
+- [ ] Save a custom prompt as a user preset (FR-71) (#17)
+- [ ] Integration tests with a mocked AI provider (#18)
 - **Exit:** 80% of AI test files are correct after at most 2 range edits.
 
 ### Phase 3: Packaging and updates
-- [ ] Tauri updater plugin; updater signing key in GitHub secrets only (FR-64)
-- [ ] Release workflow publishes the update manifest
-- [ ] Light and dark themes with a manual toggle, plus a keyboard navigation pass (FR-63, NFR-11)
-- [ ] Check that installers are under 25 MB (NFR-13)
+- [ ] Tauri updater plugin; updater signing key in GitHub secrets only (FR-64) (#19)
+- [ ] Release workflow publishes the update manifest (#19)
+- [ ] Light and dark themes with a manual toggle, plus a keyboard navigation pass (FR-63, NFR-11) (#20)
+- [ ] Check that installers are under 25 MB (NFR-13) (#21)
 - **Exit:** installers run on clean Windows, macOS and Linux machines.
 
 ### Phase 4: v1.0 release
-- [ ] Fix bugs against the SRS 9.3 acceptance criteria
-- [ ] Download page with SmartScreen and Gatekeeper instructions, and a user guide
+- [ ] Fix bugs against the SRS 9.3 acceptance criteria (#22)
+- [ ] Download page with SmartScreen and Gatekeeper instructions, and a user guide (#23)
 - **Exit:** no open critical bugs.
 
 ### Phase 5: v1.1
-- [ ] OCR for pages without a text layer (FR-80)
-- [ ] Local AI model option (FR-81)
+- [ ] OCR for pages without a text layer (FR-80) (#24)
+- [ ] Local AI model option (FR-81) (#25)
 - **Exit:** scanned test PDFs split correctly.
 
 ## Open questions (from PRD 14)
