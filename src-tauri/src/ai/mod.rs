@@ -2,6 +2,8 @@
 //! the rest of the app doesn't know which one answers. Only the AI strategy calls these (NFR-06).
 
 pub mod claude;
+#[cfg(test)]
+pub mod mock;
 pub mod gemini;
 pub mod http;
 pub mod openai;

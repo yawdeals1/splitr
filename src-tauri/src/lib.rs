@@ -8,6 +8,8 @@ mod pdf;
 mod presets;
 mod ranges;
 mod settings;
+#[cfg(test)]
+mod smart_flow_tests;
 mod strategy;
 mod user_presets;
 mod viewer;
