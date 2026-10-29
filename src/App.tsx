@@ -4,7 +4,17 @@ import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open } from "@tauri-apps/plugin-dialog";
 import { baseName, formatSize, rejectReason } from "./file";
 import { PasswordPrompt } from "./PasswordPrompt";
-import { PASSWORD_REQUIRED, WRONG_PASSWORD, type PdfInfo, type Preset, type Range, type RangeMode } from "./types";
+import { PresetEditor } from "./PresetEditor";
+import {
+  PASSWORD_REQUIRED,
+  WRONG_PASSWORD,
+  type PdfInfo,
+  type Preset,
+  type PresetInput,
+  type PresetList,
+  type Range,
+  type RangeMode,
+} from "./types";
 import "./App.css";
 
 const CUSTOM_PROMPT = "__custom__";
@@ -24,11 +34,20 @@ function App() {
   const [fixedEvery, setFixedEvery] = useState(10);
   const [ranges, setRanges] = useState<Range[]>([]);
   const [error, setError] = useState("");
+  const [presetDraft, setPresetDraft] = useState<PresetInput | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState(false);
   // True while a file dialog is showing or a PDF is opening; drops and Ctrl+O bypass the disabled buttons.
   const busy = useRef(false);
 
+  const loadPresets = () =>
+    invoke<PresetList>("list_presets")
+      .then((list) => {
+        setPresets(list.presets);
+        if (list.problem) setError(list.problem);
+      })
+      .catch((e) => setError(String(e)));
   useEffect(() => {
-    invoke<Preset[]>("list_presets").then(setPresets).catch((e) => setError(String(e)));
+    loadPresets();
   }, []);
 
   // FR-01 to FR-05: open one PDF and show its details, ask for its password, or say why it can't be opened.
@@ -117,14 +136,37 @@ function App() {
 
   const categories = useMemo(() => [...new Set(presets.map((p) => p.category))], [presets]);
   const categoryPresets = presets.filter((p) => p.category === category);
+  const selectedPreset = categoryPresets.find((p) => p.id === presetId);
 
-  // FR-23: the preset list follows the selected category.
+  // FR-23: the preset list follows the selected category. A preset that's still in the list stays
+  // selected. If the category is gone (its last user preset was deleted), pick the first one.
   useEffect(() => {
-    if (!category && categories.length) setCategory(categories[0]);
+    if (categories.length && !categories.includes(category)) setCategory(categories[0]);
   }, [categories, category]);
   useEffect(() => {
-    setPresetId(categoryPresets[0]?.id ?? CUSTOM_PROMPT);
-  }, [category]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (!categoryPresets.some((p) => p.id === presetId)) setPresetId(categoryPresets[0]?.id ?? CUSTOM_PROMPT);
+    setPresetDraft(null);
+    setConfirmDelete(false);
+  }, [category, presets]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // FR-71: after saving, show the saved preset selected in its category.
+  async function presetSaved(preset: Preset) {
+    await loadPresets();
+    setCategory(preset.category);
+    setPresetId(preset.id);
+    setPresetDraft(null);
+  }
+
+  async function deletePreset(id: string) {
+    try {
+      await invoke("delete_user_preset", { id });
+      setPresetId("");
+      await loadPresets();
+    } catch (e) {
+      setError(String(e));
+    }
+    setConfirmDelete(false);
+  }
 
   async function split() {
     setError("");
@@ -221,7 +263,14 @@ function App() {
             </label>
             <label>
               Split preset
-              <select value={presetId} onChange={(e) => setPresetId(e.target.value)}>
+              <select
+                value={presetId}
+                onChange={(e) => {
+                  setPresetId(e.target.value);
+                  setPresetDraft(null);
+                  setConfirmDelete(false);
+                }}
+              >
                 {categoryPresets.map((p) => (
                   <option key={p.id} value={p.id}>
                     {p.name}
@@ -230,15 +279,59 @@ function App() {
                 <option value={CUSTOM_PROMPT}>Custom prompt</option>
               </select>
             </label>
-            {presetId === CUSTOM_PROMPT && (
-              <label>
-                Instruction
-                <textarea
-                  value={customPrompt}
-                  onChange={(e) => setCustomPrompt(e.target.value)}
-                  placeholder="Split whenever a new client name appears"
-                />
-              </label>
+            {presetDraft ? (
+              <PresetEditor
+                key={presetDraft.id ?? "new"}
+                draft={presetDraft}
+                categories={categories}
+                onSaved={presetSaved}
+                onCancel={() => setPresetDraft(null)}
+              />
+            ) : presetId === CUSTOM_PROMPT ? (
+              <>
+                <label>
+                  Instruction
+                  <textarea
+                    value={customPrompt}
+                    onChange={(e) => setCustomPrompt(e.target.value)}
+                    placeholder="Split whenever a new client name appears"
+                  />
+                </label>
+                <button
+                  type="button"
+                  disabled={!customPrompt.trim()}
+                  onClick={() => setPresetDraft({ id: null, name: "", category: "My presets", prompt: customPrompt })}
+                >
+                  Save as preset
+                </button>
+              </>
+            ) : (
+              selectedPreset?.user && (
+                <div className="row">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setPresetDraft({
+                        id: selectedPreset.id,
+                        name: selectedPreset.name,
+                        category: selectedPreset.category,
+                        prompt: selectedPreset.prompt,
+                      })
+                    }
+                  >
+                    Edit preset
+                  </button>
+                  {confirmDelete ? (
+                    <button type="button" className="danger" autoFocus onClick={() => deletePreset(selectedPreset.id)}>
+                      Confirm delete
+                    </button>
+                  ) : (
+                    <button type="button" onClick={() => setConfirmDelete(true)}>
+                      Delete preset
+                    </button>
+                  )}
+                </div>
+              )
             )}
           </>
         )}

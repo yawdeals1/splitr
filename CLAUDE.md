@@ -96,7 +96,7 @@ Status key: [x] done, [ ] to do. Each phase ends when its exit criterion is met 
 - [ ] Build excerpts (first and last lines of each page), in overlapping chunks for large files (FR-33, FR-34, NFR-04) (#14)
 - [ ] Claude API client in Rust (`reqwest`, HTTPS), using the Appendix A prompt; the model is configurable in settings (#15)
 - [ ] Strict JSON parsing, merging chunk results, `validate`, retrying once and then manual fixing (FR-35, FR-36) (#16)
-- [ ] Save a custom prompt as a user preset (FR-71) (#17)
+- [x] Save a custom prompt as a user preset (FR-71) (#17)
 - [ ] Integration tests with a mocked AI provider (#18)
 - [ ] Multiple API keys with automatic platform detection from the key prefix, verified with one call to that platform only (#27)
 - [ ] OpenAI (GPT) provider (#28)

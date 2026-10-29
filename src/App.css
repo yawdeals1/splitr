@@ -220,11 +220,25 @@ button.primary {
   font-weight: 500;
 }
 
-.password-prompt .row {
+.row {
   display: flex;
   gap: 8px;
 }
 
 .password-prompt .primary {
   margin-top: 0;
+}
+
+.preset-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+button.danger {
+  color: var(--error);
+  border-color: var(--error);
 }

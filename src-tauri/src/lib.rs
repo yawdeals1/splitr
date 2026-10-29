@@ -6,6 +6,7 @@ mod presets;
 mod ranges;
 mod settings;
 mod strategy;
+mod user_presets;
 
 use tauri::Manager;
 
@@ -32,6 +33,8 @@ pub fn run() {
             commands::fixed_ranges,
             commands::validate_ranges,
             commands::open_pdf,
+            commands::save_user_preset,
+            commands::delete_user_preset,
             commands::get_settings,
             commands::save_settings,
         ])

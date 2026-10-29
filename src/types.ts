@@ -10,6 +10,22 @@ export interface Preset {
   fallback?: StrategyKind | null;
   prompt: string;
   pattern?: string | null;
+  /** True for presets the user saved (FR-71). */
+  user?: boolean;
+}
+
+/** Mirrors user_presets::PresetList: every preset, and why the user's own are missing if they are. */
+export interface PresetList {
+  presets: Preset[];
+  problem: string | null;
+}
+
+/** What the interface sends to create (no id) or edit a user preset. */
+export interface PresetInput {
+  id: string | null;
+  category: string;
+  name: string;
+  prompt: string;
 }
 
 export interface Range {
