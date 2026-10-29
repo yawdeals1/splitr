@@ -87,7 +87,7 @@ Status key: [x] done, [ ] to do. Each phase ends when its exit criterion is met 
 - [ ] `run_preset` command: run the preset's strategy, then its `fallback` on `NoOutline`/`NothingFound` (FR-30) (#8)
 - [ ] Review screen: list of parts, editing boundaries, adding, removing, renaming and deleting parts, split marks on thumbnails (FR-12, FR-40 to FR-42) (#9)
 - [ ] Naming template UI, optional ZIP, an "Open folder" button (FR-51 to FR-55) (#10)
-- [ ] Settings file: theme, last folder, template, blank threshold (SRS 6.4) (#11)
+- [x] Settings file: theme, last folder, template, blank threshold (SRS 6.4) (#11)
 - [ ] Build a test set of 10 or more varied PDFs in `tests/fixtures/`, using only public or generated files with no personal data (#12)
 - **Exit:** 10 varied test PDFs split correctly with rules only.
 

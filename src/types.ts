@@ -26,3 +26,14 @@ export interface PdfInfo {
 }
 
 export type RangeMode = "custom" | "fixed" | "smart";
+
+export type Theme = "system" | "light" | "dark";
+
+/** Mirrors settings::Settings (SRS 6.4). API keys are never part of this. */
+export interface Settings {
+  theme: Theme;
+  lastOutputFolder: string | null;
+  nameTemplate: string;
+  blankThreshold: number;
+  aiConsent: boolean;
+}
