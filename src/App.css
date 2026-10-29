@@ -195,3 +195,36 @@ button.primary {
 .parts {
   margin-top: 16px;
 }
+
+.password-prompt {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-width: 360px;
+  margin: 48px auto;
+  padding: 20px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+}
+
+.password-prompt p {
+  margin: 0;
+  color: var(--muted);
+}
+
+.password-prompt label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-weight: 500;
+}
+
+.password-prompt .row {
+  display: flex;
+  gap: 8px;
+}
+
+.password-prompt .primary {
+  margin-top: 0;
+}

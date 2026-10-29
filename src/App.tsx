@@ -2,8 +2,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open } from "@tauri-apps/plugin-dialog";
-import { formatSize, rejectReason } from "./file";
-import type { PdfInfo, Preset, Range, RangeMode } from "./types";
+import { baseName, formatSize, rejectReason } from "./file";
+import { PasswordPrompt } from "./PasswordPrompt";
+import { PASSWORD_REQUIRED, WRONG_PASSWORD, type PdfInfo, type Preset, type Range, type RangeMode } from "./types";
 import "./App.css";
 
 const CUSTOM_PROMPT = "__custom__";
@@ -12,6 +13,8 @@ function App() {
   const [pdf, setPdf] = useState<PdfInfo | null>(null);
   const [dragging, setDragging] = useState(false);
   const [opening, setOpening] = useState(false);
+  // FR-03: an encrypted file waiting for its password.
+  const [locked, setLocked] = useState<{ path: string; message: string } | null>(null);
   const [mode, setMode] = useState<RangeMode>("smart");
   const [presets, setPresets] = useState<Preset[]>([]);
   const [category, setCategory] = useState("");
@@ -28,19 +31,36 @@ function App() {
     invoke<Preset[]>("list_presets").then(setPresets).catch((e) => setError(String(e)));
   }, []);
 
-  // FR-01, FR-02, FR-05: open one PDF and show its details, or say why it can't be opened.
-  const openPath = useCallback(async (path: string) => {
+  // FR-01 to FR-05: open one PDF and show its details, ask for its password, or say why it can't be opened.
+  const openPath = useCallback(async (path: string, password?: string) => {
     setError("");
     setOpening(true);
     try {
-      setPdf(await invoke<PdfInfo>("open_pdf", { path }));
+      setPdf(await invoke<PdfInfo>("open_pdf", { path, password }));
       setRanges([]);
+      setLocked(null);
     } catch (e) {
-      setError(String(e));
+      const message = String(e);
+      if (message === PASSWORD_REQUIRED || message === WRONG_PASSWORD) setLocked({ path, message });
+      else {
+        setLocked(null);
+        setError(message);
+      }
     } finally {
       setOpening(false);
     }
   }, []);
+
+  // FR-03: retry with the password. It goes only to open_pdf and isn't kept.
+  const unlock = useCallback(async (path: string, password: string) => {
+    if (busy.current) return;
+    busy.current = true;
+    try {
+      await openPath(path, password);
+    } finally {
+      busy.current = false;
+    }
+  }, [openPath]);
 
   const openDropped = useCallback(async (paths: string[]) => {
     if (busy.current) return;
@@ -125,7 +145,15 @@ function App() {
   return (
     <main className="layout">
       <section className="canvas" aria-label="Document">
-        {pdf ? (
+        {locked ? (
+          <PasswordPrompt
+            fileName={baseName(locked.path)}
+            message={locked.message}
+            busy={opening}
+            onSubmit={(password) => unlock(locked.path, password)}
+            onCancel={() => setLocked(null)}
+          />
+        ) : pdf ? (
           <header className={dragging ? "file-info dragging" : "file-info"}>
             <div>
               <strong>{pdf.fileName}</strong>
