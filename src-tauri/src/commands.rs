@@ -1,12 +1,13 @@
 //! Tauri commands called from the React interface.
 
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use tauri::ipc::Response;
 use tauri::{AppHandle, Manager};
 
 use crate::ai::claude::Claude;
-use crate::ai::{AiCalls, AiRequest, Provider};
+use crate::ai::{self, AiCalls, AiRequest, Provider};
 use crate::error::{Result, SplitError};
 use crate::export;
 use crate::keystore::{self, KeyStatus, OsStore};
@@ -124,9 +125,27 @@ pub async fn ask_ai(app: AppHandle, request: AiRequest) -> Result<String> {
     if !settings.ai_consent {
         return Err(SplitError::Ai("Accept the AI notice before Splitr sends page excerpts to Claude".into()));
     }
+    let platform = settings.ai_platform.as_str();
+    if platform != CLAUDE_PLATFORM {
+        // ChatGPT (#31) and the other platforms (#28 to #32) plug in here.
+        return Err(SplitError::Ai(match platform {
+            "chatgpt" => "Signing in with ChatGPT isn't available yet. Choose Claude under AI in Settings to use                           an API key for now"
+                .into(),
+            _ => "Smart mode can only use Claude for now. Choose Claude under AI in Settings".into(),
+        }));
+    }
+    let model = settings
+        .model_for(platform)
+        .ok_or_else(|| SplitError::Ai("Enter a model name under AI in Settings".into()))?;
     let key = key_store(|| keystore::key_for(&OsStore, CLAUDE_PLATFORM)).await?;
-    let claude = Claude::new(key, settings.ai_model)?;
+    let claude = Claude::new(key, model)?;
     app.state::<AiCalls>().run(claude.complete(&request)).await
+}
+
+/// The model each AI service uses when the user hasn't chosen one, for the settings screen.
+#[tauri::command]
+pub fn default_ai_models() -> BTreeMap<String, String> {
+    ai::default_models()
 }
 
 /// Stops the AI calls in progress. They end with `SplitError::AiCancelled`.

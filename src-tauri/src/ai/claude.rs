@@ -12,9 +12,6 @@ use serde_json::{Value, json};
 use super::{AiRequest, Provider, system_prompt, user_message};
 use crate::error::{Result, SplitError};
 
-/// The model used until the user picks another in Settings.
-pub const DEFAULT_MODEL: &str = "claude-opus-5-5";
-
 const API_URL: &str = "https://api.anthropic.com/v1/messages";
 const API_VERSION: &str = "2023-06-01";
 /// A reply is a short JSON list of ranges, so this leaves plenty of room after thinking.
@@ -198,6 +195,7 @@ mod tests {
     use std::thread;
 
     const KEY: &str = "sk-ant-api03-test-key-WXYZ";
+    const MODEL: &str = "claude-opus-5-5";
 
     fn request() -> AiRequest {
         AiRequest {
@@ -257,7 +255,7 @@ mod tests {
     #[test]
     fn sends_the_key_version_and_prompt_and_returns_the_text() {
         let (url, got) = serve("200 OK", "", OK);
-        let reply = run(&client(url, DEFAULT_MODEL)).unwrap();
+        let reply = run(&client(url, MODEL)).unwrap();
         assert_eq!(reply, r#"[{"start":1,"end":2,"title":"Book"}]"#);
 
         let raw = got.recv().unwrap();
@@ -267,7 +265,7 @@ mod tests {
         assert!(lower.contains("anthropic-version: 2023-06-01"));
         assert!(lower.contains(&format!("anthropic-beta: {FALLBACK_BETA}")));
         let body: Value = serde_json::from_str(&raw[raw.find("\r\n\r\n").unwrap() + 4..]).unwrap();
-        assert_eq!(body["model"], DEFAULT_MODEL);
+        assert_eq!(body["model"], MODEL);
         assert_eq!(body["fallbacks"], "default");
         assert!(body["system"].as_str().unwrap().contains("Task: Split by chapter"));
         let pages: Value = serde_json::from_str(body["messages"][0]["content"].as_str().unwrap()).unwrap();
@@ -316,7 +314,7 @@ mod tests {
             thread::sleep(Duration::from_secs(3));
             drop(stream);
         });
-        let claude = Claude::build(url, KEY.into(), DEFAULT_MODEL.into(), Duration::from_millis(300)).unwrap();
+        let claude = Claude::build(url, KEY.into(), MODEL.into(), Duration::from_millis(300)).unwrap();
         let err = run(&claude).unwrap_err().to_string();
         assert!(err.contains("didn't answer within"), "{err}");
         hold.join().unwrap();
@@ -326,13 +324,13 @@ mod tests {
     fn no_server_is_a_connection_error() {
         // Bind and drop to get a port nothing listens on.
         let port = TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
-        let err = run(&client(format!("http://127.0.0.1:{port}/v1/messages"), DEFAULT_MODEL)).unwrap_err();
+        let err = run(&client(format!("http://127.0.0.1:{port}/v1/messages"), MODEL)).unwrap_err();
         assert!(err.to_string().contains("couldn't reach Claude"), "{err}");
     }
 
     #[test]
     fn empty_requests_are_not_sent() {
-        let claude = client("http://127.0.0.1:9/v1/messages".into(), DEFAULT_MODEL);
+        let claude = client("http://127.0.0.1:9/v1/messages".into(), MODEL);
         let mut empty = request();
         empty.pages.clear();
         let err = tauri::async_runtime::block_on(claude.complete(&empty)).unwrap_err();
@@ -367,7 +365,8 @@ mod tests {
     fn real_claude_call() {
         use crate::keystore::{self, OsStore};
         let key = keystore::key_for(&OsStore, "anthropic").unwrap();
-        let claude = Claude::new(key, DEFAULT_MODEL.into()).unwrap();
+        let model = crate::ai::default_model("anthropic").unwrap();
+        let claude = Claude::new(key, model.into()).unwrap();
         let page = |page, head: &str| PageExcerpt { page, head: head.into(), tail: String::new() };
         let request = AiRequest {
             instruction: "Split this course material so each chapter is one part. Use chapter titles as part titles.".into(),

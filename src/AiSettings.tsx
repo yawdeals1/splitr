@@ -1,9 +1,10 @@
-// The AI section of the panel: the AI switch (FR-62), the API key (FR-60) and the consent status (FR-61).
+// The AI section of the panel: the AI switch (FR-62), the AI service and its model, the API key (FR-60)
+// and the consent status (FR-61).
 // The key goes straight to the backend, which keeps it in the OS credential store. After saving,
 // the interface only ever sees its last 4 characters (NFR-05).
 import { useCallback, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { AI_PLATFORM, AI_PLATFORM_NAME } from "./ai";
+import { AI_PLATFORM, AI_PLATFORM_NAME, AI_SERVICES } from "./ai";
 import type { KeyStatus, Settings } from "./types";
 
 /** The saved key's status for the AI platform: undefined while loading, null if it can't be read. */
@@ -40,8 +41,8 @@ export function useApiKey() {
   };
 }
 
-/** The Claude model name (#15). Saved when the field loses focus or on Enter; blank restores the default. */
-function ModelField({ saved, onSave }: { saved: string; onSave: (model: string) => void }) {
+/** The model for the chosen service. Saved when the field loses focus or on Enter; blank means the default. */
+function ModelField({ saved, fallback, onSave }: { saved: string; fallback: string; onSave: (model: string) => void }) {
   const [draft, setDraft] = useState(saved);
   useEffect(() => setDraft(saved), [saved]);
 
@@ -51,9 +52,10 @@ function ModelField({ saved, onSave }: { saved: string; onSave: (model: string) 
 
   return (
     <label>
-      Claude model
+      Model
       <input
         type="text"
+        placeholder={fallback}
         autoComplete="off"
         spellCheck={false}
         value={draft}
@@ -76,8 +78,14 @@ export function AiSettings({ settings, apiKey, onChange }: Props) {
   const [replacing, setReplacing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [problem, setProblem] = useState("");
+  const [defaults, setDefaults] = useState<Record<string, string>>({});
   const enabled = settings?.aiEnabled ?? false;
+  const service = settings?.aiPlatform ?? "chatgpt";
   const last4 = apiKey.status?.last4;
+
+  useEffect(() => {
+    invoke<Record<string, string>>("default_ai_models").then(setDefaults, () => setDefaults({}));
+  }, []);
 
   async function change(value: Partial<Settings>) {
     setProblem((await onChange(value)) ?? "");
@@ -106,6 +114,25 @@ export function AiSettings({ settings, apiKey, onChange }: Props) {
       </label>
 
       {enabled && (
+        <label>
+          AI service
+          <select value={service} disabled={!settings} onChange={(e) => change({ aiPlatform: e.target.value })}>
+            {AI_SERVICES.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.name}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+
+      {enabled && service === "chatgpt" && (
+        <p className="muted">
+          Signing in with your ChatGPT account is coming. Until then, choose {AI_PLATFORM_NAME} to use an API key.
+        </p>
+      )}
+
+      {enabled && service === AI_PLATFORM && (
         <>
           {last4 && !replacing ? (
             <div className="key-status">
@@ -162,7 +189,17 @@ export function AiSettings({ settings, apiKey, onChange }: Props) {
           <p className="muted">
             Kept in your system&rsquo;s credential store, never in a file. It is sent only to Anthropic.
           </p>
-          <ModelField saved={settings?.aiModel ?? ""} onSave={(aiModel) => change({ aiModel })} />
+        </>
+      )}
+
+      {enabled && (
+        <>
+          <ModelField
+            key={service}
+            saved={settings?.aiModels[service] ?? ""}
+            fallback={defaults[service] ?? ""}
+            onSave={(model) => change({ aiModels: { ...settings?.aiModels, [service]: model } })}
+          />
           {settings?.aiConsent && (
             <p className="muted">
               You agreed to the AI notice.{" "}

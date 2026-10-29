@@ -3,10 +3,40 @@
 
 pub mod claude;
 
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 use tokio::sync::watch;
 
 use crate::error::{Result, SplitError};
+
+/// The AI service Smart mode uses until the user picks another: their ChatGPT account (#31).
+pub const DEFAULT_PLATFORM: &str = "chatgpt";
+
+/// The model each service uses until the user sets another. The ChatGPT default is the model
+/// OpenAI's Sign in with ChatGPT docs use; the OpenAI API matches it. The OpenAI-compatible
+/// platforms keep theirs in #30's data file, and a custom platform has none.
+const DEFAULT_MODELS: &[(&str, &str)] = &[
+    ("chatgpt", "gpt-6.1-sol"),
+    ("openai", "gpt-6.1-sol"),
+    ("anthropic", "claude-opus-5-5"),
+    ("gemini", "gemini-4-argon"),
+];
+
+/// The default model for `platform`, if it has one.
+pub fn default_model(platform: &str) -> Option<&'static str> {
+    DEFAULT_MODELS.iter().find(|(id, _)| *id == platform).map(|(_, model)| *model)
+}
+
+/// Every default, for the settings screen.
+pub fn default_models() -> BTreeMap<String, String> {
+    DEFAULT_MODELS.iter().map(|(id, model)| (id.to_string(), model.to_string())).collect()
+}
+
+/// Services Smart mode can be set to: the ChatGPT account, or a platform with a saved key.
+pub fn is_platform(platform: &str) -> bool {
+    platform == "chatgpt" || crate::keystore::is_platform(platform)
+}
 
 /// One page in a request: short excerpts, never the whole page (FR-33, FR-61). Built by #14.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -93,6 +123,18 @@ mod tests {
         {
             assert!(prompt.contains(rule), "missing rule: {rule}");
         }
+    }
+
+    #[test]
+    fn chatgpt_is_the_default_and_every_default_is_a_known_platform() {
+        assert_eq!(default_model(DEFAULT_PLATFORM), Some("gpt-6.1-sol"));
+        assert_eq!(default_model("openai"), default_model("chatgpt"));
+        assert_eq!(default_model("custom"), None);
+        for (id, model) in DEFAULT_MODELS {
+            assert!(is_platform(id), "{id}");
+            assert!(!model.trim().is_empty());
+        }
+        assert!(!is_platform("../evil"));
     }
 
     #[test]

@@ -104,6 +104,11 @@ fn label(platform: &str) -> Result<&'static str> {
         .ok_or_else(|| SplitError::ApiKey(format!("Splitr doesn't support the AI platform \"{platform}\"")))
 }
 
+/// Whether keys can be saved for `platform`.
+pub fn is_platform(platform: &str) -> bool {
+    label(platform).is_ok()
+}
+
 fn last4(key: &str) -> String {
     let chars: Vec<char> = key.chars().collect();
     chars[chars.len().saturating_sub(4)..].iter().collect()

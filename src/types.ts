@@ -58,8 +58,10 @@ export interface Settings {
   /** AI features are on (FR-62). */
   aiEnabled: boolean;
   aiConsent: boolean;
-  /** The Claude model Smart mode uses. Blank means the default. */
-  aiModel: string;
+  /** The AI service Smart mode uses: "chatgpt" (the default) or a key platform such as "anthropic". */
+  aiPlatform: string;
+  /** Models the user chose, by service. A service that isn't listed uses its default. */
+  aiModels: Record<string, string>;
 }
 
 /** Mirrors keystore::KeyStatus: all the interface learns about a saved API key (NFR-05). */
