@@ -9,63 +9,63 @@ Who owns which open issue. Each issue already has its own branch on `origin`; ch
 
 The split follows code areas, so the two tracks rarely touch the same files. Swap an issue by editing this file in a PR.
 
-Status: "done, #PR" means merged; "in review, #PR" means a PR is open.
+Status: ✅ means merged; "In review" means a PR is open.
 
 ## Caleb (@yawdeals1)
 
-| Issue | Title | Branch |
-| --- | --- | --- |
-| #2 | PDF engine: bundle and load PDFium (done, #37) | `phase-0/2-bundle-pdfium` |
-| #3 | Open PDF: file info, password prompt and clear errors (done, #41) | `phase-0/3-open-pdf` |
-| #6 | Export parts with lopdf (done, #49) | `phase-0/6-export-parts` |
-| #7 | Extract page text and outline into DocumentText | `phase-1/7-extract-text` |
-| #8 | run_preset command with fallback strategies | `phase-1/8-run-preset` |
-| #12 | Test fixture set of 10+ PDFs | `phase-1/12-test-fixtures` |
-| #13 | API key storage, AI toggle and consent notice (done, #53) | `phase-2/13-api-key-storage` |
-| #14 | Page excerpts and overlapping chunks | `phase-2/14-excerpts-chunks` |
-| #15 | Claude API client (done, #58) | `phase-2/15-claude-client` |
-| #16 | AI response parsing, merging and validation (in review, #63) | `phase-2/16-ai-response-parsing` |
-| #64 | Smart mode: run AI presets and show the result on the review screen | `phase-2/64-smart-ai-flow` |
-| #31 | Connect a ChatGPT account (Sign in with ChatGPT) | `phase-2/31-chatgpt-signin` |
-| #19 | Auto-update with signed update manifest | `phase-3/19-auto-update` |
-| #21 | Installer size check and clean-machine install test | `phase-3/21-installer-size` |
-| #24 | OCR for pages without a text layer | `phase-5/24-ocr` |
-| #25 | Local AI model option | `phase-5/25-local-model` |
+| Status | Issue | Title | Branch |
+| --- | --- | --- | --- |
+| ✅ Done (#37) | #2 | PDF engine: bundle and load PDFium | `phase-0/2-bundle-pdfium` |
+| ✅ Done (#41) | #3 | Open PDF: file info, password prompt and clear errors | `phase-0/3-open-pdf` |
+| ✅ Done (#49) | #6 | Export parts with lopdf | `phase-0/6-export-parts` |
+|  | #7 | Extract page text and outline into DocumentText | `phase-1/7-extract-text` |
+|  | #8 | run_preset command with fallback strategies | `phase-1/8-run-preset` |
+|  | #12 | Test fixture set of 10+ PDFs | `phase-1/12-test-fixtures` |
+| ✅ Done (#53) | #13 | API key storage, AI toggle and consent notice | `phase-2/13-api-key-storage` |
+|  | #14 | Page excerpts and overlapping chunks | `phase-2/14-excerpts-chunks` |
+| ✅ Done (#58) | #15 | Claude API client | `phase-2/15-claude-client` |
+| In review (#63) | #16 | AI response parsing, merging and validation | `phase-2/16-ai-response-parsing` |
+|  | #64 | Smart mode: run AI presets and show the result on the review screen | `phase-2/64-smart-ai-flow` |
+|  | #31 | Connect a ChatGPT account (Sign in with ChatGPT) | `phase-2/31-chatgpt-signin` |
+|  | #19 | Auto-update with signed update manifest | `phase-3/19-auto-update` |
+|  | #21 | Installer size check and clean-machine install test | `phase-3/21-installer-size` |
+|  | #24 | OCR for pages without a text layer | `phase-5/24-ocr` |
+|  | #25 | Local AI model option | `phase-5/25-local-model` |
 
 #19 needs the updater signing key in GitHub secrets, and #31 needs the owner to confirm OpenAI's developer terms, so both stay with the owner.
 
 ## @iamromelalvin7
 
-| Issue | Title | Branch |
-| --- | --- | --- |
-| #4 | File picker and drag and drop (done, #38) | `phase-0/4-file-picker` |
-| #5 | Lazy thumbnail grid and page viewer (done, #46) | `phase-0/5-thumbnail-grid` |
-| #9 | Review and edit screen (done, #42) | `phase-1/9-review-screen` |
-| #10 | Naming template, ZIP and open folder (done, #50) | `phase-1/10-naming-zip-open-folder` |
-| #11 | Settings file (done, #39) | `phase-1/11-settings-file` |
-| #17 | Save a custom prompt as a reusable preset (done, #40) | `phase-2/17-custom-prompt-preset` |
-| #18 | Integration tests with a mocked AI provider | `phase-2/18-mock-ai-tests` |
-| #27 | Bring your own key: multiple AI platforms with automatic key detection (in review, #44) | `phase-2/27-multi-key-detection` |
-| #28 | OpenAI (GPT) provider (in review, #59) | `phase-2/28-openai-provider` |
-| #29 | Google Gemini provider (in review, #60) | `phase-2/29-gemini-provider` |
-| #30 | OpenAI-compatible platforms: OpenRouter, NVIDIA and others (in review, #61) | `phase-2/30-openai-compatible` |
-| #32 | OpenCode Go provider (in review, #62) | `phase-2/32-opencode-go` |
-| #20 | Theme toggle and keyboard navigation pass (done, #47) | `phase-3/20-theme-keyboard` |
-| #22 | v1.0 acceptance pass | `phase-4/22-acceptance-pass` |
-| #23 | Download page and user guide (done, #43) | `phase-4/23-download-page` |
+| Status | Issue | Title | Branch |
+| --- | --- | --- | --- |
+| ✅ Done (#38) | #4 | File picker and drag and drop | `phase-0/4-file-picker` |
+| ✅ Done (#46) | #5 | Lazy thumbnail grid and page viewer | `phase-0/5-thumbnail-grid` |
+| ✅ Done (#42) | #9 | Review and edit screen | `phase-1/9-review-screen` |
+| ✅ Done (#50) | #10 | Naming template, ZIP and open folder | `phase-1/10-naming-zip-open-folder` |
+| ✅ Done (#39) | #11 | Settings file | `phase-1/11-settings-file` |
+| ✅ Done (#40) | #17 | Save a custom prompt as a reusable preset | `phase-2/17-custom-prompt-preset` |
+|  | #18 | Integration tests with a mocked AI provider | `phase-2/18-mock-ai-tests` |
+| In review (#44) | #27 | Bring your own key: multiple AI platforms with automatic key detection | `phase-2/27-multi-key-detection` |
+| In review (#59) | #28 | OpenAI (GPT) provider | `phase-2/28-openai-provider` |
+| In review (#60) | #29 | Google Gemini provider | `phase-2/29-gemini-provider` |
+| In review (#61) | #30 | OpenAI-compatible platforms: OpenRouter, NVIDIA and others | `phase-2/30-openai-compatible` |
+| In review (#62) | #32 | OpenCode Go provider | `phase-2/32-opencode-go` |
+| ✅ Done (#47) | #20 | Theme toggle and keyboard navigation pass | `phase-3/20-theme-keyboard` |
+|  | #22 | v1.0 acceptance pass | `phase-4/22-acceptance-pass` |
+| ✅ Done (#43) | #23 | Download page and user guide | `phase-4/23-download-page` |
 
 ## Other finished issues
 
 Workflow issues and follow-ups from code reviews, outside the two tracks.
 
-| Issue | Title | PR |
-| --- | --- | --- |
-| #1 | Repo workflow: PR template and issue-linked PRs | #26 |
-| #33 | Update build plan for multiple AI platforms | #34 |
-| #36 | Split open issues between the two contributors | #35 |
-| #48 | Show split marks on thumbnails | #51 |
-| #54 | Keyboard and theme fixes from the review of #47 | #55 |
-| #56 | Pass each thumbnail its finished mark (review of #51) | #57 |
+| Status | Issue | Title | PR |
+| --- | --- | --- | --- |
+| ✅ Done | #1 | Repo workflow: PR template and issue-linked PRs | #26 |
+| ✅ Done | #33 | Update build plan for multiple AI platforms | #34 |
+| ✅ Done | #36 | Split open issues between the two contributors | #35 |
+| ✅ Done | #48 | Show split marks on thumbnails | #51 |
+| ✅ Done | #54 | Keyboard and theme fixes from the review of #47 | #55 |
+| ✅ Done | #56 | Pass each thumbnail its finished mark (review of #51) | #57 |
 
 ## Hand-offs between tracks
 
