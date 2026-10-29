@@ -32,10 +32,24 @@ test("pageMarks ignores pages past the document and lets a later part win an ove
   assert.deepEqual(
     marks.map((m) => [m.part, m.starts]),
     [
-      [1, false],
+      [1, true],
       [1, false],
       [2, true],
       [2, false],
+    ],
+  );
+});
+
+test("pageMarks marks an earlier part again where it resumes after an overlap", () => {
+  const marks = pageMarks([range(1, 5, "Book"), range(3, 4, "Insert")], 5);
+  assert.deepEqual(
+    marks.map((m) => [m.part, m.starts, m.title]),
+    [
+      [1, true, "Book"],
+      [1, false, ""],
+      [2, true, "Insert"],
+      [2, false, ""],
+      [1, true, "Book"],
     ],
   );
 });

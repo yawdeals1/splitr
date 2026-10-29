@@ -6,26 +6,26 @@ export interface PageMark {
   part: number | null;
   /** True on the first page of a part. */
   starts: boolean;
-  /** The part's title on its first page, otherwise "". */
+  /** The part's title where the part starts, otherwise "". */
   title: string;
 }
 
 /**
  * One mark per page, from page 1 to `pageCount`, for the parts on the review screen. An empty list
- * means there are no parts yet, so nothing is marked. Pages outside 1 to `pageCount` are ignored,
- * and if parts overlap while being edited, the later part wins.
+ * means there are no parts yet, so nothing is marked. Pages outside 1 to `pageCount` are ignored.
+ * If parts overlap while being edited, the later part wins; a page starts a part whenever its part
+ * differs from the page before, so an earlier part that resumes after the overlap is marked again.
  */
 export function pageMarks(ranges: Range[], pageCount: number): PageMark[] {
   if (ranges.length === 0) return [];
-  const marks: PageMark[] = Array.from({ length: pageCount }, () => ({ part: null, starts: false, title: "" }));
+  const parts: (number | null)[] = Array(pageCount).fill(null);
   ranges.forEach((r, i) => {
-    const first = Math.max(1, r.start);
-    const last = Math.min(pageCount, r.end);
-    for (let page = first; page <= last; page++) {
-      marks[page - 1] = { part: i + 1, starts: page === r.start, title: page === r.start ? r.title.trim() : "" };
-    }
+    for (let page = Math.max(1, r.start); page <= Math.min(pageCount, r.end); page++) parts[page - 1] = i + 1;
   });
-  return marks;
+  return parts.map((part, i) => {
+    const starts = part !== null && (i === 0 || parts[i - 1] !== part);
+    return { part, starts, title: starts ? ranges[part - 1].title.trim() : "" };
+  });
 }
 
 /** What a screen reader hears for a page tile, such as "Page 5, starts part 2: Results". */

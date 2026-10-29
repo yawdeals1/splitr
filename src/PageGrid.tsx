@@ -2,7 +2,7 @@
 // memory; pages scrolled far away release their image, so a 1,000-page file stays light.
 // Once there are parts, each tile shows where a part starts and which pages are left out (FR-12).
 import { memo, useEffect, useMemo, useRef, useState } from "react";
-import { pageLabel, pageMarks, type PageMark } from "./marks";
+import { pageLabel, pageMarks } from "./marks";
 import { renderWidth } from "./thumbnails";
 import type { Range } from "./types";
 import { usePageImage } from "./usePageImage";
@@ -52,6 +52,7 @@ export function PageGrid({ path, pageCount, ranges, onOpen }: Props) {
             part={marks[i]?.part}
             starts={marks[i]?.starts ?? false}
             title={marks[i]?.title ?? ""}
+            label={pageLabel(i + 1, marks[i])}
           />
         ))}
     </ol>
@@ -70,9 +71,11 @@ interface ThumbnailProps {
   part: number | null | undefined;
   starts: boolean;
   title: string;
+  /** What a screen reader hears for the tile. */
+  label: string;
 }
 
-const Thumbnail = memo(function Thumbnail({ path, page, width, observer, onOpen, part, starts, title }: ThumbnailProps) {
+const Thumbnail = memo(function Thumbnail({ path, page, width, observer, onOpen, part, starts, title, label }: ThumbnailProps) {
   const tile = useRef<HTMLLIElement>(null);
   const [visible, setVisible] = useState(false);
   const { url, error } = usePageImage(path, page, width, visible);
@@ -88,12 +91,11 @@ const Thumbnail = memo(function Thumbnail({ path, page, width, observer, onOpen,
     };
   }, [observer]);
 
-  const mark: PageMark | undefined = part === undefined ? undefined : { part, starts, title };
   const className = part === null ? "left-out" : starts ? "starts-part" : undefined;
 
   return (
     <li ref={tile} className={className}>
-      <button type="button" onClick={() => onOpen(page)} aria-label={pageLabel(page, mark)} title={error}>
+      <button type="button" onClick={() => onOpen(page)} aria-label={label} title={error}>
         <span className="page-image">
           {url ? <img src={url} alt="" draggable={false} /> : error && <span className="page-error">!</span>}
           {starts && (
