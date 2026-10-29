@@ -31,4 +31,6 @@ jobs:
           workspaces: src-tauri
       # tauri::generate_context! needs the frontend dist folder to exist.
       - run: mkdir -p dist
+      # tauri-build needs the PDFium resource, and the pdf tests load it.
+      - run: node scripts/fetch-pdfium.mjs
       - run: cargo test --manifest-path src-tauri/Cargo.toml

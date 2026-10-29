@@ -16,6 +16,7 @@ Splitr (working name) is Smart PDF Splitter: a local-first desktop app for Windo
 | Task | Command |
 | --- | --- |
 | Install dependencies | `npm install` |
+| Download the PDFium library (once; `tauri dev` and `tauri build` also run it) | `npm run fetch-pdfium` |
 | Run the app | `npm run tauri dev` |
 | Frontend type-check and build | `npm run build` |
 | Rust tests | `cargo test --manifest-path src-tauri/Cargo.toml` |
@@ -28,7 +29,7 @@ Splitr (working name) is Smart PDF Splitter: a local-first desktop app for Windo
 - `src-tauri/src/strategy/`: one module per split strategy behind the `Strategy` trait (NFR-14). Add a strategy as a new module; don't change the others.
 - `src-tauri/src/ranges.rs`: range parsing and validation (FR-20, FR-35). Every proposed range list goes through `validate`.
 - `src-tauri/src/naming.rs`: output file names (FR-51, FR-52).
-- `src-tauri/src/pdf.rs`: the only place that touches PDF libraries.
+- `src-tauri/src/pdf.rs`: the only place that touches PDF libraries. PDFium loads at startup from the `pdfium/` resource folder, which `scripts/fetch-pdfium.mjs` fills (never commit the binaries).
 - `presets/presets.json`: presets are data, not code (FR-72). The `bundled_presets_are_valid` test checks the file.
 - `src/types.ts`: TypeScript mirrors of the Rust types. Update it whenever a serialized Rust type changes.
 
@@ -73,7 +74,7 @@ Status key: [x] done, [ ] to do. Each phase ends when its exit criterion is met 
 - [x] Tauri + React scaffold, CI, release workflow
 - [x] Repo workflow: issues per section, PR template, protected `main` (#1)
 - [x] Range parsing and validation, file naming, preset loading, with tests
-- [ ] Bundle a PDFium library per platform (pdfium-binaries) as a Tauri resource, and load it in `pdf.rs` (#2)
+- [x] Bundle a PDFium library per platform (pdfium-binaries) as a Tauri resource, and load it in `pdf.rs` (#2)
 - [ ] `open_pdf`: name, page count and size; password prompt; clear errors for corrupt files (FR-01 to FR-05) (#3)
 - [ ] File picker and drag and drop (`@tauri-apps/plugin-dialog`) (#4)
 - [ ] Lazy thumbnail grid with a larger page view; thumbnails cached in a per-session temp folder (FR-10, FR-11, NFR-03) (#5)
