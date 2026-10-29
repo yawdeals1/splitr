@@ -461,3 +461,68 @@ button.danger {
   color: var(--error);
   border-color: var(--error);
 }
+
+/* FR-60 to FR-62: the AI section of the panel. */
+.ai-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.ai-settings legend {
+  padding: 0 4px;
+  font-weight: 600;
+}
+
+.ai-settings p {
+  margin: 0;
+  font-size: 13px;
+}
+
+.panel label.check {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+}
+
+.key-status,
+.key-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+button.link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  text-decoration: underline;
+}
+
+/* FR-61: the AI notice. */
+.ai-consent {
+  max-width: min(480px, calc(100vw - 48px));
+  padding: 20px 24px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  color: var(--text);
+  background: var(--surface);
+}
+
+.ai-consent::backdrop {
+  background: rgb(0 0 0 / 0.6);
+}
+
+.ai-consent h2 {
+  margin-top: 0;
+  font-size: 1.1rem;
+}
+
+.ai-consent .primary {
+  margin-top: 0;
+}

@@ -7,6 +7,7 @@ use tauri::{AppHandle, Manager};
 
 use crate::error::{Result, SplitError};
 use crate::export;
+use crate::keystore::{self, KeyStatus, OsStore};
 use crate::pdf::PdfInfo;
 use crate::presets::{self, Preset};
 use crate::ranges::{self, Range};
@@ -79,6 +80,31 @@ pub async fn save_settings(app: AppHandle, settings: Settings) -> Result<Setting
     tauri::async_runtime::spawn_blocking(move || settings::save(&path, &settings))
         .await
         .map_err(|e| SplitError::SettingsSave(e.to_string()))?
+}
+
+/// Runs a credential store call off the UI thread (NFR-02): the store may wait for the user to
+/// unlock it.
+async fn key_store<T: Send + 'static>(work: impl FnOnce() -> Result<T> + Send + 'static) -> Result<T> {
+    tauri::async_runtime::spawn_blocking(work)
+        .await
+        .map_err(|e| SplitError::ApiKey(format!("The credential store didn't respond ({e})")))?
+}
+
+/// Saves an API key in the OS credential store (FR-60, NFR-05). Only its last 4 characters come back.
+#[tauri::command]
+pub async fn save_api_key(platform: String, key: String) -> Result<KeyStatus> {
+    key_store(move || keystore::save(&OsStore, &platform, &key)).await
+}
+
+/// Whether a key is saved for `platform`, and its last 4 characters. Never the key itself (NFR-05).
+#[tauri::command]
+pub async fn api_key_status(platform: String) -> Result<KeyStatus> {
+    key_store(move || keystore::status(&OsStore, &platform)).await
+}
+
+#[tauri::command]
+pub async fn delete_api_key(platform: String) -> Result<KeyStatus> {
+    key_store(move || keystore::delete(&OsStore, &platform)).await
 }
 
 #[tauri::command]

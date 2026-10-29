@@ -55,5 +55,14 @@ export interface Settings {
   lastOutputFolder: string | null;
   nameTemplate: string;
   blankThreshold: number;
+  /** AI features are on (FR-62). */
+  aiEnabled: boolean;
   aiConsent: boolean;
+}
+
+/** Mirrors keystore::KeyStatus: all the interface learns about a saved API key (NFR-05). */
+export interface KeyStatus {
+  platform: string;
+  /** The key's last 4 characters, or null when none is saved. */
+  last4: string | null;
 }

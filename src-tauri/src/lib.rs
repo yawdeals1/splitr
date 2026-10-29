@@ -1,6 +1,7 @@
 mod commands;
 mod error;
 mod export;
+mod keystore;
 mod naming;
 mod pdf;
 mod presets;
@@ -55,6 +56,9 @@ pub fn run() {
             commands::delete_user_preset,
             commands::get_settings,
             commands::save_settings,
+            commands::save_api_key,
+            commands::api_key_status,
+            commands::delete_api_key,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

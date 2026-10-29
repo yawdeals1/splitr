@@ -4,6 +4,9 @@ import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open } from "@tauri-apps/plugin-dialog";
+import { aiBlock, aiBlockMessage, usesAi } from "./ai";
+import { AiConsent } from "./AiConsent";
+import { AiSettings, useApiKey } from "./AiSettings";
 import { baseName, formatSize, partNames, rejectReason } from "./file";
 import { PageGrid } from "./PageGrid";
 import { PageViewer } from "./PageViewer";
@@ -57,6 +60,9 @@ function App() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [exporting, setExporting] = useState(false);
+  const apiKey = useApiKey();
+  // FR-61: true while the AI notice is showing.
+  const [askConsent, setAskConsent] = useState(false);
   // FR-03: the open PDF's password, kept in memory only, so export can read the file again.
   const password = useRef<string | undefined>(undefined);
   const [presetDraft, setPresetDraft] = useState<PresetInput | null>(null);
@@ -238,7 +244,8 @@ function App() {
     }
   }
 
-  async function split() {
+  // `consented` is true right after the user agrees, before the saved setting reaches `settings`.
+  async function split(consented = false) {
     setError("");
     setNotice("");
     if (!pdf) return setError("Open a PDF first.");
@@ -249,6 +256,13 @@ function App() {
       } else if (mode === "fixed") {
         next = await invoke<Range[]>("fixed_ranges", { pageCount: pdf.pageCount, every: fixedEvery });
       } else {
+        // FR-60 to FR-62: AI runs only when it is on, a key is saved and the user agreed to the notice.
+        if (usesAi(presetId === CUSTOM_PROMPT ? null : selectedPreset ?? null)) {
+          if (!settings) throw "Settings are still loading.";
+          const block = aiBlock({ ...settings, aiConsent: settings.aiConsent || consented }, apiKey.hasKey);
+          if (block === "consent") return setAskConsent(true);
+          if (block) throw aiBlockMessage(block);
+        }
         throw "Smart split is not implemented yet.";
       }
     } catch (e) {
@@ -260,6 +274,13 @@ function App() {
     setAllowGaps(mode === "custom");
     setReviewId((n) => n + 1);
     setRanges(next);
+  }
+
+  async function consentGiven() {
+    setAskConsent(false);
+    const problem = await updateSettings({ aiConsent: true });
+    if (problem) return setError(`Your answer could not be saved: ${problem}`);
+    await split(true);
   }
 
   // FR-50: ask for a folder, then save one PDF per part there.
@@ -506,14 +527,16 @@ function App() {
                 </div>
               )
             )}
+            <AiSettings settings={settings} apiKey={apiKey} onChange={updateSettings} />
           </>
         )}
 
-        <button type="button" className="primary" onClick={split} ref={splitButton}>
+        <button type="button" className="primary" onClick={() => split()} ref={splitButton}>
           Split
         </button>
         {error && <p className="error" role="alert">{error}</p>}
         {notice && <p className="notice" role="status">{notice}</p>}
+        {askConsent && <AiConsent onAgree={consentGiven} onCancel={() => setAskConsent(false)} />}
 
         <fieldset className="modes theme">
           <legend>Theme</legend>
