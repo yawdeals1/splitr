@@ -41,6 +41,9 @@
     ],
     "resources": [
       "pdfium/*"
-    ]
+    ],
+    "macOS": {
+      "minimumSystemVersion": "11.0"
+    }
   }
 }
