@@ -4,6 +4,7 @@ mod naming;
 mod pdf;
 mod presets;
 mod ranges;
+mod settings;
 mod strategy;
 mod viewer;
 
@@ -36,6 +37,8 @@ pub fn run() {
             commands::validate_ranges,
             commands::open_pdf,
             commands::render_page,
+            commands::get_settings,
+            commands::save_settings,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

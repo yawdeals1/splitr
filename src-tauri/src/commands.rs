@@ -1,5 +1,7 @@
 //! Tauri commands called from the React interface.
 
+use std::path::PathBuf;
+
 use tauri::ipc::Response;
 use tauri::{AppHandle, Manager};
 
@@ -7,8 +9,34 @@ use crate::error::{Result, SplitError};
 use crate::pdf::PdfInfo;
 use crate::presets::{self, Preset};
 use crate::ranges::{self, Range};
+use crate::settings::{self, Settings};
 use crate::strategy::{DocumentText, FixedStrategy, Strategy};
 use crate::viewer::Viewer;
+
+fn settings_path(app: &AppHandle) -> Result<PathBuf> {
+    let dir = app.path().app_config_dir().map_err(|e| {
+        SplitError::SettingsLoad(format!("Splitr could not find its settings folder ({e})"))
+    })?;
+    Ok(dir.join(settings::FILE_NAME))
+}
+
+/// SRS 6.4. Runs off the UI thread (NFR-02): the config folder may be on a slow or synced drive.
+#[tauri::command]
+pub async fn get_settings(app: AppHandle) -> Result<Settings> {
+    let path = settings_path(&app)?;
+    tauri::async_runtime::spawn_blocking(move || settings::load(&path))
+        .await
+        .map_err(|e| SplitError::SettingsLoad(e.to_string()))?
+}
+
+/// Saves and returns the settings as stored, after replacing unusable values with defaults.
+#[tauri::command]
+pub async fn save_settings(app: AppHandle, settings: Settings) -> Result<Settings> {
+    let path = settings_path(&app)?;
+    tauri::async_runtime::spawn_blocking(move || settings::save(&path, &settings))
+        .await
+        .map_err(|e| SplitError::SettingsSave(e.to_string()))?
+}
 
 #[tauri::command]
 pub fn list_presets() -> Vec<Preset> {
