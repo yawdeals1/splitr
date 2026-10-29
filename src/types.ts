@@ -14,6 +14,12 @@ export interface Preset {
   user?: boolean;
 }
 
+/** Mirrors user_presets::PresetList: every preset, and why the user's own are missing if they are. */
+export interface PresetList {
+  presets: Preset[];
+  problem: string | null;
+}
+
 /** What the interface sends to create (no id) or edit a user preset. */
 export interface PresetInput {
   id: string | null;

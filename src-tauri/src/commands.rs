@@ -9,32 +9,53 @@ use crate::pdf::{self, PdfInfo};
 use crate::presets::{self, Preset};
 use crate::ranges::{self, Range};
 use crate::strategy::{DocumentText, FixedStrategy, Strategy};
-use crate::user_presets::{self, PresetInput};
+use crate::user_presets::{self, PresetInput, PresetList};
 
 fn user_presets_path(app: &AppHandle) -> Result<PathBuf> {
-    let dir = app.path().app_config_dir().map_err(|e| SplitError::Presets(e.to_string()))?;
+    let dir = app.path().app_config_dir().map_err(|e| {
+        SplitError::Presets(format!("Splitr could not find the folder where it keeps your presets ({e})."))
+    })?;
     Ok(dir.join(user_presets::FILE_NAME))
 }
 
-/// Bundled presets followed by the user's own (FR-70, FR-71).
+/// Runs file work for a command off the UI thread (NFR-02). The config folder may be on a slow or
+/// synced drive.
+async fn blocking<T: Send + 'static>(work: impl FnOnce() -> Result<T> + Send + 'static) -> Result<T> {
+    tauri::async_runtime::spawn_blocking(work)
+        .await
+        .map_err(|e| SplitError::Presets(format!("Your presets could not be updated ({e}).")))?
+}
+
+/// Bundled presets followed by the user's own (FR-70, FR-71). If the user's presets can't be read,
+/// the bundled ones are still listed and `problem` says why the others are missing.
 #[tauri::command]
-pub fn list_presets(app: AppHandle) -> Vec<Preset> {
-    let mut all = presets::bundled();
-    if let Ok(path) = user_presets_path(&app) {
-        all.extend(user_presets::load(&path));
-    }
-    all
+pub async fn list_presets(app: AppHandle) -> PresetList {
+    let mut presets = presets::bundled();
+    let user = match user_presets_path(&app) {
+        Ok(path) => blocking(move || user_presets::load(&path)).await,
+        Err(e) => Err(e),
+    };
+    let problem = match user {
+        Ok(user) => {
+            presets.extend(user);
+            None
+        }
+        Err(e) => Some(e.to_string()),
+    };
+    PresetList { presets, problem }
 }
 
 /// Creates or edits a user preset (FR-71).
 #[tauri::command]
-pub fn save_user_preset(app: AppHandle, preset: PresetInput) -> Result<Preset> {
-    user_presets::save(&user_presets_path(&app)?, preset)
+pub async fn save_user_preset(app: AppHandle, preset: PresetInput) -> Result<Preset> {
+    let path = user_presets_path(&app)?;
+    blocking(move || user_presets::save(&path, preset)).await
 }
 
 #[tauri::command]
-pub fn delete_user_preset(app: AppHandle, id: String) -> Result<()> {
-    user_presets::delete(&user_presets_path(&app)?, &id)
+pub async fn delete_user_preset(app: AppHandle, id: String) -> Result<()> {
+    let path = user_presets_path(&app)?;
+    blocking(move || user_presets::delete(&path, &id)).await
 }
 
 #[tauri::command]

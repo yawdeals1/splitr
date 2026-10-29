@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { PresetEditor } from "./PresetEditor";
-import type { PdfInfo, Preset, PresetInput, Range, RangeMode } from "./types";
+import type { PdfInfo, Preset, PresetInput, PresetList, Range, RangeMode } from "./types";
 import "./App.css";
 
 const CUSTOM_PROMPT = "__custom__";
@@ -20,7 +20,13 @@ function App() {
   const [presetDraft, setPresetDraft] = useState<PresetInput | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
-  const loadPresets = () => invoke<Preset[]>("list_presets").then(setPresets).catch((e) => setError(String(e)));
+  const loadPresets = () =>
+    invoke<PresetList>("list_presets")
+      .then((list) => {
+        setPresets(list.presets);
+        if (list.problem) setError(list.problem);
+      })
+      .catch((e) => setError(String(e)));
   useEffect(() => {
     loadPresets();
   }, []);
@@ -29,9 +35,10 @@ function App() {
   const categoryPresets = presets.filter((p) => p.category === category);
   const selectedPreset = categoryPresets.find((p) => p.id === presetId);
 
-  // FR-23: the preset list follows the selected category. A preset that's still in the list stays selected.
+  // FR-23: the preset list follows the selected category. A preset that's still in the list stays
+  // selected. If the category is gone (its last user preset was deleted), pick the first one.
   useEffect(() => {
-    if (!category && categories.length) setCategory(categories[0]);
+    if (categories.length && !categories.includes(category)) setCategory(categories[0]);
   }, [categories, category]);
   useEffect(() => {
     if (!categoryPresets.some((p) => p.id === presetId)) setPresetId(categoryPresets[0]?.id ?? CUSTOM_PROMPT);

@@ -34,7 +34,12 @@ export function PresetEditor({ draft, categories, onSaved, onCancel }: Props) {
       className="preset-editor"
       aria-label={draft.id ? "Edit preset" : "Save as preset"}
       onSubmit={save}
-      onKeyDown={(e) => e.key === "Escape" && onCancel()}
+      onKeyDown={(e) => {
+        // Escape in the category field closes its suggestion list, and during IME input it ends the
+        // composition, so neither should discard the form.
+        const inList = e.target instanceof HTMLInputElement && e.target.list !== null;
+        if (e.key === "Escape" && !e.nativeEvent.isComposing && !inList) onCancel();
+      }}
     >
       <label>
         Preset name
