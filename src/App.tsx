@@ -1,12 +1,17 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { getCurrentWebview } from "@tauri-apps/api/webview";
+import { open } from "@tauri-apps/plugin-dialog";
+import { formatSize, rejectReason } from "./file";
 import type { PdfInfo, Preset, Range, RangeMode } from "./types";
 import "./App.css";
 
 const CUSTOM_PROMPT = "__custom__";
 
 function App() {
-  const [pdf] = useState<PdfInfo | null>(null);
+  const [pdf, setPdf] = useState<PdfInfo | null>(null);
+  const [dragging, setDragging] = useState(false);
+  const [opening, setOpening] = useState(false);
   const [mode, setMode] = useState<RangeMode>("smart");
   const [presets, setPresets] = useState<Preset[]>([]);
   const [category, setCategory] = useState("");
@@ -20,6 +25,55 @@ function App() {
   useEffect(() => {
     invoke<Preset[]>("list_presets").then(setPresets).catch((e) => setError(String(e)));
   }, []);
+
+  // FR-01, FR-02, FR-05: open one PDF and show its details, or say why it can't be opened.
+  const openPaths = useCallback(async (paths: string[]) => {
+    const reason = rejectReason(paths);
+    if (reason) return setError(reason);
+    if (paths.length === 0) return;
+    setError("");
+    setOpening(true);
+    try {
+      setPdf(await invoke<PdfInfo>("open_pdf", { path: paths[0] }));
+      setRanges([]);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setOpening(false);
+    }
+  }, []);
+
+  const chooseFile = useCallback(async () => {
+    const path = await open({ multiple: false, directory: false, filters: [{ name: "PDF", extensions: ["pdf"] }] });
+    if (path) await openPaths([path]);
+  }, [openPaths]);
+
+  // FR-01: Tauri drag-drop events give real file paths, which HTML drag events don't.
+  useEffect(() => {
+    const unlisten = getCurrentWebview().onDragDropEvent(({ payload }) => {
+      if (payload.type === "enter" || payload.type === "over") setDragging(true);
+      else if (payload.type === "leave") setDragging(false);
+      else if (payload.type === "drop") {
+        setDragging(false);
+        openPaths(payload.paths);
+      }
+    });
+    return () => {
+      unlisten.then((stop) => stop());
+    };
+  }, [openPaths]);
+
+  // NFR-11: Ctrl+O / Cmd+O opens the file picker.
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "o") {
+        e.preventDefault();
+        chooseFile();
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [chooseFile]);
 
   const categories = useMemo(() => [...new Set(presets.map((p) => p.category))], [presets]);
   const categoryPresets = presets.filter((p) => p.category === category);
@@ -52,13 +106,21 @@ function App() {
     <main className="layout">
       <section className="canvas" aria-label="Document">
         {pdf ? (
-          <p>
-            {pdf.fileName} · {pdf.pageCount} pages
-          </p>
+          <header className={dragging ? "file-info dragging" : "file-info"}>
+            <div>
+              <strong>{pdf.fileName}</strong>
+              <span>
+                {pdf.pageCount} {pdf.pageCount === 1 ? "page" : "pages"} · {formatSize(pdf.sizeBytes)}
+              </span>
+            </div>
+            <button type="button" onClick={chooseFile} disabled={opening}>
+              Open another
+            </button>
+          </header>
         ) : (
-          <div className="dropzone">
-            <p>Drop a PDF here</p>
-            <button type="button" disabled title="Coming in Phase 0">
+          <div className={dragging ? "dropzone dragging" : "dropzone"}>
+            <p>{opening ? "Opening…" : "Drop a PDF here"}</p>
+            <button type="button" onClick={chooseFile} disabled={opening} aria-keyshortcuts="Control+O Meta+O">
               Choose file
             </button>
           </div>

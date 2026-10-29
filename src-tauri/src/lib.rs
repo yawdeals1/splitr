@@ -12,6 +12,7 @@ use tauri::Manager;
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
         // Load PDFium from the bundled resource folder. A failure is reported by every PDF command.
         .setup(|app| {
             match app.path().resource_dir() {
