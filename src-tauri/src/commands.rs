@@ -12,20 +12,28 @@ use crate::settings::{self, Settings};
 use crate::strategy::{DocumentText, FixedStrategy, Strategy};
 
 fn settings_path(app: &AppHandle) -> Result<PathBuf> {
-    let dir = app.path().app_config_dir().map_err(|e| SplitError::Settings(e.to_string()))?;
+    let dir = app.path().app_config_dir().map_err(|e| {
+        SplitError::SettingsLoad(format!("Splitr could not find its settings folder ({e})"))
+    })?;
     Ok(dir.join(settings::FILE_NAME))
 }
 
-/// SRS 6.4. Falls back to defaults if the file is missing or corrupt.
+/// SRS 6.4. Runs off the UI thread (NFR-02): the config folder may be on a slow or synced drive.
 #[tauri::command]
-pub fn get_settings(app: AppHandle) -> Settings {
-    settings_path(&app).map(|p| settings::load(&p)).unwrap_or_default()
+pub async fn get_settings(app: AppHandle) -> Result<Settings> {
+    let path = settings_path(&app)?;
+    tauri::async_runtime::spawn_blocking(move || settings::load(&path))
+        .await
+        .map_err(|e| SplitError::SettingsLoad(e.to_string()))?
 }
 
 /// Saves and returns the settings as stored, after replacing unusable values with defaults.
 #[tauri::command]
-pub fn save_settings(app: AppHandle, settings: Settings) -> Result<Settings> {
-    settings::save(&settings_path(&app)?, &settings)
+pub async fn save_settings(app: AppHandle, settings: Settings) -> Result<Settings> {
+    let path = settings_path(&app)?;
+    tauri::async_runtime::spawn_blocking(move || settings::save(&path, &settings))
+        .await
+        .map_err(|e| SplitError::SettingsSave(e.to_string()))?
 }
 
 #[tauri::command]
