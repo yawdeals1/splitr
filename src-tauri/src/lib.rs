@@ -35,6 +35,8 @@ pub fn run() {
             commands::validate_ranges,
             commands::open_pdf,
             commands::export_parts,
+            commands::export_zip,
+            commands::part_names,
             commands::save_user_preset,
             commands::delete_user_preset,
             commands::get_settings,

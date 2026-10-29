@@ -6,6 +6,7 @@ use tauri::{AppHandle, Manager};
 
 use crate::error::{Result, SplitError};
 use crate::export;
+use crate::naming;
 use crate::pdf::{self, PdfInfo};
 use crate::presets::{self, Preset};
 use crate::ranges::{self, Range};
@@ -106,6 +107,30 @@ pub async fn export_parts(
     tauri::async_runtime::spawn_blocking(move || export::export(&path, password.as_deref(), &ranges, &folder, &names))
         .await
         .map_err(|e| SplitError::ExportFailed(e.to_string()))?
+}
+
+/// Like `export_parts`, but bundles the parts into `<zip_name>.zip` in `folder` (FR-53).
+#[tauri::command]
+pub async fn export_zip(
+    path: String,
+    password: Option<String>,
+    ranges: Vec<Range>,
+    folder: String,
+    names: Vec<String>,
+    zip_name: String,
+) -> Result<String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        export::export_zip(&path, password.as_deref(), &ranges, &folder, &names, &zip_name)
+    })
+    .await
+    .map_err(|e| SplitError::ExportFailed(e.to_string()))?
+}
+
+/// File names for parts with these titles, from the user's template (FR-51). The interface uses
+/// it for the live preview and for the names it passes to `export_parts`.
+#[tauri::command]
+pub fn part_names(template: String, original: String, titles: Vec<String>) -> Vec<String> {
+    naming::part_names(&template, &original, &titles)
 }
 
 #[tauri::command]

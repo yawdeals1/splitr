@@ -29,6 +29,8 @@ pdfium-render = { version = "0.9.4", default-features = false, features = ["pdfi
 lopdf = "0.46"
 # Temp files for writing parts before renaming them (NFR-09), see src/export.rs.
 tempfile = "3"
+# Bundles parts into one ZIP (FR-53). No compression features: PDF content is compressed already.
+zip = { version = "9.1.3", default-features = false }
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration
 [profile.release]

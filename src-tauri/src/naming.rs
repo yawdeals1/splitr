@@ -1,15 +1,47 @@
 //! Output file names (FR-51, FR-52).
-#![allow(dead_code)]
 
 use std::collections::HashSet;
 
-/// Fills a template such as "{original} - {index} - {title}".
-pub fn render(template: &str, index: usize, title: &str, original: &str) -> String {
-    let name = template
-        .replace("{index}", &format!("{index:02}"))
+/// Separators trimmed from around an empty `{title}` and from the ends of a name.
+const SEPARATORS: &[char] = &[' ', '-', '_', '.', ','];
+
+/// Fills a template such as "{original} - {index} - {title}" for part `index` of `total` (FR-51).
+/// `{index}` is zero-padded to the width of `total` (at least 2), so names sort in order. An empty
+/// title takes the separator before it along, so the name doesn't end in " - ". The result is
+/// sanitized; [`dedupe`] makes it unique.
+pub fn render(template: &str, index: usize, total: usize, title: &str, original: &str) -> String {
+    let width = total.to_string().len().max(2);
+    let title = title.trim();
+    let mut name = template.to_string();
+    if title.is_empty() {
+        while let Some(at) = name.find("{title}") {
+            let start = name[..at].trim_end_matches(SEPARATORS).len();
+            name.replace_range(start..at + "{title}".len(), "");
+        }
+    }
+    let name = name
+        .replace("{index}", &format!("{index:0width$}"))
         .replace("{title}", title)
         .replace("{original}", original);
-    sanitize(&name)
+    sanitize(name.trim_matches(SEPARATORS))
+}
+
+/// The file names (without ".pdf") for parts with these `titles`, from `template` (FR-51).
+pub fn part_names(template: &str, original: &str, titles: &[String]) -> Vec<String> {
+    let original = strip_pdf(original);
+    titles
+        .iter()
+        .enumerate()
+        .map(|(i, title)| render(template, i + 1, titles.len(), title, original))
+        .collect()
+}
+
+/// `name` without a trailing ".pdf" in any letter case.
+pub fn strip_pdf(name: &str) -> &str {
+    match name.len().checked_sub(4) {
+        Some(at) if name.is_char_boundary(at) && name[at..].eq_ignore_ascii_case(".pdf") => &name[..at],
+        _ => name,
+    }
 }
 
 /// Makes a name safe on Windows, macOS and Linux.
@@ -50,7 +82,45 @@ mod tests {
 
     #[test]
     fn renders_template() {
-        assert_eq!(render("{index} - {title}", 3, "Memory Hierarchy", "book"), "03 - Memory Hierarchy");
+        assert_eq!(render("{index} - {title}", 3, 10, "Memory Hierarchy", "book"), "03 - Memory Hierarchy");
+        assert_eq!(render("{original}_{index}", 1, 1, "", "book"), "book_01");
+        assert_eq!(render("{title}: {original}", 1, 1, "A/B", "book"), "A_B_ book");
+    }
+
+    #[test]
+    fn index_is_padded_to_the_part_count() {
+        assert_eq!(render("{index}", 7, 9, "", "b"), "07");
+        assert_eq!(render("{index}", 7, 120, "", "b"), "007");
+        assert_eq!(render("{index}", 120, 120, "", "b"), "120");
+    }
+
+    #[test]
+    fn an_empty_title_drops_its_separator() {
+        let t = "{original} - {index} - {title}";
+        assert_eq!(render(t, 1, 2, "", "book"), "book - 01");
+        assert_eq!(render(t, 1, 2, "   ", "book"), "book - 01");
+        assert_eq!(render("{title} - {index}", 2, 2, "", "book"), "02");
+        assert_eq!(render("{original} - {title} - {index}", 2, 2, "", "book"), "book - 02");
+        assert_eq!(render("{title}", 1, 1, "", "book"), "part");
+    }
+
+    #[test]
+    fn part_names_number_every_part() {
+        let titles = ["Intro".to_string(), String::new()];
+        assert_eq!(
+            part_names("{original} - {index} - {title}", "Book.PDF", &titles),
+            ["Book - 01 - Intro", "Book - 02"]
+        );
+        assert!(part_names("{index}", "a.pdf", &[]).is_empty());
+    }
+
+    #[test]
+    fn strips_the_pdf_extension() {
+        assert_eq!(strip_pdf("a.pdf"), "a");
+        assert_eq!(strip_pdf("a.PDF"), "a");
+        assert_eq!(strip_pdf("a.pdf.zip"), "a.pdf.zip");
+        assert_eq!(strip_pdf("pdf"), "pdf");
+        assert_eq!(strip_pdf("é.pdf"), "é");
     }
 
     #[test]
