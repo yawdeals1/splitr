@@ -54,6 +54,7 @@ function App() {
   const busy = useRef(false);
   // NFR-11: where focus goes when the control that had it disappears.
   const presetSelect = useRef<HTMLSelectElement>(null);
+  const splitButton = useRef<HTMLButtonElement>(null);
   const { settings, update: updateSettings } = useSettings();
   const theme = settings?.theme ?? "system";
 
@@ -281,7 +282,10 @@ function App() {
             ranges={ranges}
             allowGaps={allowGaps}
             onChange={setRanges}
-            onBack={() => setRanges([])}
+            onBack={() => {
+              setRanges([]);
+              splitButton.current?.focus();
+            }}
             onExport={() => setError("Export is not available yet.")}
           />
         )}
@@ -415,7 +419,7 @@ function App() {
           </>
         )}
 
-        <button type="button" className="primary" onClick={split}>
+        <button type="button" className="primary" onClick={split} ref={splitButton}>
           Split
         </button>
         {error && <p className="error" role="alert">{error}</p>}
