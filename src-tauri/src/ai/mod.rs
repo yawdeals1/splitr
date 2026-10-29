@@ -4,6 +4,7 @@
 pub mod claude;
 pub mod http;
 pub mod openai;
+pub mod response;
 
 use std::collections::BTreeMap;
 
@@ -57,18 +58,33 @@ pub struct AiRequest {
     pub pages: Vec<PageExcerpt>,
 }
 
-/// A platform that turns a request into the model's reply text. The reply is parsed and
-/// validated by the caller (FR-35, #16).
+/// A platform that turns a request into the model's reply text. `response` parses and validates
+/// the reply (FR-35).
 pub trait Provider {
     async fn complete(&self, request: &AiRequest) -> Result<String>;
 }
 
-/// Sends `request` to `platform` with its saved `key` and the chosen `model`, and returns the
-/// reply text. The key goes only to that platform (NFR-05).
-pub async fn complete(platform: &str, key: String, model: String, request: &AiRequest) -> Result<String> {
+/// The provider for the platform the user chose. It holds that platform's key, which goes only
+/// there (NFR-05).
+pub enum Chosen {
+    Claude(Claude),
+    OpenAi(OpenAi),
+}
+
+impl Provider for Chosen {
+    async fn complete(&self, request: &AiRequest) -> Result<String> {
+        match self {
+            Chosen::Claude(p) => p.complete(request).await,
+            Chosen::OpenAi(p) => p.complete(request).await,
+        }
+    }
+}
+
+/// A client for `platform` with its saved `key` and the chosen `model`.
+pub fn provider(platform: &str, key: String, model: String) -> Result<Chosen> {
     match platform {
-        "anthropic" => Claude::new(key, model)?.complete(request).await,
-        "openai" => OpenAi::new(key, model)?.complete(request).await,
+        "anthropic" => Ok(Chosen::Claude(Claude::new(key, model)?)),
+        "openai" => Ok(Chosen::OpenAi(OpenAi::new(key, model)?)),
         _ => Err(unsupported(platform)),
     }
 }
@@ -171,12 +187,9 @@ mod tests {
         assert!(is_supported("anthropic") && is_supported("openai"));
         assert!(!is_supported("chatgpt") && !is_supported("gemini"));
         assert!(unsupported("chatgpt").to_string().contains("ChatGPT isn't available yet"));
-        let err = tauri::async_runtime::block_on(complete("gemini", "k".into(), "m".into(), &AiRequest {
-            instruction: "x".into(),
-            pages: vec![],
-        }))
-        .unwrap_err();
+        let err = provider("gemini", "k".into(), "m".into()).err().unwrap();
         assert!(err.to_string().contains("can't use this AI service yet"), "{err}");
+        assert!(matches!(provider("openai", "k".into(), "m".into()), Ok(Chosen::OpenAi(_))));
     }
 
     #[test]
