@@ -2,9 +2,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open } from "@tauri-apps/plugin-dialog";
-import { baseName, formatSize, rejectReason } from "./file";
+import { baseName, formatSize, partNames, rejectReason } from "./file";
 import { PasswordPrompt } from "./PasswordPrompt";
 import { PresetEditor } from "./PresetEditor";
+import { useSettings } from "./settings";
 import {
   PASSWORD_REQUIRED,
   WRONG_PASSWORD,
@@ -34,6 +35,11 @@ function App() {
   const [fixedEvery, setFixedEvery] = useState(10);
   const [ranges, setRanges] = useState<Range[]>([]);
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [exporting, setExporting] = useState(false);
+  const { settings, update: updateSettings } = useSettings();
+  // FR-03: the open PDF's password, kept in memory only, so export can read the file again.
+  const password = useRef<string | undefined>(undefined);
   const [presetDraft, setPresetDraft] = useState<PresetInput | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
   // True while a file dialog is showing or a PDF is opening; drops and Ctrl+O bypass the disabled buttons.
@@ -51,11 +57,13 @@ function App() {
   }, []);
 
   // FR-01 to FR-05: open one PDF and show its details, ask for its password, or say why it can't be opened.
-  const openPath = useCallback(async (path: string, password?: string) => {
+  const openPath = useCallback(async (path: string, pw?: string) => {
     setError("");
+    setNotice("");
     setOpening(true);
     try {
-      setPdf(await invoke<PdfInfo>("open_pdf", { path, password }));
+      setPdf(await invoke<PdfInfo>("open_pdf", { path, password: pw }));
+      password.current = pw;
       setRanges([]);
       setLocked(null);
     } catch (e) {
@@ -70,12 +78,12 @@ function App() {
     }
   }, []);
 
-  // FR-03: retry with the password. It goes only to open_pdf and isn't kept.
-  const unlock = useCallback(async (path: string, password: string) => {
+  // FR-03: retry with the password. It goes only to the backend and is never saved.
+  const unlock = useCallback(async (path: string, pw: string) => {
     if (busy.current) return;
     busy.current = true;
     try {
-      await openPath(path, password);
+      await openPath(path, pw);
     } finally {
       busy.current = false;
     }
@@ -170,17 +178,52 @@ function App() {
 
   async function split() {
     setError("");
+    setNotice("");
     if (!pdf) return setError("Open a PDF first.");
+    if (busy.current) return;
+    busy.current = true;
     try {
+      let parts: Range[];
       if (mode === "custom") {
-        setRanges(await invoke<Range[]>("parse_custom_ranges", { input: customRanges, pageCount: pdf.pageCount }));
+        parts = await invoke<Range[]>("parse_custom_ranges", { input: customRanges, pageCount: pdf.pageCount });
       } else if (mode === "fixed") {
-        setRanges(await invoke<Range[]>("fixed_ranges", { pageCount: pdf.pageCount, every: fixedEvery }));
+        parts = await invoke<Range[]>("fixed_ranges", { pageCount: pdf.pageCount, every: fixedEvery });
       } else {
-        setError("Smart split is not implemented yet.");
+        return setError("Smart split is not implemented yet.");
       }
+      setRanges(parts);
+      await saveParts(pdf, parts);
     } catch (e) {
       setError(String(e));
+    } finally {
+      busy.current = false;
+    }
+  }
+
+  // FR-50: ask for a folder, then save one PDF per part there.
+  async function saveParts(file: PdfInfo, parts: Range[]) {
+    const folder = await open({
+      directory: true,
+      multiple: false,
+      title: "Choose a folder for the parts",
+      defaultPath: settings?.lastOutputFolder ?? undefined,
+    });
+    if (!folder) return;
+    setExporting(true);
+    try {
+      const names = partNames(file.fileName, parts.map((r) => r.title));
+      const saved = await invoke<string[]>("export_parts", {
+        path: file.path,
+        password: password.current,
+        ranges: parts,
+        folder,
+        names,
+      });
+      setNotice(`Saved ${saved.length} ${saved.length === 1 ? "file" : "files"} to ${folder}`);
+      // Remembering the folder is a convenience, so a failure here isn't shown.
+      await updateSettings({ lastOutputFolder: folder });
+    } finally {
+      setExporting(false);
     }
   }
 
@@ -336,10 +379,11 @@ function App() {
           </>
         )}
 
-        <button type="button" className="primary" onClick={split}>
-          Split
+        <button type="button" className="primary" onClick={split} disabled={exporting || opening}>
+          {exporting ? "Saving…" : "Split"}
         </button>
         {error && <p className="error" role="alert">{error}</p>}
+        {notice && <p className="notice" role="status">{notice}</p>}
       </aside>
     </main>
   );

@@ -192,6 +192,11 @@ button.primary {
   color: var(--error);
 }
 
+.notice {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
 .parts {
   margin-top: 16px;
 }

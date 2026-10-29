@@ -1,7 +1,7 @@
 // Unit tests for file.ts. Run with `npm test` (Node's built-in test runner).
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { baseName, formatSize, isPdfPath, rejectReason } from "./file.ts";
+import { baseName, formatSize, isPdfPath, partNames, rejectReason } from "./file.ts";
 
 test("isPdfPath accepts .pdf in any letter case", () => {
   assert.equal(isPdfPath("C:\\docs\\a.pdf"), true);
@@ -33,4 +33,10 @@ test("rejectReason explains what can't be opened", () => {
   assert.match(rejectReason([]) ?? "", /Drop a PDF file/);
   assert.equal(rejectReason(["/a.pdf", "/b.pdf"]), "Drop one PDF at a time.");
   assert.match(rejectReason(["/x/notes.txt"]) ?? "", /"notes.txt" is not a PDF/);
+});
+
+test("partNames numbers parts and adds titles", () => {
+  assert.deepEqual(partNames("Book.PDF", ["", " Intro ", ""]), ["Book - 01", "Book - 02 - Intro", "Book - 03"]);
+  assert.deepEqual(partNames("scan.pdf.pdf", [""]), ["scan.pdf - 01"]);
+  assert.deepEqual(partNames("notes", []), []);
 });

@@ -1,5 +1,6 @@
 mod commands;
 mod error;
+mod export;
 mod naming;
 mod pdf;
 mod presets;
@@ -33,6 +34,7 @@ pub fn run() {
             commands::fixed_ranges,
             commands::validate_ranges,
             commands::open_pdf,
+            commands::export_parts,
             commands::save_user_preset,
             commands::delete_user_preset,
             commands::get_settings,

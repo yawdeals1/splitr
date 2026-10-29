@@ -27,8 +27,7 @@ tauri-plugin-dialog = "2"
 # version that scripts/fetch-pdfium.mjs downloads; change both together.
 pdfium-render = { version = "0.9.4", default-features = false, features = ["pdfium_7881", "image_latest", "thread_safe"] }
 lopdf = "0.46"
-
-[dev-dependencies]
+# Temp files for writing parts before renaming them (NFR-09), see src/export.rs.
 tempfile = "3"
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration
