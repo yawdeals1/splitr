@@ -3,19 +3,32 @@
 
 /**
  * The page that `key` moves to from `page` in a grid `columns` wide, or null if the key doesn't
- * move. Moves stop at the first and last page.
+ * move. Moves stop at the first and last page; ArrowDown into a short last row goes to the last page.
  */
 export function gridMove(key: string, page: number, pageCount: number, columns: number): number | null {
-  const step: Record<string, number> = {
-    ArrowLeft: -1,
-    ArrowRight: 1,
-    ArrowUp: -columns,
-    ArrowDown: columns,
-  };
-  if (key === "Home") return 1;
-  if (key === "End") return pageCount;
-  if (!(key in step)) return null;
-  const to = page + step[key];
+  let to: number;
+  switch (key) {
+    case "Home":
+      return 1;
+    case "End":
+      return pageCount;
+    case "ArrowLeft":
+      to = page - 1;
+      break;
+    case "ArrowRight":
+      to = page + 1;
+      break;
+    case "ArrowUp":
+      to = page - columns;
+      break;
+    case "ArrowDown":
+      to = page + columns;
+      // A row below exists but is too short to have a page under this one.
+      if (to > pageCount && Math.ceil(page / columns) < Math.ceil(pageCount / columns)) return pageCount;
+      break;
+    default:
+      return null;
+  }
   return to < 1 || to > pageCount ? page : to;
 }
 

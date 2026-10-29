@@ -13,6 +13,14 @@ import { usePageImage } from "./usePageImage";
 const THUMB_WIDTH = 140;
 /** Pages within this distance of the visible area render ahead of scrolling. */
 const PREFETCH_MARGIN = "600px 0px";
+/** The keys that move between tiles (NFR-11). */
+const GRID_KEYS = "ArrowLeft ArrowRight ArrowUp ArrowDown Home End";
+
+/** The page number of the tile button `target`, or null if it isn't one. */
+function tilePage(target: EventTarget): number | null {
+  const page = target instanceof HTMLElement ? target.dataset.page : undefined;
+  return page ? Number(page) : null;
+}
 
 interface Props {
   path: string;
@@ -41,10 +49,12 @@ export function PageGrid({ path, pageCount, ranges, onOpen }: Props) {
     return () => io.disconnect();
   }, []);
 
+  // Moves start from the tile that has focus, which may not be `active` (a screen reader can move focus).
   function onKeyDown(e: React.KeyboardEvent) {
     const el = grid.current;
-    if (!el || e.altKey || e.ctrlKey || e.metaKey) return;
-    const to = gridMove(e.key, active, pageCount, columnCount(getComputedStyle(el).gridTemplateColumns));
+    const from = tilePage(e.target);
+    if (!el || from === null || e.altKey || e.ctrlKey || e.metaKey) return;
+    const to = gridMove(e.key, from, pageCount, columnCount(getComputedStyle(el).gridTemplateColumns));
     if (to === null) return;
     e.preventDefault();
     setActive(to);
@@ -61,7 +71,17 @@ export function PageGrid({ path, pageCount, ranges, onOpen }: Props) {
   );
 
   return (
-    <ol className="page-grid" ref={grid} aria-label="Pages" aria-keyshortcuts="ArrowLeft ArrowRight ArrowUp ArrowDown Home End" onKeyDown={onKeyDown}>
+    <ol
+      className="page-grid"
+      ref={grid}
+      aria-label="Pages"
+      onKeyDown={onKeyDown}
+      // Whichever tile gets focus, by click, keys or a screen reader, becomes the one Tab returns to.
+      onFocus={(e) => {
+        const page = tilePage(e.target);
+        if (page !== null) setActive(page);
+      }}
+    >
       {observer &&
         Array.from({ length: pageCount }, (_, i) => (
           <Thumbnail
@@ -127,6 +147,8 @@ const Thumbnail = memo(function Thumbnail({ path, page, width, observer, tabbabl
         tabIndex={tabbable ? 0 : -1}
         onClick={() => onOpen(page)}
         aria-label={label}
+        // On the tile, not the list: assistive tech announces shortcuts of the focused element.
+        aria-keyshortcuts={GRID_KEYS}
         title={error}
       >
         <span className="page-image">
