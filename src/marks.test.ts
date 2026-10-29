@@ -1,7 +1,7 @@
 // Unit tests for marks.ts. Run with `npm test` (Node's built-in test runner).
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { pageLabel, pageMarks, tileMark } from "./marks.ts";
+import { pageMarks, tileMark } from "./marks.ts";
 
 const range = (start: number, end: number, title = "") => ({ start, end, title });
 
@@ -62,26 +62,36 @@ test("pageMarks follows edits to the parts", () => {
   assert.equal(after[3].starts, false);
 });
 
-test("pageLabel describes the mark", () => {
-  assert.equal(pageLabel(3, undefined), "Page 3");
-  assert.equal(pageLabel(3, { part: null, starts: false, title: "" }), "Page 3, left out");
-  assert.equal(pageLabel(3, { part: 2, starts: true, title: "Results" }), "Page 3, starts part 2: Results");
-  assert.equal(pageLabel(3, { part: 2, starts: true, title: "" }), "Page 3, starts part 2");
-  assert.equal(pageLabel(4, { part: 2, starts: false, title: "" }), "Page 4, part 2");
-});
-
-test("tileMark gives the class, badge and label for a tile", () => {
-  assert.deepEqual(tileMark(1, undefined), { className: undefined, badge: "", label: "Page 1" });
+test("tileMark gives the class, badge, tooltip and label for a tile", () => {
+  assert.deepEqual(tileMark(1, undefined), { className: undefined, badge: null, title: "", label: "Page 1" });
   assert.deepEqual(tileMark(2, { part: null, starts: false, title: "" }), {
     className: "left-out",
-    badge: "",
+    badge: null,
+    title: "",
     label: "Page 2, left out",
   });
   assert.deepEqual(tileMark(3, { part: 2, starts: true, title: "Results" }), {
     className: "starts-part",
     badge: "Part 2 · Results",
+    title: "Results",
     label: "Page 3, starts part 2: Results",
   });
-  assert.equal(tileMark(3, { part: 2, starts: true, title: "" }).badge, "Part 2");
-  assert.equal(tileMark(4, { part: 2, starts: false, title: "" }).className, undefined);
+  assert.deepEqual(tileMark(3, { part: 2, starts: true, title: "" }), {
+    className: "starts-part",
+    badge: "Part 2",
+    title: "",
+    label: "Page 3, starts part 2",
+  });
+  assert.deepEqual(tileMark(4, { part: 2, starts: false, title: "" }), {
+    className: undefined,
+    badge: null,
+    title: "",
+    label: "Page 4, part 2",
+  });
+});
+
+test("tileMark shows no badge on a left-out page, even one marked as a start", () => {
+  const tile = tileMark(5, { part: null, starts: true, title: "" });
+  assert.equal(tile.className, "left-out");
+  assert.equal(tile.badge, null);
 });

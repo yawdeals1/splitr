@@ -25,7 +25,11 @@ export function PageGrid({ path, pageCount, ranges, onOpen }: Props) {
   const grid = useRef<HTMLOListElement>(null);
   const [observer, setObserver] = useState<IntersectionObserver | null>(null);
   const width = renderWidth(THUMB_WIDTH, window.devicePixelRatio || 1);
-  const marks = useMemo(() => pageMarks(ranges, pageCount), [ranges, pageCount]);
+  // Built only when the parts change, not on every render (a 1,000-page file has 1,000 tiles).
+  const tiles = useMemo(() => {
+    const marks = pageMarks(ranges, pageCount);
+    return Array.from({ length: pageCount }, (_, i) => tileMark(i + 1, marks[i]));
+  }, [ranges, pageCount]);
 
   // One observer for every tile; each tile registers its own callback in `onVisible`.
   useEffect(() => {
@@ -40,7 +44,7 @@ export function PageGrid({ path, pageCount, ranges, onOpen }: Props) {
   return (
     <ol className="page-grid" ref={grid} aria-label="Pages">
       {observer &&
-        Array.from({ length: pageCount }, (_, i) => (
+        tiles.map((tile, i) => (
           <Thumbnail
             key={i}
             path={path}
@@ -49,7 +53,7 @@ export function PageGrid({ path, pageCount, ranges, onOpen }: Props) {
             observer={observer}
             onOpen={onOpen}
             // Spread as plain values, so an edit re-renders only the tiles whose mark changed.
-            {...tileMark(i + 1, marks[i])}
+            {...tile}
           />
         ))}
     </ol>
@@ -66,7 +70,7 @@ interface ThumbnailProps extends TileMark {
   onOpen: (page: number) => void;
 }
 
-const Thumbnail = memo(function Thumbnail({ path, page, width, observer, onOpen, className, badge, label }: ThumbnailProps) {
+const Thumbnail = memo(function Thumbnail({ path, page, width, observer, onOpen, className, badge, title, label }: ThumbnailProps) {
   const tile = useRef<HTMLLIElement>(null);
   const [visible, setVisible] = useState(false);
   const { url, error } = usePageImage(path, page, width, visible);
@@ -87,8 +91,8 @@ const Thumbnail = memo(function Thumbnail({ path, page, width, observer, onOpen,
       <button type="button" onClick={() => onOpen(page)} aria-label={label} title={error}>
         <span className="page-image">
           {url ? <img src={url} alt="" draggable={false} /> : error && <span className="page-error">!</span>}
-          {badge && (
-            <span className="part-badge" aria-hidden="true" title={badge}>
+          {badge !== null && (
+            <span className="part-badge" aria-hidden="true" title={title || undefined}>
               {badge}
             </span>
           )}
