@@ -64,6 +64,7 @@ pub fn run() {
             commands::api_key_status,
             commands::delete_api_key,
             commands::ask_ai,
+            commands::ai_split,
             commands::cancel_ai,
             commands::default_ai_models,
         ])

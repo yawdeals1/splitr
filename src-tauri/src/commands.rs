@@ -7,7 +7,7 @@ use tauri::ipc::Response;
 use tauri::{AppHandle, Manager};
 
 use crate::ai::claude::Claude;
-use crate::ai::{self, AiCalls, AiRequest, Provider};
+use crate::ai::{self, response, AiCalls, AiRequest, Provider};
 use crate::error::{Result, SplitError};
 use crate::export::{self, ExportRequest, SavedParts};
 use crate::naming;
@@ -114,11 +114,26 @@ pub async fn delete_api_key(platform: String) -> Result<KeyStatus> {
     key_store(move || keystore::delete(&OsStore, &platform)).await
 }
 
-/// Sends one chunk of page excerpts to Claude and returns its reply text, which the caller parses
-/// and validates (FR-33 to FR-36). Runs only when AI is on and the user accepted the notice
-/// (FR-61, FR-62). The key is read from the credential store for this call only (NFR-05).
+/// Sends one chunk of page excerpts to Claude and returns its reply text. `ai_split` parses and
+/// validates replies (FR-33 to FR-36).
 #[tauri::command]
 pub async fn ask_ai(app: AppHandle, request: AiRequest) -> Result<String> {
+    let claude = ai_provider(&app).await?;
+    app.state::<AiCalls>().run(claude.complete(&request)).await
+}
+
+/// Sends every chunk of page excerpts and returns one validated range list for a `page_count`-page
+/// PDF (FR-33 to FR-35). A reply that can't be used is asked for again once; if it still fails,
+/// the error says what was wrong so the user can set the parts by hand (FR-36).
+#[tauri::command]
+pub async fn ai_split(app: AppHandle, chunks: Vec<AiRequest>, page_count: u32, allow_gaps: bool) -> Result<Vec<Range>> {
+    let claude = ai_provider(&app).await?;
+    app.state::<AiCalls>().run(response::split(&claude, &chunks, page_count, allow_gaps)).await
+}
+
+/// The AI provider the user chose. Only when AI is on and the user accepted the notice (FR-61,
+/// FR-62). The key is read from the credential store for this call only (NFR-05).
+async fn ai_provider(app: &AppHandle) -> Result<Claude> {
     let settings = get_settings(app.clone()).await?;
     if !settings.ai_enabled {
         return Err(SplitError::Ai("AI is turned off. Turn it on in Settings to use Smart mode with AI".into()));
@@ -139,8 +154,7 @@ pub async fn ask_ai(app: AppHandle, request: AiRequest) -> Result<String> {
         .model_for(platform)
         .ok_or_else(|| SplitError::Ai("Enter a model name under AI in Settings".into()))?;
     let key = key_store(|| keystore::key_for(&OsStore, CLAUDE_PLATFORM)).await?;
-    let claude = Claude::new(key, model)?;
-    app.state::<AiCalls>().run(claude.complete(&request)).await
+    Claude::new(key, model)
 }
 
 /// The model each AI service uses when the user hasn't chosen one, for the settings screen.
