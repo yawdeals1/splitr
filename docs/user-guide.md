@@ -9,7 +9,7 @@ New to Splitr? Install it from the [download page](download.md), then try [your 
 - **Left:** your PDF. Before a file is open, this is the drop area. After a split, the parts to review appear here.
 - **Right:** split options: the **Range mode** switch (Custom, Fixed, Smart), the options for that mode, and the **Split** button.
 
-Everything can be done with the keyboard. **Tab** moves between controls, **Space** or **Enter** presses a button, and the arrow keys change the range mode.
+Everything can be done with the keyboard. **Tab** moves between controls, **Space** or **Enter** presses a button, and the arrow keys change the range mode. The page thumbnails count as one stop for **Tab**: use the arrow keys, **Home** and **End** to move between pages, and **Enter** to open the larger view.
 
 ## Your first split
 
@@ -114,7 +114,7 @@ If an export fails part way, for example because the disk is full, Splitr leaves
 
 ## Settings
 
-- **Theme:** Light, Dark, or System to follow your computer.
+- **Theme:** Light, Dark, or System to follow your computer. It's at the bottom of the split options on the right.
 - **AI:** turn Smart mode's AI on or off, and add or remove API keys. Only the last 4 characters of a saved key are shown. **AI service** picks what Smart mode uses: your ChatGPT account (the default) or a Claude API key. **Model** sets the model for that service; leave it blank for the default (GPT-6.1 Sol for ChatGPT, Claude Opus 5.5 for Claude).
 - **Blank page sensitivity:** how much may be on a page (such as a page number) for it to still count as blank.
 
