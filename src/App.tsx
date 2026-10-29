@@ -181,16 +181,20 @@ function App({ initialSettings }: { initialSettings: Settings | null }) {
     }
   }, [openPath]);
 
-  // FR-51: the names follow the template and the part titles as they're typed.
+  // FR-51: the names follow the template and the part titles once typing pauses. A failed preview
+  // only hides the names; export names the parts again and reports its own errors.
   const titles = JSON.stringify(ranges.map((r) => r.title));
   useEffect(() => {
     if (!pdf || ranges.length === 0) return setNames(null);
     let current = true;
-    exportNames(pdf.fileName, nameTemplate, ranges)
-      .then((n) => current && setNames(n))
-      .catch((e) => current && setError(String(e)));
+    const timer = setTimeout(() => {
+      exportNames(pdf.fileName, nameTemplate, ranges)
+        .then((n) => current && setNames(n))
+        .catch(() => current && setNames(null));
+    }, PREVIEW_DELAY_MS);
     return () => {
       current = false;
+      clearTimeout(timer);
     };
   }, [pdf, nameTemplate, titles]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -642,6 +646,9 @@ function App({ initialSettings }: { initialSettings: Settings | null }) {
 }
 
 export default App;
+
+/** How long typing must pause before the file names are previewed again. */
+const PREVIEW_DELAY_MS = 200;
 
 /** FR-51 to FR-53: the file names the template gives these parts, and the ZIP's, from the backend. */
 function exportNames(fileName: string, template: string, parts: Range[]): Promise<ExportNames> {

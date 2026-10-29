@@ -194,8 +194,16 @@ fn zip_failed(e: zip::result::ZipError) -> SplitError {
 /// A readable reason for a file error, without the OS error code. It follows "The parts could not
 /// be saved, so no files were written: ", so it starts in lower case.
 fn reason(e: &io::Error) -> String {
+    // Windows' sharing and lock violations: another program, such as a PDF viewer or a virus
+    // scanner, has the file open.
+    if cfg!(windows) && matches!(e.raw_os_error(), Some(32 | 33)) {
+        return "another program is using a file in this folder. Close it and try again".into();
+    }
     match e.kind() {
-        io::ErrorKind::PermissionDenied => "this folder doesn't allow saving files. Choose another folder".into(),
+        // On Windows a file another program has open can give this too, so both causes are named.
+        io::ErrorKind::PermissionDenied => {
+            "this folder doesn't allow saving files, or another program is using a file in it. Close that program and try again, or choose another folder".into()
+        }
         io::ErrorKind::StorageFull => "the disk is full. Free some space or choose another folder".into(),
         io::ErrorKind::NotFound => "the folder was moved or deleted while saving".into(),
         io::ErrorKind::AlreadyExists => "a file with the same name appeared while saving. Try again".into(),
@@ -403,7 +411,14 @@ mod tests {
     #[test]
     fn file_errors_read_without_os_codes() {
         let denied = io::Error::from_raw_os_error(if cfg!(windows) { 5 } else { 13 });
-        assert_eq!(reason(&denied), "this folder doesn't allow saving files. Choose another folder");
+        assert_eq!(
+            reason(&denied),
+            "this folder doesn't allow saving files, or another program is using a file in it. Close that program and try again, or choose another folder"
+        );
+        if cfg!(windows) {
+            let locked = io::Error::from_raw_os_error(32);
+            assert_eq!(reason(&locked), "another program is using a file in this folder. Close it and try again");
+        }
         assert_eq!(
             reason(&io::Error::other("disk on fire")),
             "the system reported \"disk on fire\". Check the folder and try again"
