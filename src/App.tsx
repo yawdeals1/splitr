@@ -7,6 +7,7 @@ import { PageGrid } from "./PageGrid";
 import { PageViewer } from "./PageViewer";
 import { PasswordPrompt } from "./PasswordPrompt";
 import { PresetEditor } from "./PresetEditor";
+import { ReviewScreen } from "./ReviewScreen";
 import {
   PASSWORD_REQUIRED,
   WRONG_PASSWORD,
@@ -39,6 +40,10 @@ function App() {
   const [customRanges, setCustomRanges] = useState("");
   const [fixedEvery, setFixedEvery] = useState(10);
   const [ranges, setRanges] = useState<Range[]>([]);
+  // Custom mode may leave pages out (FR-20); other modes must cover every page (FR-35).
+  const [allowGaps, setAllowGaps] = useState(false);
+  // Bumped on every split so the review screen starts fresh.
+  const [reviewId, setReviewId] = useState(0);
   const [error, setError] = useState("");
   const [presetDraft, setPresetDraft] = useState<PresetInput | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -179,17 +184,24 @@ function App() {
   async function split() {
     setError("");
     if (!pdf) return setError("Open a PDF first.");
+    let next: Range[];
     try {
       if (mode === "custom") {
-        setRanges(await invoke<Range[]>("parse_custom_ranges", { input: customRanges, pageCount: pdf.pageCount }));
+        next = await invoke<Range[]>("parse_custom_ranges", { input: customRanges, pageCount: pdf.pageCount });
       } else if (mode === "fixed") {
-        setRanges(await invoke<Range[]>("fixed_ranges", { pageCount: pdf.pageCount, every: fixedEvery }));
+        next = await invoke<Range[]>("fixed_ranges", { pageCount: pdf.pageCount, every: fixedEvery });
       } else {
-        setError("Smart split is not implemented yet.");
+        throw "Smart split is not implemented yet.";
       }
     } catch (e) {
-      setError(String(e));
+      // The parts of an earlier split no longer match the options, so they aren't kept.
+      setRanges([]);
+      return setError(String(e));
     }
+    // The gap rule and a fresh review screen only change once the new parts have arrived.
+    setAllowGaps(mode === "custom");
+    setReviewId((n) => n + 1);
+    setRanges(next);
   }
 
   return (
@@ -236,14 +248,17 @@ function App() {
             </button>
           </div>
         )}
-        {ranges.length > 0 && (
-          <ol className="parts">
-            {ranges.map((r) => (
-              <li key={r.start}>
-                Pages {r.start}–{r.end} {r.title && `· ${r.title}`}
-              </li>
-            ))}
-          </ol>
+        {pdf && ranges.length > 0 && (
+          // FR-42: export is only reachable from the review screen.
+          <ReviewScreen
+            key={reviewId}
+            totalPages={pdf.pageCount}
+            ranges={ranges}
+            allowGaps={allowGaps}
+            onChange={setRanges}
+            onBack={() => setRanges([])}
+            onExport={() => setError("Export is not available yet.")}
+          />
         )}
       </section>
 
