@@ -52,6 +52,30 @@ export function removePart(ranges: Range[], i: number): Range[] {
   return ranges.filter((_, j) => j !== i);
 }
 
+/** An edit on the review screen that removes or disables the control that had focus. */
+export type FocusEdit =
+  | { kind: "split"; part: number }
+  | { kind: "join"; part: number }
+  | { kind: "delete"; part: number; parts: number }
+  | { kind: "close-split"; part: number };
+
+/**
+ * NFR-11: the `data-focus` value of the control that takes focus after `edit`, so focus never
+ * drops to the page. `parts` is the number of parts before a delete.
+ */
+export function focusAfter(edit: FocusEdit): string {
+  switch (edit.kind) {
+    case "split":
+      return `title-${edit.part + 1}`;
+    case "join":
+      return `title-${edit.part}`;
+    case "delete":
+      return `title-${Math.min(edit.part, edit.parts - 2)}`;
+    case "close-split":
+      return `add-split-${edit.part}`;
+  }
+}
+
 export function rename(ranges: Range[], i: number, title: string): Range[] {
   return replace(ranges, i, { ...ranges[i], title });
 }
