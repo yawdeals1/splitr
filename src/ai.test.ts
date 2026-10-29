@@ -11,14 +11,17 @@ test("usesAi covers AI presets, AI fallbacks and the custom prompt", () => {
   assert.equal(usesAi({ strategy: "blank" }), false);
 });
 
-test("aiBlock checks the switch, then the key, then consent", () => {
-  assert.equal(aiBlock({ aiEnabled: false, aiConsent: true }, true), "off");
-  assert.equal(aiBlock({ aiEnabled: true, aiConsent: true }, false), "no-key");
-  assert.equal(aiBlock({ aiEnabled: true, aiConsent: false }, true), "consent");
-  assert.equal(aiBlock({ aiEnabled: true, aiConsent: true }, true), null);
+test("aiBlock checks the switch, then the account or key, then consent", () => {
+  const claude = { aiPlatform: "anthropic" };
+  assert.equal(aiBlock({ ...claude, aiEnabled: false, aiConsent: true }, true), "off");
+  assert.equal(aiBlock({ ...claude, aiEnabled: true, aiConsent: true }, false), "no-key");
+  assert.equal(aiBlock({ ...claude, aiEnabled: true, aiConsent: false }, true), "consent");
+  assert.equal(aiBlock({ ...claude, aiEnabled: true, aiConsent: true }, true), null);
+  assert.equal(aiBlock({ aiPlatform: "chatgpt", aiEnabled: true, aiConsent: true }, true), "no-account");
 });
 
 test("aiBlockMessage says what to do", () => {
   assert.match(aiBlockMessage("off"), /Use AI/);
   assert.match(aiBlockMessage("no-key"), /API key/);
+  assert.match(aiBlockMessage("no-account"), /ChatGPT/);
 });
