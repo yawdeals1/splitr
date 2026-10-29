@@ -1,7 +1,21 @@
 // Review and edit the proposed parts before anything is written (FR-40 to FR-42).
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { mergeWithNext, pageCount, removePart, rename, setEnd, setStart, splitAt, uncoveredPages } from "./review";
+import {
+  canJoin,
+  gaps,
+  mergeWithNext,
+  pageCount,
+  parsePage,
+  removePart,
+  rename,
+  setEnd,
+  setStart,
+  splitAt,
+  uncoveredPages,
+  within,
+  type Span,
+} from "./review";
 import type { Range } from "./types";
 
 interface Props {
@@ -15,36 +29,72 @@ interface Props {
 }
 
 export function ReviewScreen({ totalPages, ranges, allowGaps, onChange, onBack, onExport }: Props) {
-  const [problem, setProblem] = useState("");
-  const [dropped, setDropped] = useState(false);
+  // Pages of parts the user deleted. Only these may be missing when the mode must cover every page.
+  const [leftOut, setLeftOut] = useState<Span[]>([]);
+  // Page fields whose text isn't a valid page yet, by field. Their parts keep the last valid page.
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
+  // The backend's verdict on the part bounds it last checked (FR-35).
+  const [checked, setChecked] = useState<{ key: string; problem: string } | null>(null);
   const [splitting, setSplitting] = useState<{ index: number; page: string } | null>(null);
   const [splitError, setSplitError] = useState("");
-  const gapsOk = allowGaps || dropped;
 
-  // FR-35: every edit is checked by the backend before export is allowed.
+  const gapsOk = allowGaps || within(gaps(ranges, totalPages), leftOut, totalPages);
+  // Titles don't change the verdict, so only the bounds and the gap rule are checked again.
+  const key = JSON.stringify([ranges.map((r) => [r.start, r.end]), totalPages, gapsOk]);
+
+  // FR-35: every change to the bounds is checked by the backend before export is allowed.
   useEffect(() => {
     let current = true;
     invoke("validate_ranges", { ranges, pageCount: totalPages, allowGaps: gapsOk })
-      .then(() => current && setProblem(""))
-      .catch((e) => current && setProblem(String(e)));
+      .then(() => current && setChecked({ key, problem: "" }))
+      .catch((e) => current && setChecked({ key, problem: String(e) }));
     return () => {
       current = false;
     };
-  }, [ranges, totalPages, gapsOk]);
+  }, [key]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const edit = (next: Range[]) => {
+  const checking = checked?.key !== key;
+  const draftProblem = Object.keys(drafts).length > 0 ? `Enter a page from 1 to ${totalPages}.` : "";
+  const problem = draftProblem || (checked && !checking ? checked.problem : "");
+  // FR-42: export only after the backend has accepted exactly these bounds.
+  const canExport = !checking && !problem;
+
+  const cancelSplit = () => {
     setSplitting(null);
     setSplitError("");
+  };
+  const edit = (next: Range[]) => {
+    cancelSplit();
     onChange(next);
   };
-  const toPage = (value: string) => Math.trunc(Number(value));
+  // Adding, joining or deleting parts renumbers them, so unfinished page fields are dropped.
+  const restructure = (next: Range[]) => {
+    setDrafts({});
+    edit(next);
+  };
+
+  /** Applies a typed page to part `i`, or keeps the text as a draft until it's a valid page. */
+  function typePage(i: number, side: "start" | "end", text: string) {
+    const field = `${side}-${i}`;
+    const page = parsePage(text, totalPages);
+    const { [field]: _, ...others } = drafts;
+    if (page === null) return setDrafts({ ...others, [field]: text });
+    setDrafts(others);
+    edit(side === "start" ? setStart(ranges, i, page) : setEnd(ranges, i, page));
+  }
 
   function confirmSplit() {
     if (!splitting) return;
-    const next = splitAt(ranges, splitting.index, toPage(splitting.page));
     const part = ranges[splitting.index];
-    if (next) edit(next);
+    const page = parsePage(splitting.page, totalPages);
+    const next = page === null ? null : splitAt(ranges, splitting.index, page);
+    if (next) restructure(next);
     else setSplitError(`Choose a page from ${part.start + 1} to ${part.end} to start the new part.`);
+  }
+
+  function deletePart(i: number) {
+    setLeftOut([...leftOut, { start: ranges[i].start, end: ranges[i].end }]);
+    restructure(removePart(ranges, i));
   }
 
   const skipped = uncoveredPages(ranges, totalPages);
@@ -87,26 +137,22 @@ export function ReviewScreen({ totalPages, ranges, allowGaps, onChange, onBack, 
                   onChange={(e) => edit(rename(ranges, i, e.target.value))}
                 />
               </td>
-              <td>
-                <input
-                  type="number"
-                  aria-label={`First page of part ${i + 1}`}
-                  min={1}
-                  max={totalPages}
-                  value={r.start}
-                  onChange={(e) => edit(setStart(ranges, i, toPage(e.target.value)))}
-                />
-              </td>
-              <td>
-                <input
-                  type="number"
-                  aria-label={`Last page of part ${i + 1}`}
-                  min={1}
-                  max={totalPages}
-                  value={r.end}
-                  onChange={(e) => edit(setEnd(ranges, i, toPage(e.target.value)))}
-                />
-              </td>
+              {(["start", "end"] as const).map((side) => {
+                const draft = drafts[`${side}-${i}`];
+                return (
+                  <td key={side}>
+                    <input
+                      type="number"
+                      aria-label={`${side === "start" ? "First" : "Last"} page of part ${i + 1}`}
+                      aria-invalid={draft !== undefined}
+                      min={1}
+                      max={totalPages}
+                      value={draft ?? r[side]}
+                      onChange={(e) => typePage(i, side, e.target.value)}
+                    />
+                  </td>
+                );
+              })}
               <td>{pageCount(r)}</td>
               <td>
                 {splitting?.index === i ? (
@@ -116,7 +162,7 @@ export function ReviewScreen({ totalPages, ranges, allowGaps, onChange, onBack, 
                       e.preventDefault();
                       confirmSplit();
                     }}
-                    onKeyDown={(e) => e.key === "Escape" && edit(ranges)}
+                    onKeyDown={(e) => e.key === "Escape" && cancelSplit()}
                   >
                     <input
                       type="number"
@@ -128,7 +174,7 @@ export function ReviewScreen({ totalPages, ranges, allowGaps, onChange, onBack, 
                       onChange={(e) => setSplitting({ index: i, page: e.target.value })}
                     />
                     <button type="submit">Split</button>
-                    <button type="button" onClick={() => edit(ranges)}>
+                    <button type="button" onClick={cancelSplit}>
                       Cancel
                     </button>
                     {splitError && (
@@ -146,17 +192,19 @@ export function ReviewScreen({ totalPages, ranges, allowGaps, onChange, onBack, 
                     >
                       Add split
                     </button>
-                    <button type="button" disabled={i === ranges.length - 1} onClick={() => edit(mergeWithNext(ranges, i))}>
-                      Join next
-                    </button>
                     <button
                       type="button"
-                      disabled={ranges.length === 1}
-                      onClick={() => {
-                        setDropped(true);
-                        edit(removePart(ranges, i));
-                      }}
+                      disabled={!canJoin(ranges, i)}
+                      title={
+                        i < ranges.length - 1 && !canJoin(ranges, i)
+                          ? "Pages between these parts are left out. Move a boundary to include them first."
+                          : undefined
+                      }
+                      onClick={() => restructure(mergeWithNext(ranges, i))}
                     >
+                      Join next
+                    </button>
+                    <button type="button" disabled={ranges.length === 1} onClick={() => deletePart(i)}>
                       Delete
                     </button>
                   </div>
@@ -177,7 +225,7 @@ export function ReviewScreen({ totalPages, ranges, allowGaps, onChange, onBack, 
         <button type="button" onClick={onBack}>
           Back
         </button>
-        <button type="button" className="primary" disabled={!!problem} onClick={onExport}>
+        <button type="button" className="primary" disabled={!canExport} onClick={() => canExport && onExport()}>
           Export {ranges.length} {ranges.length === 1 ? "file" : "files"}
         </button>
       </footer>

@@ -10,6 +10,22 @@ export interface Preset {
   fallback?: StrategyKind | null;
   prompt: string;
   pattern?: string | null;
+  /** True for presets the user saved (FR-71). */
+  user?: boolean;
+}
+
+/** Mirrors user_presets::PresetList: every preset, and why the user's own are missing if they are. */
+export interface PresetList {
+  presets: Preset[];
+  problem: string | null;
+}
+
+/** What the interface sends to create (no id) or edit a user preset. */
+export interface PresetInput {
+  id: string | null;
+  category: string;
+  name: string;
+  prompt: string;
 }
 
 export interface Range {
@@ -25,4 +41,19 @@ export interface PdfInfo {
   sizeBytes: number;
 }
 
+// open_pdf errors that mean "ask for the password" (FR-03). Must match SplitError in error.rs.
+export const PASSWORD_REQUIRED = "This PDF is password protected. Enter its password to open it.";
+export const WRONG_PASSWORD = "The password is incorrect. Try again.";
+
 export type RangeMode = "custom" | "fixed" | "smart";
+
+export type Theme = "system" | "light" | "dark";
+
+/** Mirrors settings::Settings (SRS 6.4). API keys are never part of this. */
+export interface Settings {
+  theme: Theme;
+  lastOutputFolder: string | null;
+  nameTemplate: string;
+  blankThreshold: number;
+  aiConsent: boolean;
+}

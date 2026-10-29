@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
-    "test": "vitest run",
+    "test": "node --test \"src/**/*.test.ts\"",
     "preview": "vite preview",
     "fetch-pdfium": "node scripts/fetch-pdfium.mjs",
     "tauri": "tauri"
@@ -15,7 +15,8 @@
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "@tauri-apps/api": "^2",
-    "@tauri-apps/plugin-opener": "^2"
+    "@tauri-apps/plugin-opener": "^2",
+    "@tauri-apps/plugin-dialog": "^2"
   },
   "devDependencies": {
     "@types/react": "^19.1.8",
@@ -23,7 +24,6 @@
     "@vitejs/plugin-react": "^6.0.2",
     "typescript": "~6.0.3",
     "vite": "^8.0.16",
-    "@tauri-apps/cli": "^2",
-    "vitest": "^5.0.5"
+    "@tauri-apps/cli": "^2"
   }
 }

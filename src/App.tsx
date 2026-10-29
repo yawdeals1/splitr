@@ -1,13 +1,31 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { getCurrentWebview } from "@tauri-apps/api/webview";
+import { open } from "@tauri-apps/plugin-dialog";
+import { baseName, formatSize, rejectReason } from "./file";
+import { PasswordPrompt } from "./PasswordPrompt";
+import { PresetEditor } from "./PresetEditor";
 import { ReviewScreen } from "./ReviewScreen";
-import type { PdfInfo, Preset, Range, RangeMode } from "./types";
+import {
+  PASSWORD_REQUIRED,
+  WRONG_PASSWORD,
+  type PdfInfo,
+  type Preset,
+  type PresetInput,
+  type PresetList,
+  type Range,
+  type RangeMode,
+} from "./types";
 import "./App.css";
 
 const CUSTOM_PROMPT = "__custom__";
 
 function App() {
-  const [pdf] = useState<PdfInfo | null>(null);
+  const [pdf, setPdf] = useState<PdfInfo | null>(null);
+  const [dragging, setDragging] = useState(false);
+  const [opening, setOpening] = useState(false);
+  // FR-03: an encrypted file waiting for its password.
+  const [locked, setLocked] = useState<{ path: string; message: string } | null>(null);
   const [mode, setMode] = useState<RangeMode>("smart");
   const [presets, setPresets] = useState<Preset[]>([]);
   const [category, setCategory] = useState("");
@@ -21,51 +39,190 @@ function App() {
   // Bumped on every split so the review screen starts fresh.
   const [reviewId, setReviewId] = useState(0);
   const [error, setError] = useState("");
+  const [presetDraft, setPresetDraft] = useState<PresetInput | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  // True while a file dialog is showing or a PDF is opening; drops and Ctrl+O bypass the disabled buttons.
+  const busy = useRef(false);
 
+  const loadPresets = () =>
+    invoke<PresetList>("list_presets")
+      .then((list) => {
+        setPresets(list.presets);
+        if (list.problem) setError(list.problem);
+      })
+      .catch((e) => setError(String(e)));
   useEffect(() => {
-    invoke<Preset[]>("list_presets").then(setPresets).catch((e) => setError(String(e)));
+    loadPresets();
   }, []);
+
+  // FR-01 to FR-05: open one PDF and show its details, ask for its password, or say why it can't be opened.
+  const openPath = useCallback(async (path: string, password?: string) => {
+    setError("");
+    setOpening(true);
+    try {
+      setPdf(await invoke<PdfInfo>("open_pdf", { path, password }));
+      setRanges([]);
+      setLocked(null);
+    } catch (e) {
+      const message = String(e);
+      if (message === PASSWORD_REQUIRED || message === WRONG_PASSWORD) setLocked({ path, message });
+      else {
+        setLocked(null);
+        setError(message);
+      }
+    } finally {
+      setOpening(false);
+    }
+  }, []);
+
+  // FR-03: retry with the password. It goes only to open_pdf and isn't kept.
+  const unlock = useCallback(async (path: string, password: string) => {
+    if (busy.current) return;
+    busy.current = true;
+    try {
+      await openPath(path, password);
+    } finally {
+      busy.current = false;
+    }
+  }, [openPath]);
+
+  const openDropped = useCallback(async (paths: string[]) => {
+    if (busy.current) return;
+    const reason = rejectReason(paths);
+    if (reason) return setError(reason);
+    busy.current = true;
+    try {
+      await openPath(paths[0]);
+    } finally {
+      busy.current = false;
+    }
+  }, [openPath]);
+
+  const chooseFile = useCallback(async () => {
+    if (busy.current) return;
+    busy.current = true;
+    try {
+      // Both letter cases: GTK file filters on Linux are case-sensitive.
+      const path = await open({ multiple: false, directory: false, filters: [{ name: "PDF", extensions: ["pdf", "PDF"] }] });
+      if (path) await openPath(path);
+    } catch (e) {
+      setError(`The file picker could not open: ${e}`);
+    } finally {
+      busy.current = false;
+    }
+  }, [openPath]);
+
+  // FR-01: Tauri drag-drop events give real file paths, which HTML drag events don't.
+  useEffect(() => {
+    const unlisten = getCurrentWebview().onDragDropEvent(({ payload }) => {
+      if (payload.type === "enter" || payload.type === "over") setDragging(true);
+      else if (payload.type === "leave") setDragging(false);
+      else if (payload.type === "drop") {
+        setDragging(false);
+        openDropped(payload.paths);
+      }
+    });
+    return () => {
+      unlisten.then((stop) => stop());
+    };
+  }, [openDropped]);
+
+  // NFR-11: Ctrl+O / Cmd+O opens the file picker.
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "o") {
+        e.preventDefault();
+        if (!e.repeat) chooseFile();
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [chooseFile]);
 
   const categories = useMemo(() => [...new Set(presets.map((p) => p.category))], [presets]);
   const categoryPresets = presets.filter((p) => p.category === category);
+  const selectedPreset = categoryPresets.find((p) => p.id === presetId);
 
-  // FR-23: the preset list follows the selected category.
+  // FR-23: the preset list follows the selected category. A preset that's still in the list stays
+  // selected. If the category is gone (its last user preset was deleted), pick the first one.
   useEffect(() => {
-    if (!category && categories.length) setCategory(categories[0]);
+    if (categories.length && !categories.includes(category)) setCategory(categories[0]);
   }, [categories, category]);
   useEffect(() => {
-    setPresetId(categoryPresets[0]?.id ?? CUSTOM_PROMPT);
-  }, [category]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (!categoryPresets.some((p) => p.id === presetId)) setPresetId(categoryPresets[0]?.id ?? CUSTOM_PROMPT);
+    setPresetDraft(null);
+    setConfirmDelete(false);
+  }, [category, presets]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // FR-71: after saving, show the saved preset selected in its category.
+  async function presetSaved(preset: Preset) {
+    await loadPresets();
+    setCategory(preset.category);
+    setPresetId(preset.id);
+    setPresetDraft(null);
+  }
+
+  async function deletePreset(id: string) {
+    try {
+      await invoke("delete_user_preset", { id });
+      setPresetId("");
+      await loadPresets();
+    } catch (e) {
+      setError(String(e));
+    }
+    setConfirmDelete(false);
+  }
 
   async function split() {
     setError("");
     if (!pdf) return setError("Open a PDF first.");
-    setAllowGaps(mode === "custom");
-    setReviewId((n) => n + 1);
+    let next: Range[];
     try {
       if (mode === "custom") {
-        setRanges(await invoke<Range[]>("parse_custom_ranges", { input: customRanges, pageCount: pdf.pageCount }));
+        next = await invoke<Range[]>("parse_custom_ranges", { input: customRanges, pageCount: pdf.pageCount });
       } else if (mode === "fixed") {
-        setRanges(await invoke<Range[]>("fixed_ranges", { pageCount: pdf.pageCount, every: fixedEvery }));
+        next = await invoke<Range[]>("fixed_ranges", { pageCount: pdf.pageCount, every: fixedEvery });
       } else {
-        setError("Smart split is not implemented yet.");
+        throw "Smart split is not implemented yet.";
       }
     } catch (e) {
-      setError(String(e));
+      // The parts of an earlier split no longer match the options, so they aren't kept.
+      setRanges([]);
+      return setError(String(e));
     }
+    // The gap rule and a fresh review screen only change once the new parts have arrived.
+    setAllowGaps(mode === "custom");
+    setReviewId((n) => n + 1);
+    setRanges(next);
   }
 
   return (
     <main className="layout">
       <section className="canvas" aria-label="Document">
-        {pdf ? (
-          <p>
-            {pdf.fileName} · {pdf.pageCount} pages
-          </p>
+        {locked ? (
+          <PasswordPrompt
+            fileName={baseName(locked.path)}
+            message={locked.message}
+            busy={opening}
+            onSubmit={(password) => unlock(locked.path, password)}
+            onCancel={() => setLocked(null)}
+          />
+        ) : pdf ? (
+          <header className={dragging ? "file-info dragging" : "file-info"}>
+            <div>
+              <strong>{pdf.fileName}</strong>
+              <span>
+                {pdf.pageCount} {pdf.pageCount === 1 ? "page" : "pages"} · {formatSize(pdf.sizeBytes)}
+              </span>
+            </div>
+            <button type="button" onClick={chooseFile} disabled={opening}>
+              Open another
+            </button>
+          </header>
         ) : (
-          <div className="dropzone">
-            <p>Drop a PDF here</p>
-            <button type="button" disabled title="Coming in Phase 0">
+          <div className={dragging ? "dropzone dragging" : "dropzone"}>
+            <p>{opening ? "Opening…" : "Drop a PDF here"}</p>
+            <button type="button" onClick={chooseFile} disabled={opening} aria-keyshortcuts="Control+O Meta+O">
               Choose file
             </button>
           </div>
@@ -121,7 +278,14 @@ function App() {
             </label>
             <label>
               Split preset
-              <select value={presetId} onChange={(e) => setPresetId(e.target.value)}>
+              <select
+                value={presetId}
+                onChange={(e) => {
+                  setPresetId(e.target.value);
+                  setPresetDraft(null);
+                  setConfirmDelete(false);
+                }}
+              >
                 {categoryPresets.map((p) => (
                   <option key={p.id} value={p.id}>
                     {p.name}
@@ -130,15 +294,59 @@ function App() {
                 <option value={CUSTOM_PROMPT}>Custom prompt</option>
               </select>
             </label>
-            {presetId === CUSTOM_PROMPT && (
-              <label>
-                Instruction
-                <textarea
-                  value={customPrompt}
-                  onChange={(e) => setCustomPrompt(e.target.value)}
-                  placeholder="Split whenever a new client name appears"
-                />
-              </label>
+            {presetDraft ? (
+              <PresetEditor
+                key={presetDraft.id ?? "new"}
+                draft={presetDraft}
+                categories={categories}
+                onSaved={presetSaved}
+                onCancel={() => setPresetDraft(null)}
+              />
+            ) : presetId === CUSTOM_PROMPT ? (
+              <>
+                <label>
+                  Instruction
+                  <textarea
+                    value={customPrompt}
+                    onChange={(e) => setCustomPrompt(e.target.value)}
+                    placeholder="Split whenever a new client name appears"
+                  />
+                </label>
+                <button
+                  type="button"
+                  disabled={!customPrompt.trim()}
+                  onClick={() => setPresetDraft({ id: null, name: "", category: "My presets", prompt: customPrompt })}
+                >
+                  Save as preset
+                </button>
+              </>
+            ) : (
+              selectedPreset?.user && (
+                <div className="row">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setPresetDraft({
+                        id: selectedPreset.id,
+                        name: selectedPreset.name,
+                        category: selectedPreset.category,
+                        prompt: selectedPreset.prompt,
+                      })
+                    }
+                  >
+                    Edit preset
+                  </button>
+                  {confirmDelete ? (
+                    <button type="button" className="danger" autoFocus onClick={() => deletePreset(selectedPreset.id)}>
+                      Confirm delete
+                    </button>
+                  ) : (
+                    <button type="button" onClick={() => setConfirmDelete(true)}>
+                      Delete preset
+                    </button>
+                  )}
+                </div>
+              )
             )}
           </>
         )}
