@@ -35,3 +35,18 @@ export function pageLabel(page: number, mark: PageMark | undefined): string {
   if (mark.starts) return `Page ${page}, starts part ${mark.part}${mark.title ? `: ${mark.title}` : ""}`;
   return `Page ${page}, part ${mark.part}`;
 }
+
+/** How a page tile shows its mark: its CSS class, its badge text ("" for none) and its label. */
+export interface TileMark {
+  className: string | undefined;
+  badge: string;
+  label: string;
+}
+
+export function tileMark(page: number, mark: PageMark | undefined): TileMark {
+  return {
+    className: mark?.part === null ? "left-out" : mark?.starts ? "starts-part" : undefined,
+    badge: mark?.starts ? `Part ${mark.part}${mark.title ? ` · ${mark.title}` : ""}` : "",
+    label: pageLabel(page, mark),
+  };
+}

@@ -2,7 +2,7 @@
 // memory; pages scrolled far away release their image, so a 1,000-page file stays light.
 // Once there are parts, each tile shows where a part starts and which pages are left out (FR-12).
 import { memo, useEffect, useMemo, useRef, useState } from "react";
-import { pageLabel, pageMarks } from "./marks";
+import { pageMarks, tileMark, type TileMark } from "./marks";
 import { renderWidth } from "./thumbnails";
 import type { Range } from "./types";
 import { usePageImage } from "./usePageImage";
@@ -48,11 +48,8 @@ export function PageGrid({ path, pageCount, ranges, onOpen }: Props) {
             width={width}
             observer={observer}
             onOpen={onOpen}
-            // Passed as plain values, so an edit re-renders only the tiles whose mark changed.
-            part={marks[i]?.part}
-            starts={marks[i]?.starts ?? false}
-            title={marks[i]?.title ?? ""}
-            label={pageLabel(i + 1, marks[i])}
+            // Spread as plain values, so an edit re-renders only the tiles whose mark changed.
+            {...tileMark(i + 1, marks[i])}
           />
         ))}
     </ol>
@@ -61,21 +58,15 @@ export function PageGrid({ path, pageCount, ranges, onOpen }: Props) {
 
 const onVisible = new WeakMap<Element, (visible: boolean) => void>();
 
-interface ThumbnailProps {
+interface ThumbnailProps extends TileMark {
   path: string;
   page: number;
   width: number;
   observer: IntersectionObserver;
   onOpen: (page: number) => void;
-  /** The page's part: a number, null when left out, or undefined before there are parts. */
-  part: number | null | undefined;
-  starts: boolean;
-  title: string;
-  /** What a screen reader hears for the tile. */
-  label: string;
 }
 
-const Thumbnail = memo(function Thumbnail({ path, page, width, observer, onOpen, part, starts, title, label }: ThumbnailProps) {
+const Thumbnail = memo(function Thumbnail({ path, page, width, observer, onOpen, className, badge, label }: ThumbnailProps) {
   const tile = useRef<HTMLLIElement>(null);
   const [visible, setVisible] = useState(false);
   const { url, error } = usePageImage(path, page, width, visible);
@@ -91,17 +82,14 @@ const Thumbnail = memo(function Thumbnail({ path, page, width, observer, onOpen,
     };
   }, [observer]);
 
-  const className = part === null ? "left-out" : starts ? "starts-part" : undefined;
-
   return (
     <li ref={tile} className={className}>
       <button type="button" onClick={() => onOpen(page)} aria-label={label} title={error}>
         <span className="page-image">
           {url ? <img src={url} alt="" draggable={false} /> : error && <span className="page-error">!</span>}
-          {starts && (
-            <span className="part-badge" aria-hidden="true" title={title || undefined}>
-              Part {part}
-              {title && ` · ${title}`}
+          {badge && (
+            <span className="part-badge" aria-hidden="true" title={badge}>
+              {badge}
             </span>
           )}
         </span>
