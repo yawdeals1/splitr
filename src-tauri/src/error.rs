@@ -46,6 +46,13 @@ pub enum SplitError {
     PageOutOfRange(u32, u32),
     #[error("Page {0} could not be shown: {1}")]
     RenderFailed(u32, String),
+    // Saving parts (FR-50, NFR-09). A failed export removes everything it wrote.
+    #[error("Splitr can't write parts of {0}: {1}")]
+    CantSplit(String, String),
+    #[error("The folder {0} was not found. Choose another folder")]
+    OutputFolderMissing(String),
+    #[error("The parts could not be saved, so no files were written: {0}")]
+    ExportFailed(String),
 }
 
 impl Serialize for SplitError {

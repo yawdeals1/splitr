@@ -78,7 +78,7 @@ Status key: [x] done, [ ] to do. Each phase ends when its exit criterion is met 
 - [x] `open_pdf`: name, page count and size; password prompt; clear errors for corrupt files (FR-01 to FR-05) (#3)
 - [x] File picker and drag and drop (`@tauri-apps/plugin-dialog`) (#4)
 - [x] Lazy thumbnail grid with a larger page view; thumbnails cached in a per-session temp folder (FR-10, FR-11, NFR-03) (#5)
-- [ ] `export_parts` with `lopdf`: write each range to a chosen folder, temp-then-rename, keep links and bookmarks where possible (FR-50, FR-54, NFR-09) (#6)
+- [x] `export_parts` with `lopdf`: write each range to a chosen folder, temp-then-rename, keep links and bookmarks where possible (FR-50, FR-54, NFR-09) (#6)
 - **Exit:** a custom range split saves correctly on the developer's machine.
 
 ### Phase 1: Rule engine and review screen
@@ -111,7 +111,7 @@ Status key: [x] done, [ ] to do. Each phase ends when its exit criterion is met 
 ### Phase 3: Packaging and updates
 - [ ] Tauri updater plugin; updater signing key in GitHub secrets only (FR-64) (#19)
 - [ ] Release workflow publishes the update manifest (#19)
-- [ ] Light and dark themes with a manual toggle, plus a keyboard navigation pass (FR-63, NFR-11) (#20)
+- [x] Light and dark themes with a manual toggle, plus a keyboard navigation pass (FR-63, NFR-11) (#20)
 - [ ] Check that installers are under 25 MB (NFR-13) (#21)
 - **Exit:** installers run on clean Windows, macOS and Linux machines.
 

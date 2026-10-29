@@ -1,5 +1,5 @@
 // Review and edit the proposed parts before anything is written (FR-40 to FR-42).
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import {
   canJoin,
@@ -26,9 +26,11 @@ interface Props {
   onChange: (ranges: Range[]) => void;
   onBack: () => void;
   onExport: () => void;
+  /** True while the parts are being saved (FR-50). */
+  exporting?: boolean;
 }
 
-export function ReviewScreen({ totalPages, ranges, allowGaps, onChange, onBack, onExport }: Props) {
+export function ReviewScreen({ totalPages, ranges, allowGaps, onChange, onBack, onExport, exporting = false }: Props) {
   // Pages of parts the user deleted. Only these may be missing when the mode must cover every page.
   const [leftOut, setLeftOut] = useState<Span[]>([]);
   // Page fields whose text isn't a valid page yet, by field. Their parts keep the last valid page.
@@ -37,6 +39,16 @@ export function ReviewScreen({ totalPages, ranges, allowGaps, onChange, onBack, 
   const [checked, setChecked] = useState<{ key: string; problem: string } | null>(null);
   const [splitting, setSplitting] = useState<{ index: number; page: string } | null>(null);
   const [splitError, setSplitError] = useState("");
+  // NFR-11: the control to focus after the one that had focus is removed or disabled, by its
+  // data-focus value. The heading takes focus when the screen opens.
+  const screen = useRef<HTMLElement>(null);
+  const [focusNext, setFocusNext] = useState<string | null>("heading");
+
+  useEffect(() => {
+    if (!focusNext) return;
+    screen.current?.querySelector<HTMLElement>(`[data-focus="${focusNext}"]`)?.focus();
+    setFocusNext(null);
+  }, [focusNext]);
 
   const gapsOk = allowGaps || within(gaps(ranges, totalPages), leftOut, totalPages);
   // Titles don't change the verdict, so only the bounds and the gap rule are checked again.
@@ -57,7 +69,7 @@ export function ReviewScreen({ totalPages, ranges, allowGaps, onChange, onBack, 
   const draftProblem = Object.keys(drafts).length > 0 ? `Enter a page from 1 to ${totalPages}.` : "";
   const problem = draftProblem || (checked && !checking ? checked.problem : "");
   // FR-42: export only after the backend has accepted exactly these bounds.
-  const canExport = !checking && !problem;
+  const canExport = !checking && !problem && !exporting;
 
   const cancelSplit = () => {
     setSplitting(null);
@@ -88,21 +100,29 @@ export function ReviewScreen({ totalPages, ranges, allowGaps, onChange, onBack, 
     const part = ranges[splitting.index];
     const page = parsePage(splitting.page, totalPages);
     const next = page === null ? null : splitAt(ranges, splitting.index, page);
-    if (next) restructure(next);
-    else setSplitError(`Choose a page from ${part.start + 1} to ${part.end} to start the new part.`);
+    if (next) {
+      restructure(next);
+      setFocusNext(`title-${splitting.index + 1}`);
+    } else setSplitError(`Choose a page from ${part.start + 1} to ${part.end} to start the new part.`);
   }
 
   function deletePart(i: number) {
     setLeftOut([...leftOut, { start: ranges[i].start, end: ranges[i].end }]);
     restructure(removePart(ranges, i));
+    setFocusNext(`title-${Math.min(i, ranges.length - 2)}`);
+  }
+
+  function closeSplit(i: number) {
+    cancelSplit();
+    setFocusNext(`add-split-${i}`);
   }
 
   const skipped = uncoveredPages(ranges, totalPages);
 
   return (
-    <section className="review" aria-label="Review parts">
+    <section className="review" aria-label="Review parts" ref={screen}>
       <header className="review-header">
-        <h2>
+        <h2 tabIndex={-1} data-focus="heading">
           {ranges.length} {ranges.length === 1 ? "part" : "parts"}
         </h2>
         {skipped > 0 && (
@@ -131,6 +151,7 @@ export function ReviewScreen({ totalPages, ranges, allowGaps, onChange, onBack, 
               <td>{i + 1}</td>
               <td>
                 <input
+                  data-focus={`title-${i}`}
                   aria-label={`Title of part ${i + 1}`}
                   value={r.title}
                   placeholder={`Part ${i + 1}`}
@@ -162,7 +183,7 @@ export function ReviewScreen({ totalPages, ranges, allowGaps, onChange, onBack, 
                       e.preventDefault();
                       confirmSplit();
                     }}
-                    onKeyDown={(e) => e.key === "Escape" && cancelSplit()}
+                    onKeyDown={(e) => e.key === "Escape" && closeSplit(i)}
                   >
                     <input
                       type="number"
@@ -174,7 +195,7 @@ export function ReviewScreen({ totalPages, ranges, allowGaps, onChange, onBack, 
                       onChange={(e) => setSplitting({ index: i, page: e.target.value })}
                     />
                     <button type="submit">Split</button>
-                    <button type="button" onClick={cancelSplit}>
+                    <button type="button" onClick={() => closeSplit(i)}>
                       Cancel
                     </button>
                     {splitError && (
@@ -187,6 +208,7 @@ export function ReviewScreen({ totalPages, ranges, allowGaps, onChange, onBack, 
                   <div className="row">
                     <button
                       type="button"
+                      data-focus={`add-split-${i}`}
                       disabled={pageCount(r) < 2}
                       onClick={() => setSplitting({ index: i, page: String(Math.floor((r.start + r.end + 1) / 2)) })}
                     >
@@ -200,7 +222,10 @@ export function ReviewScreen({ totalPages, ranges, allowGaps, onChange, onBack, 
                           ? "Pages between these parts are left out. Move a boundary to include them first."
                           : undefined
                       }
-                      onClick={() => restructure(mergeWithNext(ranges, i))}
+                      onClick={() => {
+                        restructure(mergeWithNext(ranges, i));
+                        setFocusNext(`title-${i}`);
+                      }}
                     >
                       Join next
                     </button>
@@ -226,7 +251,7 @@ export function ReviewScreen({ totalPages, ranges, allowGaps, onChange, onBack, 
           Back
         </button>
         <button type="button" className="primary" disabled={!canExport} onClick={() => canExport && onExport()}>
-          Export {ranges.length} {ranges.length === 1 ? "file" : "files"}
+          {exporting ? "Saving…" : `Export ${ranges.length} ${ranges.length === 1 ? "file" : "files"}`}
         </button>
       </footer>
     </section>

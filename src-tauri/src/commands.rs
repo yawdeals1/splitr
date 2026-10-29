@@ -6,6 +6,7 @@ use tauri::ipc::Response;
 use tauri::{AppHandle, Manager};
 
 use crate::error::{Result, SplitError};
+use crate::export;
 use crate::pdf::PdfInfo;
 use crate::presets::{self, Preset};
 use crate::ranges::{self, Range};
@@ -103,6 +104,21 @@ pub async fn render_page(app: AppHandle, path: String, page: u32, width: u32) ->
         .await
         .map_err(|e| SplitError::RenderFailed(page, e.to_string()))?
         .map(Response::new)
+}
+
+/// Saves each range as its own PDF in `folder`, named from `names` (FR-50 to FR-52), off the UI
+/// thread (NFR-02). Returns the paths written. `password` is only needed for encrypted files.
+#[tauri::command]
+pub async fn export_parts(
+    path: String,
+    password: Option<String>,
+    ranges: Vec<Range>,
+    folder: String,
+    names: Vec<String>,
+) -> Result<Vec<String>> {
+    tauri::async_runtime::spawn_blocking(move || export::export(&path, password.as_deref(), &ranges, &folder, &names))
+        .await
+        .map_err(|e| SplitError::ExportFailed(e.to_string()))?
 }
 
 #[tauri::command]
