@@ -1,23 +1,212 @@
 //! Tauri commands called from the React interface.
 
+use std::collections::BTreeMap;
+use std::path::PathBuf;
+
+use tauri::ipc::Response;
+use tauri::{AppHandle, Manager};
+
+use crate::ai::{self, AiCalls, AiRequest};
 use crate::error::{Result, SplitError};
 use crate::key_detect::{self, Detection};
-use crate::pdf::{self, PdfInfo};
+use crate::export;
+use crate::keystore::{self, KeyStatus, OsStore};
+use crate::pdf::PdfInfo;
 use crate::presets::{self, Preset};
 use crate::ranges::{self, Range};
+use crate::settings::{self, Settings};
 use crate::strategy::{DocumentText, FixedStrategy, Strategy};
+use crate::user_presets::{self, PresetInput, PresetList};
+use crate::viewer::Viewer;
+
+fn user_presets_path(app: &AppHandle) -> Result<PathBuf> {
+    let dir = app.path().app_config_dir().map_err(|e| {
+        SplitError::Presets(format!("Splitr could not find the folder where it keeps your presets ({e})."))
+    })?;
+    Ok(dir.join(user_presets::FILE_NAME))
+}
+
+/// Runs file work for a command off the UI thread (NFR-02). The config folder may be on a slow or
+/// synced drive.
+async fn blocking<T: Send + 'static>(work: impl FnOnce() -> Result<T> + Send + 'static) -> Result<T> {
+    tauri::async_runtime::spawn_blocking(work)
+        .await
+        .map_err(|e| SplitError::Presets(format!("Your presets could not be updated ({e}).")))?
+}
+
+/// Bundled presets followed by the user's own (FR-70, FR-71). If the user's presets can't be read,
+/// the bundled ones are still listed and `problem` says why the others are missing.
+#[tauri::command]
+pub async fn list_presets(app: AppHandle) -> PresetList {
+    let mut presets = presets::bundled();
+    let user = match user_presets_path(&app) {
+        Ok(path) => blocking(move || user_presets::load(&path)).await,
+        Err(e) => Err(e),
+    };
+    let problem = match user {
+        Ok(user) => {
+            presets.extend(user);
+            None
+        }
+        Err(e) => Some(e.to_string()),
+    };
+    PresetList { presets, problem }
+}
+
+/// Creates or edits a user preset (FR-71).
+#[tauri::command]
+pub async fn save_user_preset(app: AppHandle, preset: PresetInput) -> Result<Preset> {
+    let path = user_presets_path(&app)?;
+    blocking(move || user_presets::save(&path, preset)).await
+}
+
+fn settings_path(app: &AppHandle) -> Result<PathBuf> {
+    let dir = app.path().app_config_dir().map_err(|e| {
+        SplitError::SettingsLoad(format!("Splitr could not find its settings folder ({e})"))
+    })?;
+    Ok(dir.join(settings::FILE_NAME))
+}
+
+/// SRS 6.4. Runs off the UI thread (NFR-02): the config folder may be on a slow or synced drive.
+#[tauri::command]
+pub async fn get_settings(app: AppHandle) -> Result<Settings> {
+    let path = settings_path(&app)?;
+    tauri::async_runtime::spawn_blocking(move || settings::load(&path))
+        .await
+        .map_err(|e| SplitError::SettingsLoad(e.to_string()))?
+}
+
+/// Saves and returns the settings as stored, after replacing unusable values with defaults.
+#[tauri::command]
+pub async fn save_settings(app: AppHandle, settings: Settings) -> Result<Settings> {
+    let path = settings_path(&app)?;
+    tauri::async_runtime::spawn_blocking(move || settings::save(&path, &settings))
+        .await
+        .map_err(|e| SplitError::SettingsSave(e.to_string()))?
+}
+
+/// Runs a credential store call off the UI thread (NFR-02): the store may wait for the user to
+/// unlock it.
+async fn key_store<T: Send + 'static>(work: impl FnOnce() -> Result<T> + Send + 'static) -> Result<T> {
+    tauri::async_runtime::spawn_blocking(work)
+        .await
+        .map_err(|e| SplitError::ApiKey(format!("The credential store didn't respond ({e})")))?
+}
+
+/// Saves an API key in the OS credential store (FR-60, NFR-05). Only its last 4 characters come back.
+#[tauri::command]
+pub async fn save_api_key(platform: String, key: String) -> Result<KeyStatus> {
+    key_store(move || keystore::save(&OsStore, &platform, &key)).await
+}
+
+/// Whether a key is saved for `platform`, and its last 4 characters. Never the key itself (NFR-05).
+#[tauri::command]
+pub async fn api_key_status(platform: String) -> Result<KeyStatus> {
+    key_store(move || keystore::status(&OsStore, &platform)).await
+}
 
 #[tauri::command]
-pub fn list_presets() -> Vec<Preset> {
-    presets::bundled()
+pub async fn delete_api_key(platform: String) -> Result<KeyStatus> {
+    key_store(move || keystore::delete(&OsStore, &platform)).await
+}
+
+/// Sends one chunk of page excerpts to the chosen AI platform and returns its reply text, which the caller parses
+/// and validates (FR-33 to FR-36). Runs only when AI is on and the user accepted the notice
+/// (FR-61, FR-62). The key is read from the credential store for this call only (NFR-05).
+#[tauri::command]
+pub async fn ask_ai(app: AppHandle, request: AiRequest) -> Result<String> {
+    let settings = get_settings(app.clone()).await?;
+    if !settings.ai_enabled {
+        return Err(SplitError::Ai("AI is turned off. Turn it on in Settings to use Smart mode with AI".into()));
+    }
+    if !settings.ai_consent {
+        return Err(SplitError::Ai("Accept the AI notice before Splitr sends page excerpts to an AI service".into()));
+    }
+    let platform = settings.ai_platform.as_str();
+    if !ai::is_supported(platform) {
+        return Err(ai::unsupported(platform));
+    }
+    let model = settings
+        .model_for(platform)
+        .ok_or_else(|| SplitError::Ai("Enter a model name under AI in Settings".into()))?;
+    let platform = platform.to_string();
+    let key = {
+        let platform = platform.clone();
+        key_store(move || keystore::key_for(&OsStore, &platform)).await?
+    };
+    let custom_url = settings.ai_custom_url.clone();
+    app.state::<AiCalls>().run(ai::complete(&platform, &custom_url, key, model, &request)).await
+}
+
+/// The models an OpenAI-compatible platform (#30) or OpenCode Go (#32) offers, for the settings screen. Runs only when
+/// the user asks, and sends the platform's saved key to that platform only (NFR-05).
+#[tauri::command]
+pub async fn list_ai_models(app: AppHandle, platform: String) -> Result<Vec<String>> {
+    if !ai::compatible::is_compatible(&platform) && platform != "opencode-go" {
+        return Err(SplitError::Ai("Splitr can't list the models of this AI service. Type the model name".into()));
+    }
+    let settings = get_settings(app.clone()).await?;
+    let key = {
+        let platform = platform.clone();
+        key_store(move || keystore::key_for(&OsStore, &platform)).await?
+    };
+    if platform == "opencode-go" {
+        return app.state::<AiCalls>().run(ai::opencode_go::models(key)).await;
+    }
+    let client = ai::compatible::ChatCompletions::new(&platform, &settings.ai_custom_url, key, String::new())?;
+    app.state::<AiCalls>().run(client.models()).await
+}
+
+/// The model each AI service uses when the user hasn't chosen one, for the settings screen.
+#[tauri::command]
+pub fn default_ai_models() -> BTreeMap<String, String> {
+    ai::default_models()
+}
+
+/// Stops the AI calls in progress. They end with `SplitError::AiCancelled`.
+#[tauri::command]
+pub fn cancel_ai(app: AppHandle) {
+    app.state::<AiCalls>().cancel();
+}
+
+#[tauri::command]
+pub async fn delete_user_preset(app: AppHandle, id: String) -> Result<()> {
+    let path = user_presets_path(&app)?;
+    blocking(move || user_presets::delete(&path, &id)).await
 }
 
 /// Opens a PDF off the UI thread (NFR-02). `password` is only needed for encrypted files (FR-03).
+/// The opened PDF becomes the one whose pages `render_page` shows.
 #[tauri::command]
-pub async fn open_pdf(path: String, password: Option<String>) -> Result<PdfInfo> {
-    tauri::async_runtime::spawn_blocking(move || pdf::open(&path, password.as_deref()))
+pub async fn open_pdf(app: AppHandle, path: String, password: Option<String>) -> Result<PdfInfo> {
+    tauri::async_runtime::spawn_blocking(move || app.state::<Viewer>().open(&path, password.as_deref()))
         .await
         .map_err(|e| SplitError::OpenFailed("The PDF".into(), e.to_string()))?
+}
+
+/// Page `page` (1-based) of the open PDF as JPEG bytes `width` pixels wide, rendered off the UI
+/// thread and cached for the session (FR-10, FR-11, NFR-02).
+#[tauri::command]
+pub async fn render_page(app: AppHandle, path: String, page: u32, width: u32) -> Result<Response> {
+    tauri::async_runtime::spawn_blocking(move || app.state::<Viewer>().render(&path, page, width))
+        .await
+        .map_err(|e| SplitError::RenderFailed(page, e.to_string()))?
+        .map(Response::new)
+}
+
+/// Saves each range as its own PDF in `folder`, named from `names` (FR-50 to FR-52), off the UI
+/// thread (NFR-02). Returns the paths written. `password` is only needed for encrypted files.
+#[tauri::command]
+pub async fn export_parts(
+    path: String,
+    password: Option<String>,
+    ranges: Vec<Range>,
+    folder: String,
+    names: Vec<String>,
+) -> Result<Vec<String>> {
+    tauri::async_runtime::spawn_blocking(move || export::export(&path, password.as_deref(), &ranges, &folder, &names))
+        .await
+        .map_err(|e| SplitError::ExportFailed(e.to_string()))?
 }
 
 #[tauri::command]

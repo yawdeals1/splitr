@@ -15,6 +15,20 @@ pub enum SplitError {
     NotImplemented(&'static str),
     #[error("The PDF engine could not start: {0}")]
     PdfEngine(String),
+    #[error("{0}")]
+    Presets(String),
+    #[error("Could not load settings: {0}")]
+    SettingsLoad(String),
+    #[error("Could not save settings: {0}")]
+    SettingsSave(String),
+    // API keys (FR-60, NFR-05). Messages never include the key.
+    #[error("{0}")]
+    ApiKey(String),
+    // Calls to the AI provider (#15). Messages never include the key.
+    #[error("{0}")]
+    Ai(String),
+    #[error("The AI request was cancelled")]
+    AiCancelled,
     // Opening a PDF (FR-03, FR-05). The interface matches the two password messages to show a
     // password prompt; `src/types.ts` holds the same text, checked by a test in `pdf.rs`.
     #[error("This PDF is password protected. Enter its password to open it.")]
@@ -33,6 +47,20 @@ pub enum SplitError {
     EmptyPdf(String),
     #[error("{0} could not be opened: {1}")]
     OpenFailed(String, String),
+    // Showing pages (FR-10, FR-11).
+    #[error("This PDF is no longer open. Open it again to see its pages")]
+    NotOpen,
+    #[error("Page {0} does not exist. This PDF has {1} pages")]
+    PageOutOfRange(u32, u32),
+    #[error("Page {0} could not be shown: {1}")]
+    RenderFailed(u32, String),
+    // Saving parts (FR-50, NFR-09). A failed export removes everything it wrote.
+    #[error("Splitr can't write parts of {0}: {1}")]
+    CantSplit(String, String),
+    #[error("The folder {0} was not found. Choose another folder")]
+    OutputFolderMissing(String),
+    #[error("The parts could not be saved, so no files were written: {0}")]
+    ExportFailed(String),
 }
 
 impl Serialize for SplitError {

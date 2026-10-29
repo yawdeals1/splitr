@@ -76,47 +76,48 @@ Status key: [x] done, [ ] to do. Each phase ends when its exit criterion is met 
 - [x] Range parsing and validation, file naming, preset loading, with tests
 - [x] Bundle a PDFium library per platform (pdfium-binaries) as a Tauri resource, and load it in `pdf.rs` (#2)
 - [x] `open_pdf`: name, page count and size; password prompt; clear errors for corrupt files (FR-01 to FR-05) (#3)
-- [ ] File picker and drag and drop (`@tauri-apps/plugin-dialog`) (#4)
-- [ ] Lazy thumbnail grid with a larger page view; thumbnails cached in a per-session temp folder (FR-10, FR-11, NFR-03) (#5)
-- [ ] `export_parts` with `lopdf`: write each range to a chosen folder, temp-then-rename, keep links and bookmarks where possible (FR-50, FR-54, NFR-09) (#6)
+- [x] File picker and drag and drop (`@tauri-apps/plugin-dialog`) (#4)
+- [x] Lazy thumbnail grid with a larger page view; thumbnails cached in a per-session temp folder (FR-10, FR-11, NFR-03) (#5)
+- [x] `export_parts` with `lopdf`: write each range to a chosen folder, temp-then-rename, keep links and bookmarks where possible (FR-50, FR-54, NFR-09) (#6)
 - **Exit:** a custom range split saves correctly on the developer's machine.
 
 ### Phase 1: Rule engine and review screen
 - [x] Fixed, outline, pattern and blank page strategy logic, with tests
 - [ ] Extract page text and the outline from PDFium into `DocumentText` (#7)
 - [ ] `run_preset` command: run the preset's strategy, then its `fallback` on `NoOutline`/`NothingFound` (FR-30) (#8)
-- [ ] Review screen: list of parts, editing boundaries, adding, removing, renaming and deleting parts, split marks on thumbnails (FR-12, FR-40 to FR-42) (#9)
+- [x] Review screen: list of parts, editing boundaries, adding, removing, renaming and deleting parts (FR-40 to FR-42) (#9)
+- [x] Split marks on thumbnails (FR-12) (#48)
 - [ ] Naming template UI, optional ZIP, an "Open folder" button (FR-51 to FR-55) (#10)
-- [ ] Settings file: theme, last folder, template, blank threshold (SRS 6.4) (#11)
+- [x] Settings file: theme, last folder, template, blank threshold (SRS 6.4) (#11)
 - [ ] Build a test set of 10 or more varied PDFs in `tests/fixtures/`, using only public or generated files with no personal data (#12)
 - **Exit:** 10 varied test PDFs split correctly with rules only.
 
 ### Phase 2: AI engine (Smart mode)
-- [ ] API key settings stored with `keyring`, an AI on/off switch and a consent dialog (FR-60 to FR-62) (#13)
+- [x] API key settings stored with `keyring`, an AI on/off switch and a consent dialog (FR-60 to FR-62) (#13)
 - [ ] Build excerpts (first and last lines of each page), in overlapping chunks for large files (FR-33, FR-34, NFR-04) (#14)
-- [ ] Claude API client in Rust (`reqwest`, HTTPS), using the Appendix A prompt; the model is configurable in settings (#15)
+- [x] Claude API client in Rust (`reqwest`, HTTPS), using the Appendix A prompt; the model is configurable in settings (#15)
 - [ ] Strict JSON parsing, merging chunk results, `validate`, retrying once and then manual fixing (FR-35, FR-36) (#16)
-- [ ] Save a custom prompt as a user preset (FR-71) (#17)
+- [x] Save a custom prompt as a user preset (FR-71) (#17)
 - [ ] Integration tests with a mocked AI provider (#18)
 - [ ] Multiple API keys with automatic platform detection from the key prefix, verified with one call to that platform only (#27)
-- [ ] OpenAI (GPT) provider (#28)
-- [ ] Google Gemini provider (#29)
-- [ ] OpenAI-compatible platforms from a data file: OpenRouter, NVIDIA, Groq, xAI, DeepSeek, Mistral, Together AI, plus a custom base URL (#30)
+- [x] OpenAI (GPT) provider (#28)
+- [x] Google Gemini provider (#29)
+- [x] OpenAI-compatible platforms from a data file: OpenRouter, NVIDIA, Groq, xAI, DeepSeek, Mistral, Together AI, plus a custom base URL (#30)
 - [ ] Connect a ChatGPT account instead of an API key (Sign in with ChatGPT); confirm OpenAI's developer terms first (#31)
-- [ ] OpenCode Go provider, routing each model to its API style (#32)
+- [x] OpenCode Go provider, routing each model to its API style (#32)
 - [x] Update this plan for multiple AI platforms (#33)
 - **Exit:** 80% of AI test files are correct after at most 2 range edits.
 
 ### Phase 3: Packaging and updates
 - [ ] Tauri updater plugin; updater signing key in GitHub secrets only (FR-64) (#19)
 - [ ] Release workflow publishes the update manifest (#19)
-- [ ] Light and dark themes with a manual toggle, plus a keyboard navigation pass (FR-63, NFR-11) (#20)
+- [x] Light and dark themes with a manual toggle, plus a keyboard navigation pass (FR-63, NFR-11) (#20)
 - [ ] Check that installers are under 25 MB (NFR-13) (#21)
 - **Exit:** installers run on clean Windows, macOS and Linux machines.
 
 ### Phase 4: v1.0 release
-- [ ] Fix bugs against the SRS 9.3 acceptance criteria (#22)
-- [ ] Download page with SmartScreen and Gatekeeper instructions, and a user guide (#23)
+- [ ] Fix bugs against the SRS 9.3 acceptance criteria, and check docs/user-guide.md against the finished app (#22)
+- [x] Download page with SmartScreen and Gatekeeper instructions, and a user guide (#23)
 - **Exit:** no open critical bugs.
 
 ### Phase 5: v1.1

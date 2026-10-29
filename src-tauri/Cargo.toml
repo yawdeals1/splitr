@@ -22,13 +22,23 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 regex = "1"
 thiserror = "2"
+tauri-plugin-dialog = "2"
 # PDF engine (SRS 5.3), see src/pdf.rs. The pdfium_7881 feature must match the PDFium
 # version that scripts/fetch-pdfium.mjs downloads; change both together.
 pdfium-render = { version = "0.9.4", default-features = false, features = ["pdfium_7881", "image_latest", "thread_safe"] }
 lopdf = "0.46"
-
-[dev-dependencies]
+# Encodes rendered pages as JPEG thumbnails (FR-10). Same version pdfium-render uses.
+image = { version = "0.25", default-features = false, features = ["jpeg"] }
+# Private, randomly named thumbnail folder per session (NFR-07), see src/viewer.rs, and temp
+# files for parts before they are renamed (NFR-09), see src/export.rs.
 tempfile = "3"
+# API keys live only in the OS credential store (FR-60, NFR-05), see src/keystore.rs: Windows
+# Credential Manager, the macOS Keychain, or the Secret Service (GNOME Keyring, KWallet) on Linux.
+keyring = { version = "3.6", features = ["apple-native", "windows-native", "sync-secret-service", "crypto-rust"] }
+# HTTPS calls to the AI provider (SRS 5.4), see src/ai/. rustls, so Linux needs no OpenSSL.
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+# Cancelling an AI call (#15). Tauri already runs on tokio, so this adds no new runtime.
+tokio = { version = "1", features = ["macros", "sync"] }
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration
 [profile.release]
