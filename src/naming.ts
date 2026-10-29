@@ -2,6 +2,14 @@
 // `export_names`, so the preview and the export can't disagree.
 import { baseName } from "./file.ts";
 
+/** The template used when none is saved, and when the field is left blank (FR-51). */
+export const DEFAULT_TEMPLATE = "{original} - {index} - {title}";
+
+/** The template to name files with: `typed`, or the default if it's blank, as settings do on load. */
+export function usableTemplate(typed: string): string {
+  return typed.trim() ? typed : DEFAULT_TEMPLATE;
+}
+
 /** How many names the preview lists before "and N more". */
 export const PREVIEW_COUNT = 3;
 

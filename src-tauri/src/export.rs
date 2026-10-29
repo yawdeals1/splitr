@@ -137,19 +137,25 @@ fn persist_all(written: Vec<NamedTempFile>, targets: Vec<PathBuf>) -> Result<Vec
 }
 
 /// The final path of each part: the sanitized name plus ".pdf", with " (2)", " (3)"... added when
-/// another part or a PDF already in the folder has that name (FR-52). Also returns how many names
-/// got a number.
+/// an earlier part or a PDF already in the folder has that name (FR-52). The number never gives a
+/// part the name of a later part, so the other parts keep the names the preview showed. Also
+/// returns how many names got a number.
 fn output_paths(folder: &Path, names: &[String]) -> Result<(Vec<PathBuf>, usize)> {
     let mut taken = taken_names(folder, "pdf")?;
+    let safe: Vec<String> = names.iter().map(|name| naming::sanitize(name)).collect();
+    let wanted: HashSet<String> = safe.iter().map(|name| name.to_lowercase()).collect();
     let mut renamed = 0;
-    let paths = names
+    let paths = safe
         .iter()
         .map(|name| {
-            let safe = naming::unique(name, &mut taken);
-            if safe != naming::sanitize(name) {
+            let mut final_name = name.clone();
+            if !taken.insert(name.to_lowercase()) {
+                let mut blocked: HashSet<String> = taken.union(&wanted).cloned().collect();
+                final_name = naming::dedupe(name, &mut blocked);
+                taken.insert(final_name.to_lowercase());
                 renamed += 1;
             }
-            folder.join(format!("{safe}.pdf"))
+            folder.join(format!("{final_name}.pdf"))
         })
         .collect();
     Ok((paths, renamed))
@@ -279,6 +285,19 @@ mod tests {
         let files: Vec<_> = paths.iter().map(|p| p.file_name().unwrap().to_string_lossy().into_owned()).collect();
         assert_eq!(files, ["Book - 01 (2).pdf", "Book - 02.pdf", "book - 02 (2).pdf", "a_b.pdf", "notes.pdf"]);
         assert!(paths.iter().all(|p| p.parent() == Some(dir.path())));
+    }
+
+    #[test]
+    fn a_numbered_name_skips_the_names_of_later_parts() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join("intro.pdf"), b"").unwrap();
+        // What export_names gives two parts titled "Intro".
+        let names = ["Intro", "Intro (2)"].map(String::from);
+
+        let (paths, renamed) = output_paths(dir.path(), &names).unwrap();
+        assert_eq!(renamed, 1);
+        let files: Vec<_> = paths.iter().map(|p| p.file_name().unwrap().to_string_lossy().into_owned()).collect();
+        assert_eq!(files, ["Intro (3).pdf", "Intro (2).pdf"]);
     }
 
     #[test]

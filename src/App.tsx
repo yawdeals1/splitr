@@ -9,7 +9,7 @@ import { AiConsent } from "./AiConsent";
 import { AiSettings, useApiKey } from "./AiSettings";
 import { ExportOptions } from "./ExportOptions";
 import { baseName, formatSize, rejectReason } from "./file";
-import { savedMessage } from "./naming";
+import { DEFAULT_TEMPLATE, savedMessage, usableTemplate } from "./naming";
 import { PageGrid } from "./PageGrid";
 import { PageViewer } from "./PageViewer";
 import { PasswordPrompt } from "./PasswordPrompt";
@@ -92,7 +92,9 @@ function App({ initialSettings }: { initialSettings: Settings | null }) {
   const refocusDelete = useRef(false);
   const { settings, loadError, update: updateSettings } = useSettings(initialSettings);
   const theme = settings?.theme;
-  const nameTemplate = template ?? settings?.nameTemplate ?? "{original} - {index} - {title}";
+  const typedTemplate = template ?? settings?.nameTemplate ?? DEFAULT_TEMPLATE;
+  // A blank field names files with the default, and the default is what gets saved.
+  const nameTemplate = usableTemplate(typedTemplate);
 
   // FR-63: show the saved theme, in the page and (where the OS allows) the window title bar. This is
   // the only place that shows it. It runs before paint, and not before settings have loaded, so the
@@ -443,7 +445,7 @@ function App({ initialSettings }: { initialSettings: Settings | null }) {
             onExport={() => saveParts(pdf, ranges)}
           >
             <ExportOptions
-              template={nameTemplate}
+              template={typedTemplate}
               onTemplate={setTemplate}
               names={names?.parts ?? []}
               zip={zip}

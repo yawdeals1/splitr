@@ -1,5 +1,5 @@
 // File names and ZIP choice for the export, shown on the review screen (FR-51 to FR-53).
-import { namePreview } from "./naming";
+import { DEFAULT_TEMPLATE, namePreview } from "./naming";
 
 interface Props {
   template: string;
@@ -21,6 +21,7 @@ export function ExportOptions({ template, onTemplate, names, zip, onZip, zipName
         Template
         <input
           value={template}
+          placeholder={DEFAULT_TEMPLATE}
           onChange={(e) => onTemplate(e.target.value)}
           aria-describedby="name-tokens name-preview"
           spellCheck={false}
