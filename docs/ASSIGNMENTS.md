@@ -24,7 +24,7 @@ Status: ✅ means merged; "In review" means a PR is open.
 | ✅ Done (#53) | #13 | API key storage, AI toggle and consent notice | `phase-2/13-api-key-storage` |
 |  | #14 | Page excerpts and overlapping chunks | `phase-2/14-excerpts-chunks` |
 | ✅ Done (#58) | #15 | Claude API client | `phase-2/15-claude-client` |
-| In review (#63) | #16 | AI response parsing, merging and validation | `phase-2/16-ai-response-parsing` |
+| ✅ Done (#63) | #16 | AI response parsing, merging and validation | `phase-2/16-ai-response-parsing` |
 |  | #64 | Smart mode: run AI presets and show the result on the review screen | `phase-2/64-smart-ai-flow` |
 |  | #31 | Connect a ChatGPT account (Sign in with ChatGPT) | `phase-2/31-chatgpt-signin` |
 |  | #19 | Auto-update with signed update manifest | `phase-3/19-auto-update` |
@@ -73,11 +73,10 @@ Some issues wait on other work. Start with work that has no blockers, and rebase
 
 | Waiting issue | Needs first |
 | --- | --- |
-| #18 mocked AI tests (@iamromelalvin7) | #16 parsing (@yawdeals1, in review, #63) |
-| #64 Smart mode AI flow (@yawdeals1) | #7 page text, #8 run_preset, #14 excerpts, #16 parsing (@yawdeals1) |
+| #64 Smart mode AI flow (@yawdeals1) | #7 page text, #8 run_preset, #14 excerpts (@yawdeals1) |
 | #22 acceptance pass (@iamromelalvin7) | everything in phases 0 to 3 |
 
-Unblocked starting points: Caleb on #7, #12 and #14, then #8 once #7 lands. @iamromelalvin7 on finishing the open provider PRs (#44, #59 to #62), then #18 once #63 merges. #18 can build its mock on `ai::Provider` and test `ai::response::split`, which takes a provider.
+Unblocked starting points: Caleb on #7, #12 and #14, then #8 once #7 lands. @iamromelalvin7 on finishing the open provider PRs (#44, #59 to #62), and #18, which is now unblocked. #18 can build its mock on `ai::Provider` and test `ai::response::split`, which takes a provider.
 
 ## Working on your branch
 
