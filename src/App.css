@@ -159,3 +159,22 @@ button.primary {
 .parts {
   margin-top: 16px;
 }
+
+.row {
+  display: flex;
+  gap: 8px;
+}
+
+.preset-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+button.danger {
+  color: var(--error);
+  border-color: var(--error);
+}

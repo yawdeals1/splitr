@@ -5,6 +5,7 @@ mod pdf;
 mod presets;
 mod ranges;
 mod strategy;
+mod user_presets;
 
 use tauri::Manager;
 
@@ -30,6 +31,8 @@ pub fn run() {
             commands::fixed_ranges,
             commands::validate_ranges,
             commands::open_pdf,
+            commands::save_user_preset,
+            commands::delete_user_preset,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

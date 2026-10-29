@@ -25,6 +25,9 @@ pub struct Preset {
     pub prompt: String,
     #[serde(default)]
     pub pattern: Option<String>,
+    /// True for presets the user saved (FR-71), which they can edit and delete.
+    #[serde(default)]
+    pub user: bool,
 }
 
 pub fn bundled() -> Vec<Preset> {
@@ -43,6 +46,7 @@ mod tests {
         let mut ids = HashSet::new();
         for p in &presets {
             assert!(ids.insert(p.id.clone()), "duplicate preset id {}", p.id);
+            assert!(!p.user && !p.id.starts_with("user-"), "{} uses the user preset id space", p.id);
             if p.strategy == StrategyKind::Pattern {
                 let pattern = p.pattern.as_deref().unwrap_or_else(|| panic!("{} has no pattern", p.id));
                 regex::Regex::new(pattern).unwrap_or_else(|e| panic!("{} has a bad pattern: {e}", p.id));

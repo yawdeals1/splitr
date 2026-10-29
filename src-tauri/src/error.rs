@@ -15,6 +15,8 @@ pub enum SplitError {
     NotImplemented(&'static str),
     #[error("The PDF engine could not start: {0}")]
     PdfEngine(String),
+    #[error("{0}")]
+    Presets(String),
 }
 
 impl Serialize for SplitError {

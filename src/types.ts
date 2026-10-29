@@ -10,6 +10,16 @@ export interface Preset {
   fallback?: StrategyKind | null;
   prompt: string;
   pattern?: string | null;
+  /** True for presets the user saved (FR-71). */
+  user?: boolean;
+}
+
+/** What the interface sends to create (no id) or edit a user preset. */
+export interface PresetInput {
+  id: string | null;
+  category: string;
+  name: string;
+  prompt: string;
 }
 
 export interface Range {
