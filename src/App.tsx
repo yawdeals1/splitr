@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open } from "@tauri-apps/plugin-dialog";
@@ -21,20 +21,19 @@ function App() {
   const [fixedEvery, setFixedEvery] = useState(10);
   const [ranges, setRanges] = useState<Range[]>([]);
   const [error, setError] = useState("");
+  // True while a file dialog is showing or a PDF is opening; drops and Ctrl+O bypass the disabled buttons.
+  const busy = useRef(false);
 
   useEffect(() => {
     invoke<Preset[]>("list_presets").then(setPresets).catch((e) => setError(String(e)));
   }, []);
 
   // FR-01, FR-02, FR-05: open one PDF and show its details, or say why it can't be opened.
-  const openPaths = useCallback(async (paths: string[]) => {
-    const reason = rejectReason(paths);
-    if (reason) return setError(reason);
-    if (paths.length === 0) return;
+  const openPath = useCallback(async (path: string) => {
     setError("");
     setOpening(true);
     try {
-      setPdf(await invoke<PdfInfo>("open_pdf", { path: paths[0] }));
+      setPdf(await invoke<PdfInfo>("open_pdf", { path }));
       setRanges([]);
     } catch (e) {
       setError(String(e));
@@ -43,10 +42,31 @@ function App() {
     }
   }, []);
 
+  const openDropped = useCallback(async (paths: string[]) => {
+    if (busy.current) return;
+    const reason = rejectReason(paths);
+    if (reason) return setError(reason);
+    busy.current = true;
+    try {
+      await openPath(paths[0]);
+    } finally {
+      busy.current = false;
+    }
+  }, [openPath]);
+
   const chooseFile = useCallback(async () => {
-    const path = await open({ multiple: false, directory: false, filters: [{ name: "PDF", extensions: ["pdf"] }] });
-    if (path) await openPaths([path]);
-  }, [openPaths]);
+    if (busy.current) return;
+    busy.current = true;
+    try {
+      // Both letter cases: GTK file filters on Linux are case-sensitive.
+      const path = await open({ multiple: false, directory: false, filters: [{ name: "PDF", extensions: ["pdf", "PDF"] }] });
+      if (path) await openPath(path);
+    } catch (e) {
+      setError(`The file picker could not open: ${e}`);
+    } finally {
+      busy.current = false;
+    }
+  }, [openPath]);
 
   // FR-01: Tauri drag-drop events give real file paths, which HTML drag events don't.
   useEffect(() => {
@@ -55,20 +75,20 @@ function App() {
       else if (payload.type === "leave") setDragging(false);
       else if (payload.type === "drop") {
         setDragging(false);
-        openPaths(payload.paths);
+        openDropped(payload.paths);
       }
     });
     return () => {
       unlisten.then((stop) => stop());
     };
-  }, [openPaths]);
+  }, [openDropped]);
 
   // NFR-11: Ctrl+O / Cmd+O opens the file picker.
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "o") {
         e.preventDefault();
-        chooseFile();
+        if (!e.repeat) chooseFile();
       }
     }
     window.addEventListener("keydown", onKey);
