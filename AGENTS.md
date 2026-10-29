@@ -19,6 +19,7 @@ Splitr (working name) is Smart PDF Splitter: a local-first desktop app for Windo
 | Download the PDFium library (once; `tauri dev` and `tauri build` also run it) | `npm run fetch-pdfium` |
 | Run the app | `npm run tauri dev` |
 | Frontend type-check and build | `npm run build` |
+| Frontend unit tests | `npm test` |
 | Rust tests | `cargo test --manifest-path src-tauri/Cargo.toml` |
 | Rust lint | `cargo clippy --manifest-path src-tauri/Cargo.toml` |
 | Release | push a tag `vX.Y.Z` (GitHub Actions builds installers) |
@@ -62,7 +63,7 @@ Splitr (working name) is Smart PDF Splitter: a local-first desktop app for Windo
 - Never push to `main`. It is protected: changes land only through a PR with green CI (`frontend` and `rust` jobs). Only the repository owner may bypass, and agents must not use the bypass.
 - The PR body says `Closes #N` and fills in the PR template, including the security checklist. The owner reviews and merges; agents never merge their own PRs.
 - Keep each PR to its one issue. Put extra work you discover in a new issue instead of the current PR.
-- Run `cargo test` and `npm run build` before pushing.
+- Run `cargo test`, `npm run build` and `npm test` before pushing.
 - Commit messages: imperative summary line, then a body that names the requirement IDs touched.
 - When a PR merges, tick its item in the build plan in the same PR (in both CLAUDE.md and AGENTS.md).
 
@@ -85,7 +86,7 @@ Status key: [x] done, [ ] to do. Each phase ends when its exit criterion is met 
 - [x] Fixed, outline, pattern and blank page strategy logic, with tests
 - [ ] Extract page text and the outline from PDFium into `DocumentText` (#7)
 - [ ] `run_preset` command: run the preset's strategy, then its `fallback` on `NoOutline`/`NothingFound` (FR-30) (#8)
-- [ ] Review screen: list of parts, editing boundaries, adding, removing, renaming and deleting parts, split marks on thumbnails (FR-12, FR-40 to FR-42) (#9)
+- [x] Review screen: list of parts, editing boundaries, adding, removing, renaming and deleting parts, split marks on thumbnails (FR-12, FR-40 to FR-42) (#9)
 - [ ] Naming template UI, optional ZIP, an "Open folder" button (FR-51 to FR-55) (#10)
 - [ ] Settings file: theme, last folder, template, blank threshold (SRS 6.4) (#11)
 - [ ] Build a test set of 10 or more varied PDFs in `tests/fixtures/`, using only public or generated files with no personal data (#12)

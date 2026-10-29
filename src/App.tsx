@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { ReviewScreen } from "./ReviewScreen";
 import type { PdfInfo, Preset, Range, RangeMode } from "./types";
 import "./App.css";
 
@@ -15,6 +16,10 @@ function App() {
   const [customRanges, setCustomRanges] = useState("");
   const [fixedEvery, setFixedEvery] = useState(10);
   const [ranges, setRanges] = useState<Range[]>([]);
+  // Custom mode may leave pages out (FR-20); other modes must cover every page (FR-35).
+  const [allowGaps, setAllowGaps] = useState(false);
+  // Bumped on every split so the review screen starts fresh.
+  const [reviewId, setReviewId] = useState(0);
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -35,6 +40,8 @@ function App() {
   async function split() {
     setError("");
     if (!pdf) return setError("Open a PDF first.");
+    setAllowGaps(mode === "custom");
+    setReviewId((n) => n + 1);
     try {
       if (mode === "custom") {
         setRanges(await invoke<Range[]>("parse_custom_ranges", { input: customRanges, pageCount: pdf.pageCount }));
@@ -63,14 +70,17 @@ function App() {
             </button>
           </div>
         )}
-        {ranges.length > 0 && (
-          <ol className="parts">
-            {ranges.map((r) => (
-              <li key={r.start}>
-                Pages {r.start}–{r.end} {r.title && `· ${r.title}`}
-              </li>
-            ))}
-          </ol>
+        {pdf && ranges.length > 0 && (
+          // FR-42: export is only reachable from the review screen.
+          <ReviewScreen
+            key={reviewId}
+            totalPages={pdf.pageCount}
+            ranges={ranges}
+            allowGaps={allowGaps}
+            onChange={setRanges}
+            onBack={() => setRanges([])}
+            onExport={() => setError("Export is not available yet.")}
+          />
         )}
       </section>
 
