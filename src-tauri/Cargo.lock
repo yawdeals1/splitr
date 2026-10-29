@@ -3617,6 +3617,7 @@ dependencies = [
 name = "splitr"
 version = "0.1.0"
 dependencies = [
+ "image",
  "lopdf",
  "pdfium-render",
  "regex",

@@ -3,6 +3,8 @@ import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open } from "@tauri-apps/plugin-dialog";
 import { baseName, formatSize, rejectReason } from "./file";
+import { PageGrid } from "./PageGrid";
+import { PageViewer } from "./PageViewer";
 import { PasswordPrompt } from "./PasswordPrompt";
 import { PresetEditor } from "./PresetEditor";
 import { ReviewScreen } from "./ReviewScreen";
@@ -22,6 +24,10 @@ const CUSTOM_PROMPT = "__custom__";
 
 function App() {
   const [pdf, setPdf] = useState<PdfInfo | null>(null);
+  // Counts successful opens, so reopening the same file shows its pages afresh.
+  const [opened, setOpened] = useState(0);
+  // FR-11: the page shown in the larger view.
+  const [viewing, setViewing] = useState<number | null>(null);
   const [dragging, setDragging] = useState(false);
   const [opening, setOpening] = useState(false);
   // FR-03: an encrypted file waiting for its password.
@@ -61,6 +67,8 @@ function App() {
     setOpening(true);
     try {
       setPdf(await invoke<PdfInfo>("open_pdf", { path, password }));
+      setOpened((n) => n + 1);
+      setViewing(null);
       setRanges([]);
       setLocked(null);
     } catch (e) {
@@ -208,17 +216,30 @@ function App() {
             onCancel={() => setLocked(null)}
           />
         ) : pdf ? (
-          <header className={dragging ? "file-info dragging" : "file-info"}>
-            <div>
-              <strong>{pdf.fileName}</strong>
-              <span>
-                {pdf.pageCount} {pdf.pageCount === 1 ? "page" : "pages"} · {formatSize(pdf.sizeBytes)}
-              </span>
-            </div>
-            <button type="button" onClick={chooseFile} disabled={opening}>
-              Open another
-            </button>
-          </header>
+          <>
+            <header className={dragging ? "file-info dragging" : "file-info"}>
+              <div>
+                <strong>{pdf.fileName}</strong>
+                <span>
+                  {pdf.pageCount} {pdf.pageCount === 1 ? "page" : "pages"} · {formatSize(pdf.sizeBytes)}
+                </span>
+              </div>
+              <button type="button" onClick={chooseFile} disabled={opening}>
+                Open another
+              </button>
+            </header>
+            <PageGrid key={opened} path={pdf.path} pageCount={pdf.pageCount} onOpen={setViewing} />
+            {viewing !== null && (
+              <PageViewer
+                key={opened}
+                path={pdf.path}
+                page={viewing}
+                pageCount={pdf.pageCount}
+                onPage={setViewing}
+                onClose={() => setViewing(null)}
+              />
+            )}
+          </>
         ) : (
           <div className={dragging ? "dropzone dragging" : "dropzone"}>
             <p>{opening ? "Opening…" : "Drop a PDF here"}</p>
