@@ -21,8 +21,8 @@ The split follows code areas, so the two tracks rarely touch the same files. Swa
 | #12 | Test fixture set of 10+ PDFs | `phase-1/12-test-fixtures` |
 | #13 | API key storage, AI toggle and consent notice | `phase-2/13-api-key-storage` |
 | #14 | Page excerpts and overlapping chunks | `phase-2/14-excerpts-chunks` |
-| #15 | Claude API client (done, #58) | `phase-2/15-claude-client` |
-| #16 | AI response parsing, merging and validation (done, #63) | `phase-2/16-ai-response-parsing` |
+| #15 | Claude API client | `phase-2/15-claude-client` |
+| #16 | AI response parsing, merging and validation | `phase-2/16-ai-response-parsing` |
 | #31 | Connect a ChatGPT account (Sign in with ChatGPT) | `phase-2/31-chatgpt-signin` |
 | #19 | Auto-update with signed update manifest | `phase-3/19-auto-update` |
 | #21 | Installer size check and clean-machine install test | `phase-3/21-installer-size` |
