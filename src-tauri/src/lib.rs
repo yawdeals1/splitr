@@ -8,16 +8,31 @@ mod ranges;
 mod settings;
 mod strategy;
 mod user_presets;
+mod viewer;
 
-use tauri::Manager;
+use tauri::{Manager, RunEvent};
+
+use viewer::Viewer;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
-        // Load PDFium from the bundled resource folder. A failure is reported by every PDF command.
         .setup(|app| {
+            // Page images are cached in the user's own cache folder (NFR-07). Folders left by a
+            // crashed session are deleted first.
+            let cache_root = match app.path().app_cache_dir() {
+                Ok(dir) => dir.join("thumbnails"),
+                Err(e) => {
+                    eprintln!("Could not find the cache folder, using the temp folder: {e}");
+                    std::env::temp_dir().join("splitr-thumbnails")
+                }
+            };
+            Viewer::remove_stale_sessions(&cache_root);
+            app.manage(Viewer::new(cache_root));
+
+            // Load PDFium from the bundled resource folder. A failure is reported by every PDF command.
             match app.path().resource_dir() {
                 Ok(dir) => {
                     if let Err(e) = pdf::init(&dir.join("pdfium")) {
@@ -34,12 +49,21 @@ pub fn run() {
             commands::fixed_ranges,
             commands::validate_ranges,
             commands::open_pdf,
+            commands::render_page,
             commands::export_parts,
             commands::save_user_preset,
             commands::delete_user_preset,
             commands::get_settings,
             commands::save_settings,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app, event| {
+            // NFR-07: delete this session's thumbnails when the app closes.
+            if let RunEvent::Exit = event
+                && let Some(viewer) = app.try_state::<Viewer>()
+            {
+                viewer.close();
+            }
+        });
 }

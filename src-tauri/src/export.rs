@@ -112,7 +112,7 @@ mod tests {
         assert_eq!(paths, [dir.path().join("book (2).pdf"), dir.path().join("book - 02.pdf")].map(|p| p.to_string_lossy().into_owned()));
         assert_eq!(fs::read(&source).unwrap(), before);
         for path in &paths {
-            assert_eq!(pdf::open(path, None).unwrap().page_count, 2);
+            assert_eq!(pdf::open_document(path, None).unwrap().0.page_count, 2);
         }
     }
 

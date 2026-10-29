@@ -27,7 +27,10 @@ tauri-plugin-dialog = "2"
 # version that scripts/fetch-pdfium.mjs downloads; change both together.
 pdfium-render = { version = "0.9.4", default-features = false, features = ["pdfium_7881", "image_latest", "thread_safe"] }
 lopdf = "0.46"
-# Temp files for writing parts before renaming them (NFR-09), see src/export.rs.
+# Encodes rendered pages as JPEG thumbnails (FR-10). Same version pdfium-render uses.
+image = { version = "0.25", default-features = false, features = ["jpeg"] }
+# Private, randomly named thumbnail folder per session (NFR-07), see src/viewer.rs, and temp
+# files for parts before they are renamed (NFR-09), see src/export.rs.
 tempfile = "3"
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration

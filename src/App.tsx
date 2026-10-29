@@ -3,8 +3,11 @@ import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open } from "@tauri-apps/plugin-dialog";
 import { baseName, formatSize, partNames, rejectReason } from "./file";
+import { PageGrid } from "./PageGrid";
+import { PageViewer } from "./PageViewer";
 import { PasswordPrompt } from "./PasswordPrompt";
 import { PresetEditor } from "./PresetEditor";
+import { ReviewScreen } from "./ReviewScreen";
 import { useSettings } from "./settings";
 import {
   PASSWORD_REQUIRED,
@@ -22,6 +25,10 @@ const CUSTOM_PROMPT = "__custom__";
 
 function App() {
   const [pdf, setPdf] = useState<PdfInfo | null>(null);
+  // Counts successful opens, so reopening the same file shows its pages afresh.
+  const [opened, setOpened] = useState(0);
+  // FR-11: the page shown in the larger view.
+  const [viewing, setViewing] = useState<number | null>(null);
   const [dragging, setDragging] = useState(false);
   const [opening, setOpening] = useState(false);
   // FR-03: an encrypted file waiting for its password.
@@ -34,6 +41,10 @@ function App() {
   const [customRanges, setCustomRanges] = useState("");
   const [fixedEvery, setFixedEvery] = useState(10);
   const [ranges, setRanges] = useState<Range[]>([]);
+  // Custom mode may leave pages out (FR-20); other modes must cover every page (FR-35).
+  const [allowGaps, setAllowGaps] = useState(false);
+  // Bumped on every split so the review screen starts fresh.
+  const [reviewId, setReviewId] = useState(0);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [exporting, setExporting] = useState(false);
@@ -64,6 +75,8 @@ function App() {
     try {
       setPdf(await invoke<PdfInfo>("open_pdf", { path, password: pw }));
       password.current = pw;
+      setOpened((n) => n + 1);
+      setViewing(null);
       setRanges([]);
       setLocked(null);
     } catch (e) {
@@ -180,37 +193,41 @@ function App() {
     setError("");
     setNotice("");
     if (!pdf) return setError("Open a PDF first.");
-    if (busy.current) return;
-    busy.current = true;
+    let next: Range[];
     try {
-      let parts: Range[];
       if (mode === "custom") {
-        parts = await invoke<Range[]>("parse_custom_ranges", { input: customRanges, pageCount: pdf.pageCount });
+        next = await invoke<Range[]>("parse_custom_ranges", { input: customRanges, pageCount: pdf.pageCount });
       } else if (mode === "fixed") {
-        parts = await invoke<Range[]>("fixed_ranges", { pageCount: pdf.pageCount, every: fixedEvery });
+        next = await invoke<Range[]>("fixed_ranges", { pageCount: pdf.pageCount, every: fixedEvery });
       } else {
-        return setError("Smart split is not implemented yet.");
+        throw "Smart split is not implemented yet.";
       }
-      setRanges(parts);
-      await saveParts(pdf, parts);
     } catch (e) {
-      setError(String(e));
-    } finally {
-      busy.current = false;
+      // The parts of an earlier split no longer match the options, so they aren't kept.
+      setRanges([]);
+      return setError(String(e));
     }
+    // The gap rule and a fresh review screen only change once the new parts have arrived.
+    setAllowGaps(mode === "custom");
+    setReviewId((n) => n + 1);
+    setRanges(next);
   }
 
   // FR-50: ask for a folder, then save one PDF per part there.
   async function saveParts(file: PdfInfo, parts: Range[]) {
-    const folder = await open({
-      directory: true,
-      multiple: false,
-      title: "Choose a folder for the parts",
-      defaultPath: settings?.lastOutputFolder ?? undefined,
-    });
-    if (!folder) return;
-    setExporting(true);
+    if (busy.current) return;
+    busy.current = true;
+    setError("");
+    setNotice("");
     try {
+      const folder = await open({
+        directory: true,
+        multiple: false,
+        title: "Choose a folder for the parts",
+        defaultPath: settings?.lastOutputFolder ?? undefined,
+      });
+      if (!folder) return;
+      setExporting(true);
       const names = partNames(file.fileName, parts.map((r) => r.title));
       const saved = await invoke<string[]>("export_parts", {
         path: file.path,
@@ -222,8 +239,11 @@ function App() {
       setNotice(`Saved ${saved.length} ${saved.length === 1 ? "file" : "files"} to ${folder}`);
       // Remembering the folder is a convenience, so a failure here isn't shown.
       await updateSettings({ lastOutputFolder: folder });
+    } catch (e) {
+      setError(String(e));
     } finally {
       setExporting(false);
+      busy.current = false;
     }
   }
 
@@ -239,17 +259,30 @@ function App() {
             onCancel={() => setLocked(null)}
           />
         ) : pdf ? (
-          <header className={dragging ? "file-info dragging" : "file-info"}>
-            <div>
-              <strong>{pdf.fileName}</strong>
-              <span>
-                {pdf.pageCount} {pdf.pageCount === 1 ? "page" : "pages"} · {formatSize(pdf.sizeBytes)}
-              </span>
-            </div>
-            <button type="button" onClick={chooseFile} disabled={opening}>
-              Open another
-            </button>
-          </header>
+          <>
+            <header className={dragging ? "file-info dragging" : "file-info"}>
+              <div>
+                <strong>{pdf.fileName}</strong>
+                <span>
+                  {pdf.pageCount} {pdf.pageCount === 1 ? "page" : "pages"} · {formatSize(pdf.sizeBytes)}
+                </span>
+              </div>
+              <button type="button" onClick={chooseFile} disabled={opening}>
+                Open another
+              </button>
+            </header>
+            <PageGrid key={opened} path={pdf.path} pageCount={pdf.pageCount} onOpen={setViewing} />
+            {viewing !== null && (
+              <PageViewer
+                key={opened}
+                path={pdf.path}
+                page={viewing}
+                pageCount={pdf.pageCount}
+                onPage={setViewing}
+                onClose={() => setViewing(null)}
+              />
+            )}
+          </>
         ) : (
           <div className={dragging ? "dropzone dragging" : "dropzone"}>
             <p>{opening ? "Opening…" : "Drop a PDF here"}</p>
@@ -258,14 +291,18 @@ function App() {
             </button>
           </div>
         )}
-        {ranges.length > 0 && (
-          <ol className="parts">
-            {ranges.map((r) => (
-              <li key={r.start}>
-                Pages {r.start}–{r.end} {r.title && `· ${r.title}`}
-              </li>
-            ))}
-          </ol>
+        {pdf && ranges.length > 0 && (
+          // FR-42: export is only reachable from the review screen.
+          <ReviewScreen
+            key={reviewId}
+            totalPages={pdf.pageCount}
+            ranges={ranges}
+            allowGaps={allowGaps}
+            onChange={setRanges}
+            onBack={() => setRanges([])}
+            exporting={exporting}
+            onExport={() => saveParts(pdf, ranges)}
+          />
         )}
       </section>
 
@@ -379,8 +416,8 @@ function App() {
           </>
         )}
 
-        <button type="button" className="primary" onClick={split} disabled={exporting || opening}>
-          {exporting ? "Saving…" : "Split"}
+        <button type="button" className="primary" onClick={split}>
+          Split
         </button>
         {error && <p className="error" role="alert">{error}</p>}
         {notice && <p className="notice" role="status">{notice}</p>}

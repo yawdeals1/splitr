@@ -2,16 +2,18 @@
 
 use std::path::PathBuf;
 
+use tauri::ipc::Response;
 use tauri::{AppHandle, Manager};
 
 use crate::error::{Result, SplitError};
 use crate::export;
-use crate::pdf::{self, PdfInfo};
+use crate::pdf::PdfInfo;
 use crate::presets::{self, Preset};
 use crate::ranges::{self, Range};
 use crate::settings::{self, Settings};
 use crate::strategy::{DocumentText, FixedStrategy, Strategy};
 use crate::user_presets::{self, PresetInput, PresetList};
+use crate::viewer::Viewer;
 
 fn user_presets_path(app: &AppHandle) -> Result<PathBuf> {
     let dir = app.path().app_config_dir().map_err(|e| {
@@ -86,11 +88,22 @@ pub async fn delete_user_preset(app: AppHandle, id: String) -> Result<()> {
 }
 
 /// Opens a PDF off the UI thread (NFR-02). `password` is only needed for encrypted files (FR-03).
+/// The opened PDF becomes the one whose pages `render_page` shows.
 #[tauri::command]
-pub async fn open_pdf(path: String, password: Option<String>) -> Result<PdfInfo> {
-    tauri::async_runtime::spawn_blocking(move || pdf::open(&path, password.as_deref()))
+pub async fn open_pdf(app: AppHandle, path: String, password: Option<String>) -> Result<PdfInfo> {
+    tauri::async_runtime::spawn_blocking(move || app.state::<Viewer>().open(&path, password.as_deref()))
         .await
         .map_err(|e| SplitError::OpenFailed("The PDF".into(), e.to_string()))?
+}
+
+/// Page `page` (1-based) of the open PDF as JPEG bytes `width` pixels wide, rendered off the UI
+/// thread and cached for the session (FR-10, FR-11, NFR-02).
+#[tauri::command]
+pub async fn render_page(app: AppHandle, path: String, page: u32, width: u32) -> Result<Response> {
+    tauri::async_runtime::spawn_blocking(move || app.state::<Viewer>().render(&path, page, width))
+        .await
+        .map_err(|e| SplitError::RenderFailed(page, e.to_string()))?
+        .map(Response::new)
 }
 
 /// Saves each range as its own PDF in `folder`, named from `names` (FR-50 to FR-52), off the UI

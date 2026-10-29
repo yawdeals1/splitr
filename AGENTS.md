@@ -77,7 +77,7 @@ Status key: [x] done, [ ] to do. Each phase ends when its exit criterion is met 
 - [x] Bundle a PDFium library per platform (pdfium-binaries) as a Tauri resource, and load it in `pdf.rs` (#2)
 - [x] `open_pdf`: name, page count and size; password prompt; clear errors for corrupt files (FR-01 to FR-05) (#3)
 - [x] File picker and drag and drop (`@tauri-apps/plugin-dialog`) (#4)
-- [ ] Lazy thumbnail grid with a larger page view; thumbnails cached in a per-session temp folder (FR-10, FR-11, NFR-03) (#5)
+- [x] Lazy thumbnail grid with a larger page view; thumbnails cached in a per-session temp folder (FR-10, FR-11, NFR-03) (#5)
 - [x] `export_parts` with `lopdf`: write each range to a chosen folder, temp-then-rename, keep links and bookmarks where possible (FR-50, FR-54, NFR-09) (#6)
 - **Exit:** a custom range split saves correctly on the developer's machine.
 
@@ -85,7 +85,8 @@ Status key: [x] done, [ ] to do. Each phase ends when its exit criterion is met 
 - [x] Fixed, outline, pattern and blank page strategy logic, with tests
 - [ ] Extract page text and the outline from PDFium into `DocumentText` (#7)
 - [ ] `run_preset` command: run the preset's strategy, then its `fallback` on `NoOutline`/`NothingFound` (FR-30) (#8)
-- [ ] Review screen: list of parts, editing boundaries, adding, removing, renaming and deleting parts, split marks on thumbnails (FR-12, FR-40 to FR-42) (#9)
+- [x] Review screen: list of parts, editing boundaries, adding, removing, renaming and deleting parts (FR-40 to FR-42) (#9)
+- [ ] Split marks on thumbnails (FR-12) (#48)
 - [ ] Naming template UI, optional ZIP, an "Open folder" button (FR-51 to FR-55) (#10)
 - [x] Settings file: theme, last folder, template, blank threshold (SRS 6.4) (#11)
 - [ ] Build a test set of 10 or more varied PDFs in `tests/fixtures/`, using only public or generated files with no personal data (#12)
@@ -115,8 +116,8 @@ Status key: [x] done, [ ] to do. Each phase ends when its exit criterion is met 
 - **Exit:** installers run on clean Windows, macOS and Linux machines.
 
 ### Phase 4: v1.0 release
-- [ ] Fix bugs against the SRS 9.3 acceptance criteria (#22)
-- [ ] Download page with SmartScreen and Gatekeeper instructions, and a user guide (#23)
+- [ ] Fix bugs against the SRS 9.3 acceptance criteria, and check docs/user-guide.md against the finished app (#22)
+- [x] Download page with SmartScreen and Gatekeeper instructions, and a user guide (#23)
 - **Exit:** no open critical bugs.
 
 ### Phase 5: v1.1

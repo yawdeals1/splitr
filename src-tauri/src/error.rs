@@ -39,6 +39,13 @@ pub enum SplitError {
     EmptyPdf(String),
     #[error("{0} could not be opened: {1}")]
     OpenFailed(String, String),
+    // Showing pages (FR-10, FR-11).
+    #[error("This PDF is no longer open. Open it again to see its pages")]
+    NotOpen,
+    #[error("Page {0} does not exist. This PDF has {1} pages")]
+    PageOutOfRange(u32, u32),
+    #[error("Page {0} could not be shown: {1}")]
+    RenderFailed(u32, String),
     // Saving parts (FR-50, NFR-09). A failed export removes everything it wrote.
     #[error("Splitr can't write parts of {0}: {1}")]
     CantSplit(String, String),
