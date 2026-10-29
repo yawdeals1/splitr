@@ -2,6 +2,7 @@
 //! the rest of the app doesn't know which one answers. Only the AI strategy calls these (NFR-06).
 
 pub mod claude;
+pub mod gemini;
 pub mod http;
 pub mod openai;
 pub mod response;
@@ -13,6 +14,7 @@ use tokio::sync::watch;
 
 use crate::error::{Result, SplitError};
 use claude::Claude;
+use gemini::Gemini;
 use openai::OpenAi;
 
 /// The AI service Smart mode uses until the user picks another: their ChatGPT account (#31).
@@ -69,6 +71,7 @@ pub trait Provider {
 pub enum Chosen {
     Claude(Claude),
     OpenAi(OpenAi),
+    Gemini(Gemini),
 }
 
 impl Provider for Chosen {
@@ -76,6 +79,7 @@ impl Provider for Chosen {
         match self {
             Chosen::Claude(p) => p.complete(request).await,
             Chosen::OpenAi(p) => p.complete(request).await,
+            Chosen::Gemini(p) => p.complete(request).await,
         }
     }
 }
@@ -85,22 +89,23 @@ pub fn provider(platform: &str, key: String, model: String) -> Result<Chosen> {
     match platform {
         "anthropic" => Ok(Chosen::Claude(Claude::new(key, model)?)),
         "openai" => Ok(Chosen::OpenAi(OpenAi::new(key, model)?)),
+        "gemini" => Ok(Chosen::Gemini(Gemini::new(key, model)?)),
         _ => Err(unsupported(platform)),
     }
 }
 
 /// Whether Smart mode can send requests to `platform` yet.
 pub fn is_supported(platform: &str) -> bool {
-    matches!(platform, "anthropic" | "openai")
+    matches!(platform, "anthropic" | "openai" | "gemini")
 }
 
 /// Why Smart mode can't use `platform` yet.
 pub fn unsupported(platform: &str) -> SplitError {
     SplitError::Ai(match platform {
-        "chatgpt" => "Signing in with ChatGPT isn't available yet. Choose Claude or OpenAI under AI in Settings to use \
+        "chatgpt" => "Signing in with ChatGPT isn't available yet. Choose Claude, OpenAI or Gemini under AI in Settings to use \
                       an API key for now"
             .into(),
-        _ => "Smart mode can't use this AI service yet. Choose Claude or OpenAI under AI in Settings".into(),
+        _ => "Smart mode can't use this AI service yet. Choose Claude, OpenAI or Gemini under AI in Settings".into(),
     })
 }
 
@@ -184,10 +189,10 @@ mod tests {
 
     #[test]
     fn only_finished_providers_are_offered() {
-        assert!(is_supported("anthropic") && is_supported("openai"));
-        assert!(!is_supported("chatgpt") && !is_supported("gemini"));
+        assert!(is_supported("anthropic") && is_supported("openai") && is_supported("gemini"));
+        assert!(!is_supported("chatgpt") && !is_supported("openrouter"));
         assert!(unsupported("chatgpt").to_string().contains("ChatGPT isn't available yet"));
-        let err = provider("gemini", "k".into(), "m".into()).err().unwrap();
+        let err = provider("openrouter", "k".into(), "m".into()).err().unwrap();
         assert!(err.to_string().contains("can't use this AI service yet"), "{err}");
         assert!(matches!(provider("openai", "k".into(), "m".into()), Ok(Chosen::OpenAi(_))));
     }
