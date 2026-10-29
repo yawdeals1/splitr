@@ -4,8 +4,9 @@ import { invoke } from "@tauri-apps/api/core";
 import type { Settings } from "./types";
 
 /**
- * Current settings (null until loaded, or if loading failed), the load error if any, and a
- * function that saves a change and returns any error.
+ * Current settings (null until loaded, or if loading failed), the load error if any, a function
+ * that saves a change and returns any error, and one that returns what was last saved, which is
+ * newer than `settings` while a render is pending.
  */
 export function useSettings() {
   const [settings, setSettings] = useState<Settings | null>(null);
@@ -40,5 +41,7 @@ export function useSettings() {
     return run;
   }, [loadError]);
 
-  return { settings, loadError, update };
+  const saved = useCallback(() => latest.current, []);
+
+  return { settings, loadError, update, saved };
 }

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -10,7 +11,7 @@ import { PasswordPrompt } from "./PasswordPrompt";
 import { PresetEditor } from "./PresetEditor";
 import { ReviewScreen } from "./ReviewScreen";
 import { useSettings } from "./settings";
-import { applyTheme } from "./theme";
+import { applyTheme, themeAttribute } from "./theme";
 import {
   PASSWORD_REQUIRED,
   WRONG_PASSWORD,
@@ -65,14 +66,16 @@ function App() {
   // NFR-11: where focus goes when the control that had it disappears.
   const presetSelect = useRef<HTMLSelectElement>(null);
   const splitButton = useRef<HTMLButtonElement>(null);
-  const { settings, update: updateSettings } = useSettings();
+  // Set when Escape cancels "Confirm delete", so the "Delete preset" button that replaces it takes focus.
+  const refocusDelete = useRef(false);
+  const { settings, loadError, update: updateSettings, saved: savedSettings } = useSettings();
   const theme = settings?.theme ?? "system";
 
   // FR-63: show the saved theme, in the page and (where the OS allows) the window title bar.
   useEffect(() => {
     applyTheme(document.documentElement, theme);
     getCurrentWindow()
-      .setTheme(theme === "system" ? null : theme)
+      .setTheme(themeAttribute(theme))
       .catch(() => {});
   }, [theme]);
 
@@ -80,7 +83,9 @@ function App() {
     applyTheme(document.documentElement, value);
     const problem = await updateSettings({ theme: value });
     if (problem) {
-      applyTheme(document.documentElement, theme);
+      // Go back to what is saved now, not to the theme when this click happened: an earlier
+      // click's save may have finished in the meantime.
+      applyTheme(document.documentElement, savedSettings()?.theme ?? "system");
       setError(`The theme could not be saved: ${problem}`);
     }
   }
@@ -311,7 +316,8 @@ function App() {
                   {pdf.pageCount} {pdf.pageCount === 1 ? "page" : "pages"} · {formatSize(pdf.sizeBytes)}
                 </span>
               </div>
-              {/* Takes focus when the file opens or the password prompt is cancelled (NFR-11). */}
+              {/* Takes focus when this header appears (NFR-11): the first file opens, or a password
+                  prompt closes. Opening another file keeps focus where it was. */}
               <button
                 type="button"
                 onClick={chooseFile}
@@ -351,7 +357,8 @@ function App() {
             allowGaps={allowGaps}
             onChange={setRanges}
             onBack={() => {
-              setRanges([]);
+              // Commit the closed review screen first, so nothing that mounts with it can take focus back.
+              flushSync(() => setRanges([]));
               splitButton.current?.focus();
             }}
             exporting={exporting}
@@ -473,12 +480,26 @@ function App() {
                       className="danger"
                       autoFocus
                       onClick={() => deletePreset(selectedPreset.id)}
-                      onKeyDown={(e) => e.key === "Escape" && setConfirmDelete(false)}
+                      onKeyDown={(e) => {
+                        if (e.key !== "Escape") return;
+                        refocusDelete.current = true;
+                        setConfirmDelete(false);
+                      }}
                     >
                       Confirm delete
                     </button>
                   ) : (
-                    <button type="button" onClick={() => setConfirmDelete(true)}>
+                    <button
+                      type="button"
+                      ref={(button) => {
+                        // NFR-11: focus moves back here when Escape removes "Confirm delete".
+                        if (button && refocusDelete.current) {
+                          refocusDelete.current = false;
+                          button.focus();
+                        }
+                      }}
+                      onClick={() => setConfirmDelete(true)}
+                    >
                       Delete preset
                     </button>
                   )}
@@ -509,6 +530,11 @@ function App() {
               {label}
             </label>
           ))}
+          {loadError && (
+            <p className="error" role="alert">
+              Settings could not be loaded, so the theme can't be changed: {loadError}
+            </p>
+          )}
         </fieldset>
       </aside>
     </main>
