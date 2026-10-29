@@ -6,6 +6,7 @@ pub mod compatible;
 pub mod gemini;
 pub mod http;
 pub mod openai;
+pub mod opencode_go;
 
 use std::collections::BTreeMap;
 
@@ -38,6 +39,7 @@ pub fn default_model(platform: &str) -> Option<&'static str> {
         .find(|(id, _)| *id == platform)
         .map(|(_, model)| *model)
         .or_else(|| compatible::default_model(platform))
+        .or_else(|| (platform == "opencode-go").then(opencode_go::default_model).flatten())
 }
 
 /// Every default, for the settings screen.
@@ -45,10 +47,12 @@ pub fn default_models() -> BTreeMap<String, String> {
     let compatible = compatible::platforms()
         .iter()
         .filter_map(|p| Some((p.id.as_str(), p.default_model.as_deref()?)));
+    let opencode_go = opencode_go::default_model().map(|model| ("opencode-go", model));
     DEFAULT_MODELS
         .iter()
         .copied()
         .chain(compatible)
+        .chain(opencode_go)
         .map(|(id, model)| (id.to_string(), model.to_string()))
         .collect()
 }
@@ -90,13 +94,14 @@ pub async fn complete(platform: &str, custom_url: &str, key: String, model: Stri
         "anthropic" => Claude::new(key, model)?.complete(request).await,
         "openai" => OpenAi::new(key, model)?.complete(request).await,
         "gemini" => Gemini::new(key, model)?.complete(request).await,
+        "opencode-go" => opencode_go::complete(key, model, request).await,
         _ => Err(unsupported(platform)),
     }
 }
 
 /// Whether Smart mode can send requests to `platform` yet.
 pub fn is_supported(platform: &str) -> bool {
-    matches!(platform, "anthropic" | "openai" | "gemini") || compatible::is_compatible(platform)
+    matches!(platform, "anthropic" | "openai" | "gemini" | "opencode-go") || compatible::is_compatible(platform)
 }
 
 /// Why Smart mode can't use `platform` yet.
@@ -182,6 +187,7 @@ mod tests {
         assert_eq!(default_model("custom"), None);
         assert_eq!(default_model("deepseek"), Some("deepseek-flash"));
         assert_eq!(default_models().get("deepseek").map(String::as_str), Some("deepseek-flash"));
+        assert_eq!(default_model("opencode-go"), Some("deepseek-v4.1-flash"));
         for (id, model) in DEFAULT_MODELS {
             assert!(is_platform(id), "{id}");
             assert!(!model.trim().is_empty());
@@ -193,9 +199,10 @@ mod tests {
     fn only_finished_providers_are_offered() {
         assert!(is_supported("anthropic") && is_supported("openai") && is_supported("gemini"));
         assert!(is_supported("openrouter") && is_supported("custom"));
-        assert!(!is_supported("chatgpt") && !is_supported("opencode-go"));
+        assert!(is_supported("opencode-go"));
+        assert!(!is_supported("chatgpt") && !is_supported("../evil"));
         assert!(unsupported("chatgpt").to_string().contains("ChatGPT isn't available yet"));
-        let err = tauri::async_runtime::block_on(complete("opencode-go", "", "k".into(), "m".into(), &AiRequest {
+        let err = tauri::async_runtime::block_on(complete("someday", "", "k".into(), "m".into(), &AiRequest {
             instruction: "x".into(),
             pages: vec![],
         }))

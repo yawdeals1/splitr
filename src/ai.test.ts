@@ -50,4 +50,5 @@ test("the OpenAI-compatible services match the backend's data file", () => {
     assert.equal(service.listsModels, true);
   }
   assert.equal(aiService("custom").listsModels, true);
+  assert.equal(aiService("opencode-go").listsModels, true);
 });

@@ -104,7 +104,7 @@ Status key: [x] done, [ ] to do. Each phase ends when its exit criterion is met 
 - [x] Google Gemini provider (#29)
 - [x] OpenAI-compatible platforms from a data file: OpenRouter, NVIDIA, Groq, xAI, DeepSeek, Mistral, Together AI, plus a custom base URL (#30)
 - [ ] Connect a ChatGPT account instead of an API key (Sign in with ChatGPT); confirm OpenAI's developer terms first (#31)
-- [ ] OpenCode Go provider, routing each model to its API style (#32)
+- [x] OpenCode Go provider, routing each model to its API style (#32)
 - [x] Update this plan for multiple AI platforms (#33)
 - **Exit:** 80% of AI test files are correct after at most 2 range edits.
 

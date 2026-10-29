@@ -19,6 +19,8 @@ const MAX_OUTPUT_TOKENS: u32 = 16_000;
 /// A client for one call. Deliberately not `Debug`, so the key can't end up in a log.
 pub struct OpenAi {
     api: Api,
+    /// The platform's name for messages: "OpenAI", or another platform on this API (#32).
+    name: String,
     url: String,
     key: String,
     model: String,
@@ -26,12 +28,17 @@ pub struct OpenAi {
 
 impl OpenAi {
     pub fn new(key: String, model: String) -> Result<Self> {
-        Self::build(API_URL.into(), key, model, TIMEOUT)
+        Self::build("OpenAI", API_URL.into(), key, model, TIMEOUT)
     }
 
     /// A client for any endpoint that speaks the Responses API, such as OpenCode Go (#32).
-    pub fn build(url: String, key: String, model: String, timeout: Duration) -> Result<Self> {
-        Ok(Self { api: Api::new("OpenAI", timeout)?, url, key, model })
+    pub fn build(name: &str, url: String, key: String, model: String, timeout: Duration) -> Result<Self> {
+        Ok(Self { api: Api::new(name, timeout)?, name: name.into(), url, key, model })
+    }
+
+    /// The HTTPS client, to add headers or usage-limit messages for another platform (#32).
+    pub fn api_mut(&mut self) -> &mut Api {
+        &mut self.api
     }
 
     fn body(&self, request: &AiRequest) -> Value {
@@ -51,14 +58,14 @@ impl OpenAi {
 impl Provider for OpenAi {
     async fn complete(&self, request: &AiRequest) -> Result<String> {
         if request.pages.is_empty() {
-            return Err(SplitError::Ai("There are no pages to send to OpenAI".into()));
+            return Err(SplitError::Ai(format!("There are no pages to send to {}", self.name)));
         }
         if request.instruction.trim().is_empty() {
             return Err(SplitError::Ai("Describe how to split the file before using Smart mode".into()));
         }
         let auth = format!("Bearer {}", self.key);
         let reply = self.api.post(&self.url, &[("authorization", &auth)], &self.body(request), &self.model).await?;
-        reply_text(&reply)
+        reply_text(&self.name, &reply)
     }
 }
 
@@ -91,31 +98,30 @@ struct Part {
     text: String,
 }
 
-/// The text of a successful reply. Reasoning items are skipped.
-fn reply_text(body: &str) -> Result<String> {
+/// The text of a successful reply from `name`. Reasoning items are skipped.
+fn reply_text(name: &str, body: &str) -> Result<String> {
     let reply: Reply = serde_json::from_str(body)
-        .map_err(|_| SplitError::Ai("OpenAI sent an answer Splitr couldn't read. Try again".into()))?;
+        .map_err(|_| SplitError::Ai(format!("{name} sent an answer Splitr couldn't read. Try again")))?;
+    let declined = || SplitError::Ai(format!("{name} declined to split this file. Try rewording the instruction"));
     let parts = || reply.output.iter().filter(|i| i.kind == "message").flat_map(|i| &i.content);
     if parts().any(|p| p.kind == "refusal") {
-        return Err(SplitError::Ai("OpenAI declined to split this file. Try rewording the instruction".into()));
+        return Err(declined());
     }
     match (reply.status.as_deref(), reply.incomplete_details.and_then(|d| d.reason).as_deref()) {
-        (Some("incomplete"), Some("content_filter")) => {
-            return Err(SplitError::Ai("OpenAI declined to split this file. Try rewording the instruction".into()));
-        }
+        (Some("incomplete"), Some("content_filter")) => return Err(declined()),
         (Some("incomplete"), _) => {
-            return Err(SplitError::Ai(
-                "OpenAI's answer was cut off because it was too long. Try splitting a smaller part of the file".into(),
-            ));
+            return Err(SplitError::Ai(format!(
+                "{name}'s answer was cut off because it was too long. Try splitting a smaller part of the file"
+            )));
         }
         (Some("failed" | "cancelled"), _) => {
-            return Err(SplitError::Ai("OpenAI couldn't finish the answer. Try again".into()));
+            return Err(SplitError::Ai(format!("{name} couldn't finish the answer. Try again")));
         }
         _ => {}
     }
     let text: String = parts().filter(|p| p.kind == "output_text").map(|p| p.text.as_str()).collect();
     if text.trim().is_empty() {
-        return Err(SplitError::Ai("OpenAI sent an empty answer. Try again".into()));
+        return Err(SplitError::Ai(format!("{name} sent an empty answer. Try again")));
     }
     Ok(text)
 }
@@ -140,7 +146,7 @@ mod tests {
     }
 
     fn run(url: String) -> Result<String> {
-        let openai = OpenAi::build(url, KEY.into(), MODEL.into(), Duration::from_secs(5)).unwrap();
+        let openai = OpenAi::build("OpenAI", url, KEY.into(), MODEL.into(), Duration::from_secs(5)).unwrap();
         tauri::async_runtime::block_on(openai.complete(&request()))
     }
 
@@ -184,7 +190,7 @@ mod tests {
 
     #[test]
     fn empty_requests_are_not_sent() {
-        let openai = OpenAi::build("http://127.0.0.1:9/v1/responses".into(), KEY.into(), MODEL.into(), Duration::from_secs(5)).unwrap();
+        let openai = OpenAi::build("OpenAI", "http://127.0.0.1:9/v1/responses".into(), KEY.into(), MODEL.into(), Duration::from_secs(5)).unwrap();
         let mut empty = request();
         empty.pages.clear();
         assert!(tauri::async_runtime::block_on(openai.complete(&empty)).unwrap_err().to_string().contains("no pages"));
@@ -193,16 +199,16 @@ mod tests {
     #[test]
     fn reply_text_handles_refusals_cut_offs_and_bad_bodies() {
         let refusal = r#"{"status":"completed","output":[{"type":"message","content":[{"type":"refusal","refusal":"no"}]}]}"#;
-        assert!(reply_text(refusal).unwrap_err().to_string().contains("declined"));
+        assert!(reply_text("OpenAI", refusal).unwrap_err().to_string().contains("declined"));
         let filtered = r#"{"status":"incomplete","incomplete_details":{"reason":"content_filter"},"output":[]}"#;
-        assert!(reply_text(filtered).unwrap_err().to_string().contains("declined"));
+        assert!(reply_text("OpenAI", filtered).unwrap_err().to_string().contains("declined"));
         let cut = r#"{"status":"incomplete","incomplete_details":{"reason":"max_output_tokens"},"output":[]}"#;
-        assert!(reply_text(cut).unwrap_err().to_string().contains("cut off"));
+        assert!(reply_text("OpenAI", cut).unwrap_err().to_string().contains("cut off"));
         let failed = r#"{"status":"failed","output":[]}"#;
-        assert!(reply_text(failed).unwrap_err().to_string().contains("couldn't finish"));
+        assert!(reply_text("OpenAI", failed).unwrap_err().to_string().contains("couldn't finish"));
         let empty = r#"{"status":"completed","output":[{"type":"message","content":[{"type":"output_text","text":" "}]}]}"#;
-        assert!(reply_text(empty).unwrap_err().to_string().contains("empty"));
-        assert!(reply_text("<html>").unwrap_err().to_string().contains("couldn't read"));
+        assert!(reply_text("OpenAI", empty).unwrap_err().to_string().contains("empty"));
+        assert!(reply_text("OpenAI", "<html>").unwrap_err().to_string().contains("couldn't read"));
     }
 
     /// The manual check for #28. Needs an OpenAI key saved in the app and network access; sends

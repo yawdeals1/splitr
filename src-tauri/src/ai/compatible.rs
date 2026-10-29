@@ -125,6 +125,11 @@ impl ChatCompletions {
         Ok(Self { api: Api::build(name.clone(), timeout, local)?, name, base, key, model })
     }
 
+    /// The HTTPS client, to add headers or usage-limit messages for another platform (#32).
+    pub fn api_mut(&mut self) -> &mut Api {
+        &mut self.api
+    }
+
     fn body(&self, request: &AiRequest) -> Value {
         // No token limit or sampling settings: platforms disagree on their names and some
         // reasoning models reject them.
