@@ -41,9 +41,12 @@ pub fn list_presets() -> Vec<Preset> {
     presets::bundled()
 }
 
+/// Opens a PDF off the UI thread (NFR-02). `password` is only needed for encrypted files (FR-03).
 #[tauri::command]
-pub fn open_pdf(path: String) -> Result<PdfInfo> {
-    pdf::open(&path)
+pub async fn open_pdf(path: String, password: Option<String>) -> Result<PdfInfo> {
+    tauri::async_runtime::spawn_blocking(move || pdf::open(&path, password.as_deref()))
+        .await
+        .map_err(|e| SplitError::OpenFailed("The PDF".into(), e.to_string()))?
 }
 
 #[tauri::command]
