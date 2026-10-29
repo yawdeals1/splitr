@@ -6,6 +6,7 @@ pub mod compatible;
 pub mod gemini;
 pub mod http;
 pub mod openai;
+pub mod response;
 
 use std::collections::BTreeMap;
 
@@ -73,23 +74,42 @@ pub struct AiRequest {
     pub pages: Vec<PageExcerpt>,
 }
 
-/// A platform that turns a request into the model's reply text. The reply is parsed and
-/// validated by the caller (FR-35, #16).
+/// A platform that turns a request into the model's reply text. `response` parses and validates
+/// the reply (FR-35).
 pub trait Provider {
     async fn complete(&self, request: &AiRequest) -> Result<String>;
 }
 
-/// Sends `request` to `platform` with its saved `key` and the chosen `model`, and returns the
-/// reply text. The key goes only to that platform (NFR-05). `custom_url` is the address of the
-/// custom platform, from settings.
-pub async fn complete(platform: &str, custom_url: &str, key: String, model: String, request: &AiRequest) -> Result<String> {
+/// The provider for the platform the user chose. It holds that platform's key, which goes only
+/// there (NFR-05).
+pub enum Chosen {
+    Claude(Claude),
+    OpenAi(OpenAi),
+    Gemini(Gemini),
+    Compatible(ChatCompletions),
+}
+
+impl Provider for Chosen {
+    async fn complete(&self, request: &AiRequest) -> Result<String> {
+        match self {
+            Chosen::Claude(p) => p.complete(request).await,
+            Chosen::OpenAi(p) => p.complete(request).await,
+            Chosen::Gemini(p) => p.complete(request).await,
+            Chosen::Compatible(p) => p.complete(request).await,
+        }
+    }
+}
+
+/// A client for `platform` with its saved `key` and the chosen `model`. `custom_url` is the
+/// address of the custom platform, from settings.
+pub fn provider(platform: &str, custom_url: &str, key: String, model: String) -> Result<Chosen> {
     if compatible::is_compatible(platform) {
-        return ChatCompletions::new(platform, custom_url, key, model)?.complete(request).await;
+        return Ok(Chosen::Compatible(ChatCompletions::new(platform, custom_url, key, model)?));
     }
     match platform {
-        "anthropic" => Claude::new(key, model)?.complete(request).await,
-        "openai" => OpenAi::new(key, model)?.complete(request).await,
-        "gemini" => Gemini::new(key, model)?.complete(request).await,
+        "anthropic" => Ok(Chosen::Claude(Claude::new(key, model)?)),
+        "openai" => Ok(Chosen::OpenAi(OpenAi::new(key, model)?)),
+        "gemini" => Ok(Chosen::Gemini(Gemini::new(key, model)?)),
         _ => Err(unsupported(platform)),
     }
 }
@@ -102,10 +122,10 @@ pub fn is_supported(platform: &str) -> bool {
 /// Why Smart mode can't use `platform` yet.
 pub fn unsupported(platform: &str) -> SplitError {
     SplitError::Ai(match platform {
-        "chatgpt" => "Signing in with ChatGPT isn't available yet. Choose Claude, OpenAI or Gemini under AI in Settings to use \
-                      an API key for now"
+        "chatgpt" => "Signing in with ChatGPT isn't available yet. Choose a service that uses an API key under AI in \
+                      Settings for now"
             .into(),
-        _ => "Smart mode can't use this AI service yet. Choose Claude, OpenAI or Gemini under AI in Settings".into(),
+        _ => "Smart mode can't use this AI service yet. Choose another one under AI in Settings".into(),
     })
 }
 
@@ -195,12 +215,9 @@ mod tests {
         assert!(is_supported("openrouter") && is_supported("custom"));
         assert!(!is_supported("chatgpt") && !is_supported("opencode-go"));
         assert!(unsupported("chatgpt").to_string().contains("ChatGPT isn't available yet"));
-        let err = tauri::async_runtime::block_on(complete("opencode-go", "", "k".into(), "m".into(), &AiRequest {
-            instruction: "x".into(),
-            pages: vec![],
-        }))
-        .unwrap_err();
+        let err = provider("opencode-go", "", "k".into(), "m".into()).err().unwrap();
         assert!(err.to_string().contains("can't use this AI service yet"), "{err}");
+        assert!(matches!(provider("openai", "", "k".into(), "m".into()), Ok(Chosen::OpenAi(_))));
     }
 
     #[test]
