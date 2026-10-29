@@ -164,15 +164,24 @@ pub fn key_for(store: &dyn SecretStore, platform: &str) -> Result<String> {
 }
 
 /// The platforms that have a saved key, with each key's last 4 characters (#27).
+/// An entry that can't be read is left out, so it doesn't hide the others; if none can be read,
+/// the first error is returned.
 pub fn saved(store: &dyn SecretStore) -> Result<Vec<KeyStatus>> {
     let mut saved = Vec::new();
+    let mut first_error = None;
     for (platform, _) in PLATFORMS {
-        let status = status(store, platform)?;
-        if status.last4.is_some() {
-            saved.push(status);
+        match status(store, platform) {
+            Ok(status) if status.last4.is_some() => saved.push(status),
+            Ok(_) => {}
+            Err(e) => {
+                first_error.get_or_insert(e);
+            }
         }
     }
-    Ok(saved)
+    match first_error {
+        Some(e) if saved.is_empty() => Err(e),
+        _ => Ok(saved),
+    }
 }
 
 /// Removes the key for `platform`.
@@ -337,5 +346,33 @@ mod tests {
         assert_eq!(key_for(&store, "gemini").unwrap(), "AIzaSecondKeySecondKey2222");
         delete(&store, "openai").unwrap();
         assert_eq!(saved(&store).unwrap().len(), 1);
+    }
+
+    /// A store where one entry can't be read.
+    struct OneBadEntry(MemoryStore);
+
+    impl SecretStore for OneBadEntry {
+        fn get(&self, platform: &str) -> Result<Option<String>> {
+            if platform == "anthropic" {
+                return Err(SplitError::ApiKey("The entry is damaged".into()));
+            }
+            self.0.get(platform)
+        }
+        fn set(&self, platform: &str, secret: &str) -> Result<()> {
+            self.0.set(platform, secret)
+        }
+        fn delete(&self, platform: &str) -> Result<()> {
+            self.0.delete(platform)
+        }
+    }
+
+    #[test]
+    fn one_unreadable_entry_does_not_hide_the_others() {
+        let store = OneBadEntry(MemoryStore::default());
+        // Nothing readable: the error is shown.
+        assert!(saved(&store).is_err());
+        save(&store, "gemini", "AIzaSecondKeySecondKey2222").unwrap();
+        let listed = saved(&store).unwrap();
+        assert_eq!(listed, [KeyStatus { platform: "gemini".into(), last4: Some("2222".into()) }]);
     }
 }

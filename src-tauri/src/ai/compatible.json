@@ -14,6 +14,7 @@
     "company": "NVIDIA",
     "baseUrl": "https://integrate.api.nvidia.com/v1",
     "defaultModel": null,
+    "noKeyCheck": true,
     "keyHint": "nvapi-…"
   },
   {

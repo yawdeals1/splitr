@@ -61,7 +61,8 @@ const RULES: &[Rule] = &[
     rule("sk-ant-admin", Outcome::Rejected(
         "This is an Anthropic Admin key, which can't run AI requests. Use a standard API key.",
     )),
-    rule("sk-ant-api", Outcome::Platform(Platform::Anthropic)),
+    // Any other Anthropic key goes to Anthropic, never to the "sk-" guess below (NFR-05).
+    rule("sk-ant-", Outcome::Platform(Platform::Anthropic)),
     rule("sk-or-v1-", Outcome::Platform(Platform::OpenRouter)),
     rule("sk-admin-", Outcome::Rejected(
         "This is an OpenAI Admin key, which can't run AI requests. Use a project API key.",
@@ -116,6 +117,8 @@ mod tests {
     #[test]
     fn detects_each_platform() {
         assert_eq!(platform("sk-ant-api03-abcDEF123"), Some(Platform::Anthropic));
+        // A newer Anthropic key format is never offered to OpenAI or DeepSeek.
+        assert_eq!(platform("sk-ant-new01-abcDEF123"), Some(Platform::Anthropic));
         assert_eq!(platform("sk-or-v1-0123456789abcdef"), Some(Platform::OpenRouter));
         assert_eq!(platform("sk-proj-abc123"), Some(Platform::OpenAi));
         assert_eq!(platform("sk-svcacct-abc123"), Some(Platform::OpenAi));

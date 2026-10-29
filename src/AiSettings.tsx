@@ -259,7 +259,7 @@ export function AiSettings({ settings, apiKeys, onChange }: Props) {
     const ok = await apiKeys.save(platform, key);
     if (!ok) return false;
     // A new key becomes the service Smart mode uses if the current one can't run yet.
-    if (!usesKey(current) || !apiKeys.has(service)) await change({ aiPlatform: platform });
+    if (!usesKey(current) || !apiKeys.has(service)) chooseService(platform);
     check(platform);
     return true;
   }

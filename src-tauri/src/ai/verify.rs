@@ -34,20 +34,18 @@ struct Check {
     local: bool,
 }
 
-/// The check for `platform`, or None if it can't be checked. `custom_url` is the custom
-/// platform's address.
-fn check_for(platform: &str, custom_url: &str) -> Result<Option<Check>> {
-    let fixed = |name: &str, url: &str, header| Ok(Some(Check { name: name.into(), url: url.into(), header, local: false }));
+/// The check for `platform`, or `Err` with the platform's name if it can't be checked.
+/// `custom_url` is the custom platform's address.
+fn check_for(platform: &str, custom_url: &str) -> Result<std::result::Result<Check, String>> {
+    let fixed = |name: &str, url: &str, header| Ok(Ok(Check { name: name.into(), url: url.into(), header, local: false }));
     match platform {
         "anthropic" => fixed("Claude", "https://api.anthropic.com/v1/models?limit=1", "x-api-key"),
         "openai" => fixed("OpenAI", "https://api.openai.com/v1/models", "authorization"),
         "gemini" => fixed("Gemini", "https://generativelanguage.googleapis.com/v1beta/models?pageSize=1", "x-goog-api-key"),
         // OpenCode Go lists its models without a key, so a list call proves nothing.
-        "opencode-go" => Ok(None),
-        id if compatible::is_compatible(id) => {
-            let target = compatible::check_target(id, custom_url)?;
-            Ok(Some(Check { name: target.name, url: target.url, header: "authorization", local: target.local }))
-        }
+        "opencode-go" => Ok(Err("OpenCode Go".into())),
+        id if compatible::is_compatible(id) => Ok(compatible::check_target(id, custom_url)?
+            .map(|t| Check { name: t.name, url: t.url, header: "authorization", local: t.local })),
         _ => Err(SplitError::ApiKey(format!("Splitr doesn't support the AI platform \"{platform}\""))),
     }
 }
@@ -55,10 +53,9 @@ fn check_for(platform: &str, custom_url: &str) -> Result<Option<Check>> {
 /// Checks `key` for `platform` with one call to that platform only.
 pub async fn verify(platform: &str, custom_url: &str, key: &str) -> Result<KeyCheck> {
     match check_for(platform, custom_url)? {
-        Some(check) => run(&check, key, TIMEOUT).await,
-        None => Ok(KeyCheck::Unchecked {
-            reason: "OpenCode Go can't check a key without running a request, so it is checked on your first Smart split"
-                .into(),
+        Ok(check) => run(&check, key, TIMEOUT).await,
+        Err(name) => Ok(KeyCheck::Unchecked {
+            reason: format!("{name} can't check a key without running a request, so it is checked on your first Smart split"),
         }),
     }
 }
@@ -84,7 +81,7 @@ mod tests {
 
     #[test]
     fn each_platform_is_checked_at_its_own_address() {
-        let check = |p| check_for(p, "").unwrap().unwrap();
+        let check = |p| check_for(p, "").unwrap().ok().unwrap();
         assert_eq!(check("anthropic").url, "https://api.anthropic.com/v1/models?limit=1");
         assert_eq!(check("anthropic").header, "x-api-key");
         assert_eq!(check("openai").url, "https://api.openai.com/v1/models");
@@ -93,8 +90,10 @@ mod tests {
         assert_eq!(check("openrouter").url, "https://openrouter.ai/api/v1/key");
         assert_eq!(check("groq").url, "https://api.groq.com/openai/v1/models");
         assert_eq!(check("deepseek").url, "https://api.deepseek.com/models");
-        assert_eq!(check_for("opencode-go", "").unwrap(), None);
-        let custom = check_for("custom", "http://localhost:11434/v1").unwrap().unwrap();
+        assert_eq!(check_for("opencode-go", "").unwrap(), Err("OpenCode Go".into()));
+        // NVIDIA's model list answers without a key, so a list call would pass any key.
+        assert_eq!(check_for("nvidia", "").unwrap(), Err("NVIDIA".into()));
+        let custom = check_for("custom", "http://localhost:11434/v1").unwrap().ok().unwrap();
         assert_eq!((custom.url.as_str(), custom.local), ("http://localhost:11434/v1/models", true));
         assert!(check_for("custom", "http://example.com/v1").is_err());
         assert!(check_for("../evil", "").is_err());
