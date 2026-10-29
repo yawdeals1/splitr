@@ -124,16 +124,8 @@ struct Part {
     thought: bool,
 }
 
-/// One range in the SRS 6.3 shape, to check the JSON mode reply.
-#[derive(Deserialize)]
-#[allow(dead_code)]
-struct RangeShape {
-    start: i64,
-    end: i64,
-    title: String,
-}
-
-/// The text of a successful reply, checked to be a JSON list in the SRS 6.3 shape.
+/// The text of a successful reply. `response` parses and checks it like any other platform's, so
+/// a reply of the wrong shape is asked for again once and then fixed by hand (FR-36).
 fn reply_text(body: &str) -> Result<String> {
     let reply: Reply = serde_json::from_str(body)
         .map_err(|_| SplitError::Ai("Gemini sent an answer Splitr couldn't read. Try again".into()))?;
@@ -163,9 +155,6 @@ fn reply_text(body: &str) -> Result<String> {
         .unwrap_or_default();
     if text.trim().is_empty() {
         return Err(SplitError::Ai("Gemini sent an empty answer. Try again".into()));
-    }
-    if serde_json::from_str::<Vec<RangeShape>>(&text).is_err() {
-        return Err(SplitError::Ai("Gemini's answer wasn't a list of parts. Try again".into()));
     }
     Ok(text)
 }
@@ -238,7 +227,7 @@ mod tests {
     }
 
     #[test]
-    fn reply_text_handles_blocks_cut_offs_and_wrong_shapes() {
+    fn reply_text_handles_blocks_cut_offs_and_bad_bodies() {
         let blocked = r#"{"candidates":[],"promptFeedback":{"blockReason":"SAFETY"}}"#;
         assert!(reply_text(blocked).unwrap_err().to_string().contains("declined"));
         let safety = r#"{"candidates":[{"finishReason":"SAFETY"}]}"#;
@@ -249,7 +238,8 @@ mod tests {
         assert!(reply_text(odd).unwrap_err().to_string().contains("(OTHER)"));
         assert!(reply_text(r#"{"candidates":[]}"#).unwrap_err().to_string().contains("empty"));
         let object = r#"{"candidates":[{"content":{"parts":[{"text":"{\"parts\":[]}"}]},"finishReason":"STOP"}]}"#;
-        assert!(reply_text(object).unwrap_err().to_string().contains("wasn't a list of parts"));
+        // `response` checks the shape and retries once (FR-36); the provider passes the text on.
+        assert_eq!(reply_text(object).unwrap(), r#"{"parts":[]}"#);
         assert!(reply_text("<html>").unwrap_err().to_string().contains("couldn't read"));
     }
 
