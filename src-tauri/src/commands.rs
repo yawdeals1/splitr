@@ -6,7 +6,6 @@ use std::path::PathBuf;
 use tauri::ipc::Response;
 use tauri::{AppHandle, Manager};
 
-use crate::ai::claude::Claude;
 use crate::ai::{self, response, AiCalls, AiRequest, Provider};
 use crate::error::{Result, SplitError};
 use crate::export::{self, ExportRequest, SavedParts};
@@ -19,9 +18,6 @@ use crate::settings::{self, Settings};
 use crate::strategy::{DocumentText, FixedStrategy, Strategy};
 use crate::user_presets::{self, PresetInput, PresetList};
 use crate::viewer::Viewer;
-
-/// The credential store entry for the Claude key (`keystore::PLATFORMS`).
-const CLAUDE_PLATFORM: &str = "anthropic";
 
 fn user_presets_path(app: &AppHandle) -> Result<PathBuf> {
     let dir = app.path().app_config_dir().map_err(|e| {
@@ -114,12 +110,12 @@ pub async fn delete_api_key(platform: String) -> Result<KeyStatus> {
     key_store(move || keystore::delete(&OsStore, &platform)).await
 }
 
-/// Sends one chunk of page excerpts to Claude and returns its reply text. `ai_split` parses and
-/// validates replies (FR-33 to FR-36).
+/// Sends one chunk of page excerpts to the chosen AI platform and returns its reply text. `ai_split`
+/// parses and validates replies (FR-33 to FR-36).
 #[tauri::command]
 pub async fn ask_ai(app: AppHandle, request: AiRequest) -> Result<String> {
-    let claude = ai_provider(&app).await?;
-    app.state::<AiCalls>().run(claude.complete(&request)).await
+    let provider = ai_provider(&app).await?;
+    app.state::<AiCalls>().run(provider.complete(&request)).await
 }
 
 /// Sends every chunk of page excerpts and returns one validated range list for a `page_count`-page
@@ -127,34 +123,32 @@ pub async fn ask_ai(app: AppHandle, request: AiRequest) -> Result<String> {
 /// the error says what was wrong so the user can set the parts by hand (FR-36).
 #[tauri::command]
 pub async fn ai_split(app: AppHandle, chunks: Vec<AiRequest>, page_count: u32, allow_gaps: bool) -> Result<Vec<Range>> {
-    let claude = ai_provider(&app).await?;
-    app.state::<AiCalls>().run(response::split(&claude, &chunks, page_count, allow_gaps)).await
+    let provider = ai_provider(&app).await?;
+    app.state::<AiCalls>().run(response::split(&provider, &chunks, page_count, allow_gaps)).await
 }
 
 /// The AI provider the user chose. Only when AI is on and the user accepted the notice (FR-61,
 /// FR-62). The key is read from the credential store for this call only (NFR-05).
-async fn ai_provider(app: &AppHandle) -> Result<Claude> {
+async fn ai_provider(app: &AppHandle) -> Result<ai::Chosen> {
     let settings = get_settings(app.clone()).await?;
     if !settings.ai_enabled {
         return Err(SplitError::Ai("AI is turned off. Turn it on in Settings to use Smart mode with AI".into()));
     }
     if !settings.ai_consent {
-        return Err(SplitError::Ai("Accept the AI notice before Splitr sends page excerpts to Claude".into()));
+        return Err(SplitError::Ai("Accept the AI notice before Splitr sends page excerpts to an AI service".into()));
     }
     let platform = settings.ai_platform.as_str();
-    if platform != CLAUDE_PLATFORM {
-        // ChatGPT (#31) and the other platforms (#28 to #32) plug in here.
-        return Err(SplitError::Ai(match platform {
-            "chatgpt" => "Signing in with ChatGPT isn't available yet. Choose Claude under AI in Settings to use                           an API key for now"
-                .into(),
-            _ => "Smart mode can only use Claude for now. Choose Claude under AI in Settings".into(),
-        }));
+    if !ai::is_supported(platform) {
+        return Err(ai::unsupported(platform));
     }
     let model = settings
         .model_for(platform)
         .ok_or_else(|| SplitError::Ai("Enter a model name under AI in Settings".into()))?;
-    let key = key_store(|| keystore::key_for(&OsStore, CLAUDE_PLATFORM)).await?;
-    Claude::new(key, model)
+    let key = {
+        let platform = platform.to_string();
+        key_store(move || keystore::key_for(&OsStore, &platform)).await?
+    };
+    ai::provider(platform, key, model)
 }
 
 /// The model each AI service uses when the user hasn't chosen one, for the settings screen.

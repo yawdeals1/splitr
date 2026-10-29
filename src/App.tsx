@@ -4,7 +4,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open } from "@tauri-apps/plugin-dialog";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
-import { aiBlock, aiBlockMessage, usesAi } from "./ai";
+import { aiBlock, aiBlockMessage, aiService, usesAi } from "./ai";
 import { AiConsent } from "./AiConsent";
 import { AiSettings, useApiKey } from "./AiSettings";
 import { ExportOptions } from "./ExportOptions";
@@ -74,7 +74,6 @@ function App({ initialSettings }: { initialSettings: Settings | null }) {
   const [zip, setZip] = useState(false);
   // FR-55: a file the last export saved, so "Open folder" can show it.
   const [savedFile, setSavedFile] = useState<string | null>(null);
-  const apiKey = useApiKey();
   // FR-61: true while the AI notice is showing.
   const [askConsent, setAskConsent] = useState(false);
   // FR-03: the open PDF's password, kept in memory only, so export can read the file again.
@@ -91,6 +90,7 @@ function App({ initialSettings }: { initialSettings: Settings | null }) {
   // Set when Escape cancels "Confirm delete", so the "Delete preset" button that replaces it takes focus.
   const refocusDelete = useRef(false);
   const { settings, loadError, update: updateSettings } = useSettings(initialSettings);
+  const apiKey = useApiKey(settings?.aiPlatform);
   const theme = settings?.theme;
   const typedTemplate = template ?? settings?.nameTemplate ?? DEFAULT_TEMPLATE;
   // A blank field names files with the default, and the default is what gets saved.
@@ -302,7 +302,7 @@ function App({ initialSettings }: { initialSettings: Settings | null }) {
           if (!settings) throw "Settings are still loading.";
           const block = aiBlock({ ...settings, aiConsent: settings.aiConsent || consented }, apiKey.hasKey);
           if (block === "consent") return setAskConsent(true);
-          if (block) throw aiBlockMessage(block);
+          if (block) throw aiBlockMessage(block, aiService(settings.aiPlatform));
         }
         throw "Smart split is not implemented yet.";
       }
@@ -617,7 +617,7 @@ function App({ initialSettings }: { initialSettings: Settings | null }) {
             )}
           </div>
         )}
-        {askConsent && <AiConsent onAgree={consentGiven} onCancel={() => setAskConsent(false)} />}
+        {askConsent && <AiConsent service={aiService(settings?.aiPlatform)} onAgree={consentGiven} onCancel={() => setAskConsent(false)} />}
 
         <fieldset className="modes theme">
           <legend>Theme</legend>

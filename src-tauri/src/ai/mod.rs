@@ -2,6 +2,8 @@
 //! the rest of the app doesn't know which one answers. Only the AI strategy calls these (NFR-06).
 
 pub mod claude;
+pub mod http;
+pub mod openai;
 pub mod response;
 
 use std::collections::BTreeMap;
@@ -10,6 +12,8 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::watch;
 
 use crate::error::{Result, SplitError};
+use claude::Claude;
+use openai::OpenAi;
 
 /// The AI service Smart mode uses until the user picks another: their ChatGPT account (#31).
 pub const DEFAULT_PLATFORM: &str = "chatgpt";
@@ -58,6 +62,46 @@ pub struct AiRequest {
 /// the reply (FR-35).
 pub trait Provider {
     async fn complete(&self, request: &AiRequest) -> Result<String>;
+}
+
+/// The provider for the platform the user chose. It holds that platform's key, which goes only
+/// there (NFR-05).
+pub enum Chosen {
+    Claude(Claude),
+    OpenAi(OpenAi),
+}
+
+impl Provider for Chosen {
+    async fn complete(&self, request: &AiRequest) -> Result<String> {
+        match self {
+            Chosen::Claude(p) => p.complete(request).await,
+            Chosen::OpenAi(p) => p.complete(request).await,
+        }
+    }
+}
+
+/// A client for `platform` with its saved `key` and the chosen `model`.
+pub fn provider(platform: &str, key: String, model: String) -> Result<Chosen> {
+    match platform {
+        "anthropic" => Ok(Chosen::Claude(Claude::new(key, model)?)),
+        "openai" => Ok(Chosen::OpenAi(OpenAi::new(key, model)?)),
+        _ => Err(unsupported(platform)),
+    }
+}
+
+/// Whether Smart mode can send requests to `platform` yet.
+pub fn is_supported(platform: &str) -> bool {
+    matches!(platform, "anthropic" | "openai")
+}
+
+/// Why Smart mode can't use `platform` yet.
+pub fn unsupported(platform: &str) -> SplitError {
+    SplitError::Ai(match platform {
+        "chatgpt" => "Signing in with ChatGPT isn't available yet. Choose Claude or OpenAI under AI in Settings to use \
+                      an API key for now"
+            .into(),
+        _ => "Smart mode can't use this AI service yet. Choose Claude or OpenAI under AI in Settings".into(),
+    })
 }
 
 /// Lets the user stop the AI calls in progress (#15). Dropping a call's future also drops its
@@ -136,6 +180,16 @@ mod tests {
             assert!(!model.trim().is_empty());
         }
         assert!(!is_platform("../evil"));
+    }
+
+    #[test]
+    fn only_finished_providers_are_offered() {
+        assert!(is_supported("anthropic") && is_supported("openai"));
+        assert!(!is_supported("chatgpt") && !is_supported("gemini"));
+        assert!(unsupported("chatgpt").to_string().contains("ChatGPT isn't available yet"));
+        let err = provider("gemini", "k".into(), "m".into()).err().unwrap();
+        assert!(err.to_string().contains("can't use this AI service yet"), "{err}");
+        assert!(matches!(provider("openai", "k".into(), "m".into()), Ok(Chosen::OpenAi(_))));
     }
 
     #[test]
