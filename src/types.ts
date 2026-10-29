@@ -88,6 +88,9 @@ export type Platform =
   | "opencode-go"
   | "custom";
 
+/** Mirrors ai::verify::KeyCheck: what checking a saved key found (#27). */
+export type KeyCheck = { status: "connected" } | { status: "unchecked"; reason: string };
+
 /** Mirrors key_detect::Detection: what a key's prefix says about it. */
 export type KeyDetection =
   | { kind: "platform"; platform: Platform }

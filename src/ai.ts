@@ -1,5 +1,5 @@
 // When Smart mode needs the AI, and what stops it from running (FR-60 to FR-62).
-import type { Preset, Settings } from "./types";
+import type { KeyDetection, Preset, Settings } from "./types";
 
 /** A service Smart mode can use. Key platforms match the backend's `keystore` and `ai` ids. */
 export interface AiService {
@@ -60,6 +60,32 @@ export function aiService(id: string | undefined): AiService {
 /** True for services that use an API key rather than a sign-in. */
 export function usesKey(service: AiService): boolean {
   return !service.signIn;
+}
+
+/** What to offer after a pasted key's prefix was checked (#27). */
+export interface KeyChoices {
+  /** True when the prefix named one platform. */
+  detected: boolean;
+  /** The platform to preselect; "" when the user must pick, because the prefix fits several. */
+  platform: string;
+  /** Platforms to choose from, the likely ones first. Empty for a key of the wrong kind. */
+  options: string[];
+  /** Why the key can't be saved, for a key of the wrong kind. */
+  problem: string;
+}
+
+export function keyChoices(detection: KeyDetection): KeyChoices {
+  const all = AI_SERVICES.filter(usesKey).map((s) => s.id);
+  const first = (likely: string[]) => [...likely, ...all.filter((id) => !likely.includes(id))];
+  switch (detection.kind) {
+    case "rejected":
+      return { detected: false, platform: "", options: [], problem: detection.reason };
+    case "platform":
+      return { detected: true, platform: detection.platform, options: first([detection.platform]), problem: "" };
+    case "ambiguous":
+      // Never guessed: a key goes only to the platform the user picks (NFR-05).
+      return { detected: false, platform: "", options: first(detection.options), problem: "" };
+  }
 }
 
 /**

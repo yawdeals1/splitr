@@ -99,7 +99,7 @@ Status key: [x] done, [ ] to do. Each phase ends when its exit criterion is met 
 - [ ] Strict JSON parsing, merging chunk results, `validate`, retrying once and then manual fixing (FR-35, FR-36) (#16)
 - [x] Save a custom prompt as a user preset (FR-71) (#17)
 - [ ] Integration tests with a mocked AI provider (#18)
-- [ ] Multiple API keys with automatic platform detection from the key prefix, verified with one call to that platform only (#27)
+- [x] Multiple API keys with automatic platform detection from the key prefix, verified with one call to that platform only (#27)
 - [x] OpenAI (GPT) provider (#28)
 - [x] Google Gemini provider (#29)
 - [x] OpenAI-compatible platforms from a data file: OpenRouter, NVIDIA, Groq, xAI, DeepSeek, Mistral, Together AI, plus a custom base URL (#30)

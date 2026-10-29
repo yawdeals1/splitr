@@ -5,6 +5,7 @@
     "company": "OpenRouter",
     "baseUrl": "https://openrouter.ai/api/v1",
     "defaultModel": null,
+    "checkPath": "/key",
     "keyHint": "sk-or-v1-…"
   },
   {

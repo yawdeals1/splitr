@@ -163,6 +163,18 @@ pub fn key_for(store: &dyn SecretStore, platform: &str) -> Result<String> {
     })
 }
 
+/// The platforms that have a saved key, with each key's last 4 characters (#27).
+pub fn saved(store: &dyn SecretStore) -> Result<Vec<KeyStatus>> {
+    let mut saved = Vec::new();
+    for (platform, _) in PLATFORMS {
+        let status = status(store, platform)?;
+        if status.last4.is_some() {
+            saved.push(status);
+        }
+    }
+    Ok(saved)
+}
+
 /// Removes the key for `platform`.
 pub fn delete(store: &dyn SecretStore, platform: &str) -> Result<KeyStatus> {
     label(platform)?;
@@ -305,5 +317,25 @@ mod tests {
     fn store_errors_never_print_stored_bytes() {
         let err = store_error(keyring::Error::BadEncoding(KEY.as_bytes().to_vec())).to_string();
         assert!(!err.contains("abcdefgh") && !err.contains("115"), "{err}");
+    }
+
+    #[test]
+    fn saved_lists_every_platform_with_a_key() {
+        let store = MemoryStore::default();
+        assert!(saved(&store).unwrap().is_empty());
+        save(&store, "openai", "sk-proj-first-key-1111").unwrap();
+        save(&store, "gemini", "AIzaSecondKeySecondKey2222").unwrap();
+        let listed = saved(&store).unwrap();
+        assert_eq!(
+            listed,
+            [
+                KeyStatus { platform: "openai".into(), last4: Some("1111".into()) },
+                KeyStatus { platform: "gemini".into(), last4: Some("2222".into()) },
+            ]
+        );
+        // Both stay saved and each is read back for its own platform only.
+        assert_eq!(key_for(&store, "gemini").unwrap(), "AIzaSecondKeySecondKey2222");
+        delete(&store, "openai").unwrap();
+        assert_eq!(saved(&store).unwrap().len(), 1);
     }
 }

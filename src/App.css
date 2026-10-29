@@ -511,6 +511,21 @@ button.danger {
   gap: 8px;
 }
 
+.key-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.key-list li {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
 .key-status,
 .key-form {
   display: flex;

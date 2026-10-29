@@ -110,6 +110,23 @@ pub async fn delete_api_key(platform: String) -> Result<KeyStatus> {
     key_store(move || keystore::delete(&OsStore, &platform)).await
 }
 
+/// Every platform with a saved key, and each key's last 4 characters (#27, NFR-05).
+#[tauri::command]
+pub async fn saved_api_keys() -> Result<Vec<KeyStatus>> {
+    key_store(|| keystore::saved(&OsStore)).await
+}
+
+/// Checks the saved key for `platform` with one call to that platform only (#27, NFR-05).
+#[tauri::command]
+pub async fn verify_api_key(app: AppHandle, platform: String) -> Result<ai::verify::KeyCheck> {
+    let settings = get_settings(app).await?;
+    let key = {
+        let platform = platform.clone();
+        key_store(move || keystore::key_for(&OsStore, &platform)).await?
+    };
+    ai::verify::verify(&platform, &settings.ai_custom_url, &key).await
+}
+
 /// Sends one chunk of page excerpts to the chosen AI platform and returns its reply text, which the caller parses
 /// and validates (FR-33 to FR-36). Runs only when AI is on and the user accepted the notice
 /// (FR-61, FR-62). The key is read from the credential store for this call only (NFR-05).

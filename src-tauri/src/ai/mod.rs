@@ -7,6 +7,7 @@ pub mod gemini;
 pub mod http;
 pub mod openai;
 pub mod opencode_go;
+pub mod verify;
 
 use std::collections::BTreeMap;
 
