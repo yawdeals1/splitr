@@ -83,7 +83,7 @@ Status key: [x] done, [ ] to do. Each phase ends when its exit criterion is met 
 
 ### Phase 1: Rule engine and review screen
 - [x] Fixed, outline, pattern and blank page strategy logic, with tests
-- [ ] Extract page text and the outline from PDFium into `DocumentText` (#7)
+- [x] Extract page text and the outline from PDFium into `DocumentText` (#7)
 - [ ] `run_preset` command: run the preset's strategy, then its `fallback` on `NoOutline`/`NothingFound` (FR-30) (#8)
 - [x] Review screen: list of parts, editing boundaries, adding, removing, renaming and deleting parts (FR-40 to FR-42) (#9)
 - [x] Split marks on thumbnails (FR-12) (#48)

@@ -3,8 +3,9 @@
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
+use serde::Serialize;
 use tauri::ipc::Response;
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Emitter, Manager};
 
 use crate::ai::claude::Claude;
 use crate::ai::{self, response, AiCalls, AiRequest, Provider};
@@ -16,7 +17,7 @@ use crate::pdf::PdfInfo;
 use crate::presets::{self, Preset};
 use crate::ranges::{self, Range};
 use crate::settings::{self, Settings};
-use crate::strategy::{DocumentText, FixedStrategy, Strategy};
+use crate::strategy::{DocumentText, FixedStrategy, OutlineEntry, Strategy};
 use crate::user_presets::{self, PresetInput, PresetList};
 use crate::viewer::Viewer;
 
@@ -192,6 +193,54 @@ pub async fn render_page(app: AppHandle, path: String, page: u32, width: u32) ->
         .await
         .map_err(|e| SplitError::RenderFailed(page, e.to_string()))?
         .map(Response::new)
+}
+
+/// The event `extract_text` sends while it reads pages: `{ done, total }`.
+pub const EXTRACT_PROGRESS: &str = "extract-progress";
+
+#[derive(Clone, Serialize)]
+struct ExtractProgress {
+    done: u32,
+    total: u32,
+}
+
+/// What `extract_text` found. The page text stays in the backend for `run_preset` (#8).
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TextSummary {
+    page_count: u32,
+    /// Pages with any visible text. Scanned pages have none.
+    pages_with_text: u32,
+    outline: Vec<OutlineEntry>,
+}
+
+/// Reads the page text and top-level bookmarks of the open PDF off the UI thread, sending
+/// `extract-progress` events, so the rule strategies can run on it (FR-30 to FR-32, NFR-02).
+/// `cancel_extract` stops it.
+#[tauri::command]
+pub async fn extract_text(app: AppHandle, path: String) -> Result<TextSummary> {
+    tauri::async_runtime::spawn_blocking(move || {
+        // Sending about 100 events is enough for a progress bar, however long the file.
+        let text = app.state::<Viewer>().extract(&path, |done, total| {
+            if done == total || done % total.div_ceil(100) == 0 {
+                let _ = app.emit(EXTRACT_PROGRESS, ExtractProgress { done, total });
+            }
+        })?;
+        let pages_with_text = text.pages.iter().filter(|p| p.chars().any(|c| !c.is_whitespace())).count();
+        Ok(TextSummary {
+            page_count: text.page_count,
+            pages_with_text: u32::try_from(pages_with_text).unwrap_or(u32::MAX),
+            outline: text.outline.clone(),
+        })
+    })
+    .await
+    .map_err(|e| SplitError::ExtractFailed(e.to_string()))?
+}
+
+/// Stops the text extraction in progress. It ends with `SplitError::ExtractCancelled`.
+#[tauri::command]
+pub fn cancel_extract(app: AppHandle) {
+    app.state::<Viewer>().cancel_extract();
 }
 
 /// Runs an export off the UI thread (NFR-02): writing large parts takes a while.

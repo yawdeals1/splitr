@@ -41,6 +41,26 @@ export interface PdfInfo {
   sizeBytes: number;
 }
 
+/** Mirrors strategy::OutlineEntry: a top-level bookmark and the page it opens. */
+export interface OutlineEntry {
+  title: string;
+  page: number;
+}
+
+/** Mirrors commands::TextSummary, returned by extract_text (#7). */
+export interface TextSummary {
+  pageCount: number;
+  /** Pages with any visible text. Scanned pages have none. */
+  pagesWithText: number;
+  outline: OutlineEntry[];
+}
+
+/** The payload of the "extract-progress" event that extract_text sends. */
+export interface ExtractProgress {
+  done: number;
+  total: number;
+}
+
 // open_pdf errors that mean "ask for the password" (FR-03). Must match SplitError in error.rs.
 export const PASSWORD_REQUIRED = "This PDF is password protected. Enter its password to open it.";
 export const WRONG_PASSWORD = "The password is incorrect. Try again.";
