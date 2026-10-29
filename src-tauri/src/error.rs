@@ -21,6 +21,9 @@ pub enum SplitError {
     SettingsLoad(String),
     #[error("Could not save settings: {0}")]
     SettingsSave(String),
+    // API keys (FR-60, NFR-05). Messages never include the key.
+    #[error("{0}")]
+    ApiKey(String),
     // Opening a PDF (FR-03, FR-05). The interface matches the two password messages to show a
     // password prompt; `src/types.ts` holds the same text, checked by a test in `pdf.rs`.
     #[error("This PDF is password protected. Enter its password to open it.")]
@@ -39,6 +42,13 @@ pub enum SplitError {
     EmptyPdf(String),
     #[error("{0} could not be opened: {1}")]
     OpenFailed(String, String),
+    // Showing pages (FR-10, FR-11).
+    #[error("This PDF is no longer open. Open it again to see its pages")]
+    NotOpen,
+    #[error("Page {0} does not exist. This PDF has {1} pages")]
+    PageOutOfRange(u32, u32),
+    #[error("Page {0} could not be shown: {1}")]
+    RenderFailed(u32, String),
     // Saving parts (FR-50, NFR-09). A failed export removes everything it wrote.
     #[error("Splitr can't write parts of {0}: {1}")]
     CantSplit(String, String),

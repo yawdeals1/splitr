@@ -4,6 +4,8 @@ Smart PDF Splitter: a local-first desktop app for Windows, macOS and Linux that 
 
 "Splitr" is a working name.
 
+- Download and install: [docs/download.md](docs/download.md)
+- User guide: [docs/user-guide.md](docs/user-guide.md)
 - Product requirements: [docs/PRD.md](docs/PRD.md)
 - Software requirements: [docs/SRS.md](docs/SRS.md)
 
@@ -17,7 +19,7 @@ Smart PDF Splitter: a local-first desktop app for Windows, macOS and Linux that 
 ## Project layout
 
 ```
-docs/                 PRD and SRS
+docs/                 PRD, SRS, download page and user guide
 presets/presets.json  Smart mode presets (data, not code)
 src/                  React interface
 src-tauri/src/

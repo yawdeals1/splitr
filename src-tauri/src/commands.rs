@@ -2,17 +2,19 @@
 
 use std::path::PathBuf;
 
+use tauri::ipc::Response;
 use tauri::{AppHandle, Manager};
 
 use crate::error::{Result, SplitError};
 use crate::export;
-use crate::naming;
-use crate::pdf::{self, PdfInfo};
+use crate::keystore::{self, KeyStatus, OsStore};
+use crate::pdf::PdfInfo;
 use crate::presets::{self, Preset};
 use crate::ranges::{self, Range};
 use crate::settings::{self, Settings};
 use crate::strategy::{DocumentText, FixedStrategy, Strategy};
 use crate::user_presets::{self, PresetInput, PresetList};
+use crate::viewer::Viewer;
 
 fn user_presets_path(app: &AppHandle) -> Result<PathBuf> {
     let dir = app.path().app_config_dir().map_err(|e| {
@@ -80,6 +82,31 @@ pub async fn save_settings(app: AppHandle, settings: Settings) -> Result<Setting
         .map_err(|e| SplitError::SettingsSave(e.to_string()))?
 }
 
+/// Runs a credential store call off the UI thread (NFR-02): the store may wait for the user to
+/// unlock it.
+async fn key_store<T: Send + 'static>(work: impl FnOnce() -> Result<T> + Send + 'static) -> Result<T> {
+    tauri::async_runtime::spawn_blocking(work)
+        .await
+        .map_err(|e| SplitError::ApiKey(format!("The credential store didn't respond ({e})")))?
+}
+
+/// Saves an API key in the OS credential store (FR-60, NFR-05). Only its last 4 characters come back.
+#[tauri::command]
+pub async fn save_api_key(platform: String, key: String) -> Result<KeyStatus> {
+    key_store(move || keystore::save(&OsStore, &platform, &key)).await
+}
+
+/// Whether a key is saved for `platform`, and its last 4 characters. Never the key itself (NFR-05).
+#[tauri::command]
+pub async fn api_key_status(platform: String) -> Result<KeyStatus> {
+    key_store(move || keystore::status(&OsStore, &platform)).await
+}
+
+#[tauri::command]
+pub async fn delete_api_key(platform: String) -> Result<KeyStatus> {
+    key_store(move || keystore::delete(&OsStore, &platform)).await
+}
+
 #[tauri::command]
 pub async fn delete_user_preset(app: AppHandle, id: String) -> Result<()> {
     let path = user_presets_path(&app)?;
@@ -87,11 +114,22 @@ pub async fn delete_user_preset(app: AppHandle, id: String) -> Result<()> {
 }
 
 /// Opens a PDF off the UI thread (NFR-02). `password` is only needed for encrypted files (FR-03).
+/// The opened PDF becomes the one whose pages `render_page` shows.
 #[tauri::command]
-pub async fn open_pdf(path: String, password: Option<String>) -> Result<PdfInfo> {
-    tauri::async_runtime::spawn_blocking(move || pdf::open(&path, password.as_deref()))
+pub async fn open_pdf(app: AppHandle, path: String, password: Option<String>) -> Result<PdfInfo> {
+    tauri::async_runtime::spawn_blocking(move || app.state::<Viewer>().open(&path, password.as_deref()))
         .await
         .map_err(|e| SplitError::OpenFailed("The PDF".into(), e.to_string()))?
+}
+
+/// Page `page` (1-based) of the open PDF as JPEG bytes `width` pixels wide, rendered off the UI
+/// thread and cached for the session (FR-10, FR-11, NFR-02).
+#[tauri::command]
+pub async fn render_page(app: AppHandle, path: String, page: u32, width: u32) -> Result<Response> {
+    tauri::async_runtime::spawn_blocking(move || app.state::<Viewer>().render(&path, page, width))
+        .await
+        .map_err(|e| SplitError::RenderFailed(page, e.to_string()))?
+        .map(Response::new)
 }
 
 /// Saves each range as its own PDF in `folder`, named from `names` (FR-50 to FR-52), off the UI
@@ -107,30 +145,6 @@ pub async fn export_parts(
     tauri::async_runtime::spawn_blocking(move || export::export(&path, password.as_deref(), &ranges, &folder, &names))
         .await
         .map_err(|e| SplitError::ExportFailed(e.to_string()))?
-}
-
-/// Like `export_parts`, but bundles the parts into `<zip_name>.zip` in `folder` (FR-53).
-#[tauri::command]
-pub async fn export_zip(
-    path: String,
-    password: Option<String>,
-    ranges: Vec<Range>,
-    folder: String,
-    names: Vec<String>,
-    zip_name: String,
-) -> Result<String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        export::export_zip(&path, password.as_deref(), &ranges, &folder, &names, &zip_name)
-    })
-    .await
-    .map_err(|e| SplitError::ExportFailed(e.to_string()))?
-}
-
-/// File names for parts with these titles, from the user's template (FR-51). The interface uses
-/// it for the live preview and for the names it passes to `export_parts`.
-#[tauri::command]
-pub fn part_names(template: String, original: String, titles: Vec<String>) -> Vec<String> {
-    naming::part_names(&template, &original, &titles)
 }
 
 #[tauri::command]

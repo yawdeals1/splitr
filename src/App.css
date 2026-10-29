@@ -8,6 +8,7 @@
   --accent-text: #ffffff;
   --error: #b42318;
 
+  color-scheme: light dark;
   font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
   font-size: 15px;
   line-height: 1.5;
@@ -15,8 +16,9 @@
   background: var(--bg);
 }
 
+/* FR-63: "system" follows the OS; a theme chosen in the panel sets data-theme on <html> (theme.ts). */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
     --bg: #161615;
     --surface: #1f1f1e;
     --border: #353532;
@@ -26,6 +28,22 @@
     --accent-text: #0f0f0e;
     --error: #f97066;
   }
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #161615;
+  --surface: #1f1f1e;
+  --border: #353532;
+  --text: #ecebe6;
+  --muted: #9b9a94;
+  --accent: #7c9cf0;
+  --accent-text: #0f0f0e;
+  --error: #f97066;
 }
 
 * {
@@ -44,7 +62,12 @@ body {
 }
 
 .canvas {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-height: 0;
   padding: 24px;
+  /* The page grid scrolls on its own; anything else taller than the window scrolls here. */
   overflow: auto;
 }
 
@@ -52,7 +75,7 @@ body {
   display: grid;
   place-items: center;
   gap: 12px;
-  height: 100%;
+  flex: 1;
   min-height: 300px;
   border: 2px dashed var(--border);
   border-radius: 12px;
@@ -148,9 +171,19 @@ body {
   opacity: 0;
 }
 
+/* NFR-11: a visible focus ring on every control reached by keyboard. */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
 .modes label:has(input:focus-visible) {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
+}
+
+.modes.theme {
+  font-size: 13px;
 }
 
 input,
@@ -192,13 +225,229 @@ button.primary {
   color: var(--error);
 }
 
+/* FR-10: the thumbnail grid scrolls on its own; tiles are 140px wide (THUMB_WIDTH in PageGrid.tsx). */
+.page-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 16px;
+  flex: 1;
+  min-height: 0;
+  margin: 0;
+  padding: 4px;
+  overflow: auto;
+  list-style: none;
+}
+
+.page-grid li {
+  /* Skip layout and paint for tiles far off screen (NFR-03). */
+  content-visibility: auto;
+  contain-intrinsic-size: auto 220px;
+}
+
+.page-grid button {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 6px;
+  border-color: transparent;
+  background: none;
+}
+
+.page-grid button:hover,
+.page-grid button:focus-visible {
+  border-color: var(--accent);
+}
+
+.page-image {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 100%;
+  max-width: 140px;
+  /* US Letter until the page has rendered. */
+  aspect-ratio: 612 / 792;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.08);
+}
+
+.page-image img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+.page-error {
+  color: var(--error);
+  font-weight: 600;
+}
+
+/* FR-12: split marks. A part's first page gets an accent edge and a badge; left-out pages fade. */
+.starts-part .page-image {
+  border-left: 4px solid var(--accent);
+}
+
+.part-badge {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  max-width: calc(100% - 8px);
+  padding: 1px 6px;
+  overflow: hidden;
+  border-radius: 4px;
+  background: var(--accent);
+  color: var(--accent-text);
+  font-size: 12px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.left-out .page-image {
+  opacity: 0.35;
+}
+
+.left-out .page-number::after {
+  content: " · left out";
+}
+
+.page-number {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+/* FR-11: the larger page view. The page is 160px to 900px wide and leaves 96px for the dialog
+   margin and the page padding (VIEW_MIN_WIDTH, VIEW_WIDTH and VIEW_MARGIN in thumbnails.ts). */
+.page-viewer {
+  max-width: calc(100vw - 48px);
+  max-height: calc(100vh - 48px);
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  color: var(--text);
+  background: var(--bg);
+}
+
+.page-viewer::backdrop {
+  background: rgb(0 0 0 / 0.6);
+}
+
+.page-viewer header {
+  position: sticky;
+  top: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.page-viewer header .close {
+  margin-left: auto;
+}
+
+.page-view {
+  display: grid;
+  place-items: center;
+  min-height: 300px;
+  max-width: 100%;
+  padding: 24px;
+  box-sizing: content-box;
+}
+
+.page-view img {
+  width: 100%;
+  box-shadow: 0 2px 8px rgb(0 0 0 / 0.25);
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+}
+
+.review {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  /* Shares the canvas with the page grid, which keeps the rest of the height. */
+  flex-shrink: 0;
+  max-height: 45%;
+  overflow: auto;
+}
+
+.review-header {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.review-header h2 {
+  margin: 0;
+  font-size: 1.1rem;
+}
+
+.parts-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.parts-table th,
+.parts-table td {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  vertical-align: middle;
+}
+
+.parts-table th {
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.parts-table input {
+  width: 100%;
+  min-width: 0;
+}
+
+.parts-table input[type="number"] {
+  width: 5.5em;
+}
+
+.review-actions {
+  justify-content: flex-end;
+}
+
+.review-actions .primary {
+  margin-top: 0;
+}
+
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
 .notice {
   margin: 0;
   overflow-wrap: anywhere;
-}
-
-.parts {
-  margin-top: 16px;
 }
 
 .password-prompt {
@@ -225,11 +474,6 @@ button.primary {
   font-weight: 500;
 }
 
-.row {
-  display: flex;
-  gap: 8px;
-}
-
 .password-prompt .primary {
   margin-top: 0;
 }
@@ -246,4 +490,69 @@ button.primary {
 button.danger {
   color: var(--error);
   border-color: var(--error);
+}
+
+/* FR-60 to FR-62: the AI section of the panel. */
+.ai-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.ai-settings legend {
+  padding: 0 4px;
+  font-weight: 600;
+}
+
+.ai-settings p {
+  margin: 0;
+  font-size: 13px;
+}
+
+.panel label.check {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+}
+
+.key-status,
+.key-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+button.link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  text-decoration: underline;
+}
+
+/* FR-61: the AI notice. */
+.ai-consent {
+  max-width: min(480px, calc(100vw - 48px));
+  padding: 20px 24px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  color: var(--text);
+  background: var(--surface);
+}
+
+.ai-consent::backdrop {
+  background: rgb(0 0 0 / 0.6);
+}
+
+.ai-consent h2 {
+  margin-top: 0;
+  font-size: 1.1rem;
+}
+
+.ai-consent .primary {
+  margin-top: 0;
 }
