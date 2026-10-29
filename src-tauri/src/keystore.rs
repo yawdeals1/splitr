@@ -25,7 +25,7 @@ const PLATFORMS: &[(&str, &str)] = &[
     ("mistral", "Mistral"),
     ("together", "Together AI"),
     ("opencode-go", "OpenCode Go"),
-    ("custom", "the custom platform"),
+    ("custom", "Custom platform"),
 ];
 
 /// Real keys are 20 to a few hundred characters. The limits catch a wrong paste, and the minimum

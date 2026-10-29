@@ -71,7 +71,7 @@ struct Endpoint {
 fn endpoint(id: &str, custom_url: &str) -> Result<Endpoint> {
     if id == CUSTOM {
         let (base, local) = check_url(custom_url)?;
-        return Ok(Endpoint { name: "the custom platform".into(), base, local });
+        return Ok(Endpoint { name: "Custom platform".into(), base, local });
     }
     let platform = platform(id).ok_or_else(|| SplitError::Ai(format!("Splitr doesn't know the AI platform \"{id}\"")))?;
     Ok(Endpoint { name: platform.name.clone(), base: platform.base_url.clone(), local: false })

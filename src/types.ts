@@ -73,6 +73,27 @@ export interface KeyStatus {
   last4: string | null;
 }
 
+/** Mirrors export::ExportRequest: which parts to save, where, and their names without ".pdf". */
+export interface ExportRequest {
+  path: string;
+  password?: string;
+  ranges: Range[];
+  folder: string;
+  names: string[];
+}
+
+/** Mirrors naming::ExportNames: the names for one export, without extensions (FR-51 to FR-53). */
+export interface ExportNames {
+  parts: string[];
+  zip: string;
+}
+
+/** Mirrors export::SavedParts: the files an export wrote, and how many got a number added (FR-52). */
+export interface SavedParts {
+  paths: string[];
+  renamed: number;
+}
+
 /** Mirrors key_detect::Platform. */
 export type Platform =
   | "anthropic"

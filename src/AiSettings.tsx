@@ -219,6 +219,11 @@ export function AiSettings({ settings, apiKeys, onChange }: Props) {
     invoke<Record<string, string>>("default_ai_models").then(setDefaults, () => setDefaults({}));
   }, []);
 
+  // FR-61: the notice names the company that gets the excerpts, so a new service needs a new answer.
+  function chooseService(id: string) {
+    if (id !== service) change({ aiPlatform: id, aiConsent: false });
+  }
+
   async function change(value: Partial<Settings>) {
     setProblem((await onChange(value)) ?? "");
   }
@@ -279,7 +284,7 @@ export function AiSettings({ settings, apiKeys, onChange }: Props) {
       {enabled && (
         <label>
           AI service
-          <select value={service} disabled={!settings} onChange={(e) => change({ aiPlatform: e.target.value })}>
+          <select value={service} disabled={!settings} onChange={(e) => chooseService(e.target.value)}>
             {AI_SERVICES.map((s) => (
               <option key={s.id} value={s.id}>
                 {s.label}
