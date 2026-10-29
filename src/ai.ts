@@ -1,15 +1,35 @@
 // When Smart mode needs the AI, and what stops it from running (FR-60 to FR-62).
 import type { Preset, Settings } from "./types";
 
-/** The platform keys are saved for until several platforms are supported (#27). */
-export const AI_PLATFORM = "anthropic";
-export const AI_PLATFORM_NAME = "Claude";
+/** A service Smart mode can use. Key platforms match the backend's `keystore` and `ai` ids. */
+export interface AiService {
+  id: string;
+  /** What the service list shows. */
+  label: string;
+  /** The platform's name, such as "OpenAI". */
+  name: string;
+  /** The company that receives the key and page excerpts (FR-61). */
+  company: string;
+  /** How a key starts, as a hint in the key field; "" for a sign-in. */
+  keyHint: string;
+}
 
-/** The services Smart mode can be set to. ChatGPT is the default; #27 adds the other platforms. */
-export const AI_SERVICES = [
-  { id: "chatgpt", name: "ChatGPT account" },
-  { id: AI_PLATFORM, name: `${AI_PLATFORM_NAME} API key` },
-] as const;
+/** The services Smart mode can be set to. ChatGPT is the default; #27 adds key management. */
+export const AI_SERVICES: AiService[] = [
+  { id: "chatgpt", label: "ChatGPT account", name: "ChatGPT", company: "OpenAI", keyHint: "" },
+  { id: "anthropic", label: "Claude API key", name: "Claude", company: "Anthropic", keyHint: "sk-ant-…" },
+  { id: "openai", label: "OpenAI API key", name: "OpenAI", company: "OpenAI", keyHint: "sk-proj-…" },
+];
+
+/** The service with this id, or the ChatGPT account for an id this version doesn't know. */
+export function aiService(id: string | undefined): AiService {
+  return AI_SERVICES.find((s) => s.id === id) ?? AI_SERVICES[0];
+}
+
+/** True for services that use an API key rather than a sign-in. */
+export function usesKey(service: AiService): boolean {
+  return service.keyHint !== "";
+}
 
 /**
  * True if splitting with this preset may call the AI: AI presets, presets that fall back to the
@@ -35,11 +55,11 @@ export function aiBlock(
 }
 
 /** The message for a block the user fixes in the AI section of the panel. */
-export function aiBlockMessage(block: "off" | "no-account" | "no-key"): string {
+export function aiBlockMessage(block: "off" | "no-account" | "no-key", service: AiService): string {
   if (block === "no-account") {
-    return `Signing in with ChatGPT isn't available yet. Choose ${AI_PLATFORM_NAME} under AI below to use an API key.`;
+    return "Signing in with ChatGPT isn't available yet. Choose an API key service under AI below.";
   }
   return block === "off"
     ? "AI features are off. Turn on “Use AI” below, or pick a preset that splits by rules."
-    : `Add your ${AI_PLATFORM_NAME} API key below to split with this preset.`;
+    : `Add your ${service.name} API key below to split with this preset.`;
 }

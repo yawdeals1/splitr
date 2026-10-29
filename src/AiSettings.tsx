@@ -4,33 +4,49 @@
 // the interface only ever sees its last 4 characters (NFR-05).
 import { useCallback, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { AI_PLATFORM, AI_PLATFORM_NAME, AI_SERVICES } from "./ai";
+import { AI_SERVICES, aiService, usesKey } from "./ai";
 import type { KeyStatus, Settings } from "./types";
 
-/** The saved key's status for the AI platform: undefined while loading, null if it can't be read. */
-export function useApiKey() {
+/**
+ * The saved key's status for `platform`: undefined while loading, null if it can't be read or the
+ * service signs in instead of using a key.
+ */
+export function useApiKey(platform: string | undefined) {
   const [status, setStatus] = useState<KeyStatus | null | undefined>(undefined);
   const [error, setError] = useState("");
+  const keyPlatform = usesKey(aiService(platform)) ? platform : undefined;
 
   useEffect(() => {
-    invoke<KeyStatus>("api_key_status", { platform: AI_PLATFORM })
-      .then(setStatus)
+    setStatus(undefined);
+    setError("");
+    if (!keyPlatform) return setStatus(null);
+    let current = true;
+    invoke<KeyStatus>("api_key_status", { platform: keyPlatform })
+      .then((s) => current && setStatus(s))
       .catch((e) => {
+        if (!current) return;
         setStatus(null);
         setError(String(e));
       });
-  }, []);
+    return () => {
+      current = false;
+    };
+  }, [keyPlatform]);
 
-  const run = useCallback(async (command: string, args: Record<string, string>) => {
-    try {
-      setStatus(await invoke<KeyStatus>(command, { platform: AI_PLATFORM, ...args }));
-      setError("");
-      return true;
-    } catch (e) {
-      setError(String(e));
-      return false;
-    }
-  }, []);
+  const run = useCallback(
+    async (command: string, args: Record<string, string>) => {
+      if (!keyPlatform) return false;
+      try {
+        setStatus(await invoke<KeyStatus>(command, { platform: keyPlatform, ...args }));
+        setError("");
+        return true;
+      } catch (e) {
+        setError(String(e));
+        return false;
+      }
+    },
+    [keyPlatform],
+  );
 
   return {
     status,
@@ -81,6 +97,7 @@ export function AiSettings({ settings, apiKey, onChange }: Props) {
   const [defaults, setDefaults] = useState<Record<string, string>>({});
   const enabled = settings?.aiEnabled ?? false;
   const service = settings?.aiPlatform ?? "chatgpt";
+  const current = aiService(service);
   const last4 = apiKey.status?.last4;
 
   useEffect(() => {
@@ -119,7 +136,7 @@ export function AiSettings({ settings, apiKey, onChange }: Props) {
           <select value={service} disabled={!settings} onChange={(e) => change({ aiPlatform: e.target.value })}>
             {AI_SERVICES.map((s) => (
               <option key={s.id} value={s.id}>
-                {s.name}
+                {s.label}
               </option>
             ))}
           </select>
@@ -128,16 +145,16 @@ export function AiSettings({ settings, apiKey, onChange }: Props) {
 
       {enabled && service === "chatgpt" && (
         <p className="muted">
-          Signing in with your ChatGPT account is coming. Until then, choose {AI_PLATFORM_NAME} to use an API key.
+          Signing in with your ChatGPT account is coming. Until then, choose a service that uses an API key.
         </p>
       )}
 
-      {enabled && service === AI_PLATFORM && (
+      {enabled && usesKey(current) && (
         <>
           {last4 && !replacing ? (
             <div className="key-status">
               <span>
-                {AI_PLATFORM_NAME} API key ending in <code>{last4}</code>
+                {current.name} API key ending in <code>{last4}</code>
               </span>
               <div className="row">
                 <button type="button" onClick={() => setReplacing(true)}>
@@ -157,14 +174,14 @@ export function AiSettings({ settings, apiKey, onChange }: Props) {
               }}
             >
               <label>
-                {AI_PLATFORM_NAME} API key
+                {current.name} API key
                 <input
                   type="password"
                   autoComplete="off"
                   spellCheck={false}
                   value={draft}
                   onChange={(e) => setDraft(e.target.value)}
-                  placeholder="sk-ant-…"
+                  placeholder={current.keyHint}
                   disabled={apiKey.status === undefined}
                 />
               </label>
@@ -187,7 +204,7 @@ export function AiSettings({ settings, apiKey, onChange }: Props) {
             </form>
           )}
           <p className="muted">
-            Kept in your system&rsquo;s credential store, never in a file. It is sent only to Anthropic.
+            Kept in your system&rsquo;s credential store, never in a file. It is sent only to {current.company}.
           </p>
         </>
       )}

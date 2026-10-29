@@ -115,7 +115,7 @@ If an export fails part way, for example because the disk is full, Splitr leaves
 ## Settings
 
 - **Theme:** Light, Dark, or System to follow your computer. It's at the bottom of the split options on the right.
-- **AI:** turn Smart mode's AI on or off, and add or remove API keys. Only the last 4 characters of a saved key are shown. **AI service** picks what Smart mode uses: your ChatGPT account (the default) or a Claude API key. **Model** sets the model for that service; leave it blank for the default (GPT-6.1 Sol for ChatGPT, Claude Opus 5.5 for Claude).
+- **AI:** turn Smart mode's AI on or off, and add or remove API keys. Only the last 4 characters of a saved key are shown. **AI service** picks what Smart mode uses: your ChatGPT account (the default), a Claude API key or an OpenAI API key. **Model** sets the model for that service; leave it blank for the default (GPT-6.1 Sol for ChatGPT and OpenAI, Claude Opus 5.5 for Claude).
 - **Blank page sensitivity:** how much may be on a page (such as a page number) for it to still count as blank.
 
 Splitr checks for new versions and offers to install them.

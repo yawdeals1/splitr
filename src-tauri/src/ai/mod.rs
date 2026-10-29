@@ -2,6 +2,8 @@
 //! the rest of the app doesn't know which one answers. Only the AI strategy calls these (NFR-06).
 
 pub mod claude;
+pub mod http;
+pub mod openai;
 
 use std::collections::BTreeMap;
 
@@ -9,6 +11,8 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::watch;
 
 use crate::error::{Result, SplitError};
+use claude::Claude;
+use openai::OpenAi;
 
 /// The AI service Smart mode uses until the user picks another: their ChatGPT account (#31).
 pub const DEFAULT_PLATFORM: &str = "chatgpt";
@@ -57,6 +61,31 @@ pub struct AiRequest {
 /// validated by the caller (FR-35, #16).
 pub trait Provider {
     async fn complete(&self, request: &AiRequest) -> Result<String>;
+}
+
+/// Sends `request` to `platform` with its saved `key` and the chosen `model`, and returns the
+/// reply text. The key goes only to that platform (NFR-05).
+pub async fn complete(platform: &str, key: String, model: String, request: &AiRequest) -> Result<String> {
+    match platform {
+        "anthropic" => Claude::new(key, model)?.complete(request).await,
+        "openai" => OpenAi::new(key, model)?.complete(request).await,
+        _ => Err(unsupported(platform)),
+    }
+}
+
+/// Whether Smart mode can send requests to `platform` yet.
+pub fn is_supported(platform: &str) -> bool {
+    matches!(platform, "anthropic" | "openai")
+}
+
+/// Why Smart mode can't use `platform` yet.
+pub fn unsupported(platform: &str) -> SplitError {
+    SplitError::Ai(match platform {
+        "chatgpt" => "Signing in with ChatGPT isn't available yet. Choose Claude or OpenAI under AI in Settings to use \
+                      an API key for now"
+            .into(),
+        _ => "Smart mode can't use this AI service yet. Choose Claude or OpenAI under AI in Settings".into(),
+    })
 }
 
 /// Lets the user stop the AI calls in progress (#15). Dropping a call's future also drops its
@@ -135,6 +164,19 @@ mod tests {
             assert!(!model.trim().is_empty());
         }
         assert!(!is_platform("../evil"));
+    }
+
+    #[test]
+    fn only_finished_providers_are_offered() {
+        assert!(is_supported("anthropic") && is_supported("openai"));
+        assert!(!is_supported("chatgpt") && !is_supported("gemini"));
+        assert!(unsupported("chatgpt").to_string().contains("ChatGPT isn't available yet"));
+        let err = tauri::async_runtime::block_on(complete("gemini", "k".into(), "m".into(), &AiRequest {
+            instruction: "x".into(),
+            pages: vec![],
+        }))
+        .unwrap_err();
+        assert!(err.to_string().contains("can't use this AI service yet"), "{err}");
     }
 
     #[test]

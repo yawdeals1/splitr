@@ -1,7 +1,7 @@
 // Unit tests for ai.ts. Run with `npm test` (Node's built-in test runner).
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { aiBlock, aiBlockMessage, usesAi } from "./ai.ts";
+import { aiBlock, aiBlockMessage, aiService, usesAi, usesKey } from "./ai.ts";
 
 test("usesAi covers AI presets, AI fallbacks and the custom prompt", () => {
   assert.equal(usesAi({ strategy: "ai" }), true);
@@ -21,7 +21,17 @@ test("aiBlock checks the switch, then the account or key, then consent", () => {
 });
 
 test("aiBlockMessage says what to do", () => {
-  assert.match(aiBlockMessage("off"), /Use AI/);
-  assert.match(aiBlockMessage("no-key"), /API key/);
-  assert.match(aiBlockMessage("no-account"), /ChatGPT/);
+  const openai = aiService("openai");
+  assert.match(aiBlockMessage("off", openai), /Use AI/);
+  assert.equal(aiBlockMessage("no-key", openai), "Add your OpenAI API key below to split with this preset.");
+  assert.match(aiBlockMessage("no-account", openai), /ChatGPT/);
+});
+
+test("aiService finds a service, and falls back to the ChatGPT account", () => {
+  assert.equal(aiService("anthropic").company, "Anthropic");
+  assert.equal(aiService("openai").name, "OpenAI");
+  assert.equal(aiService("someday").id, "chatgpt");
+  assert.equal(aiService(undefined).id, "chatgpt");
+  assert.equal(usesKey(aiService("openai")), true);
+  assert.equal(usesKey(aiService("chatgpt")), false);
 });

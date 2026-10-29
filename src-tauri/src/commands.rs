@@ -6,8 +6,7 @@ use std::path::PathBuf;
 use tauri::ipc::Response;
 use tauri::{AppHandle, Manager};
 
-use crate::ai::claude::Claude;
-use crate::ai::{self, AiCalls, AiRequest, Provider};
+use crate::ai::{self, AiCalls, AiRequest};
 use crate::error::{Result, SplitError};
 use crate::export;
 use crate::keystore::{self, KeyStatus, OsStore};
@@ -18,9 +17,6 @@ use crate::settings::{self, Settings};
 use crate::strategy::{DocumentText, FixedStrategy, Strategy};
 use crate::user_presets::{self, PresetInput, PresetList};
 use crate::viewer::Viewer;
-
-/// The credential store entry for the Claude key (`keystore::PLATFORMS`).
-const CLAUDE_PLATFORM: &str = "anthropic";
 
 fn user_presets_path(app: &AppHandle) -> Result<PathBuf> {
     let dir = app.path().app_config_dir().map_err(|e| {
@@ -113,7 +109,7 @@ pub async fn delete_api_key(platform: String) -> Result<KeyStatus> {
     key_store(move || keystore::delete(&OsStore, &platform)).await
 }
 
-/// Sends one chunk of page excerpts to Claude and returns its reply text, which the caller parses
+/// Sends one chunk of page excerpts to the chosen AI platform and returns its reply text, which the caller parses
 /// and validates (FR-33 to FR-36). Runs only when AI is on and the user accepted the notice
 /// (FR-61, FR-62). The key is read from the credential store for this call only (NFR-05).
 #[tauri::command]
@@ -123,23 +119,21 @@ pub async fn ask_ai(app: AppHandle, request: AiRequest) -> Result<String> {
         return Err(SplitError::Ai("AI is turned off. Turn it on in Settings to use Smart mode with AI".into()));
     }
     if !settings.ai_consent {
-        return Err(SplitError::Ai("Accept the AI notice before Splitr sends page excerpts to Claude".into()));
+        return Err(SplitError::Ai("Accept the AI notice before Splitr sends page excerpts to an AI service".into()));
     }
     let platform = settings.ai_platform.as_str();
-    if platform != CLAUDE_PLATFORM {
-        // ChatGPT (#31) and the other platforms (#28 to #32) plug in here.
-        return Err(SplitError::Ai(match platform {
-            "chatgpt" => "Signing in with ChatGPT isn't available yet. Choose Claude under AI in Settings to use                           an API key for now"
-                .into(),
-            _ => "Smart mode can only use Claude for now. Choose Claude under AI in Settings".into(),
-        }));
+    if !ai::is_supported(platform) {
+        return Err(ai::unsupported(platform));
     }
     let model = settings
         .model_for(platform)
         .ok_or_else(|| SplitError::Ai("Enter a model name under AI in Settings".into()))?;
-    let key = key_store(|| keystore::key_for(&OsStore, CLAUDE_PLATFORM)).await?;
-    let claude = Claude::new(key, model)?;
-    app.state::<AiCalls>().run(claude.complete(&request)).await
+    let platform = platform.to_string();
+    let key = {
+        let platform = platform.clone();
+        key_store(move || keystore::key_for(&OsStore, &platform)).await?
+    };
+    app.state::<AiCalls>().run(ai::complete(&platform, key, model, &request)).await
 }
 
 /// The model each AI service uses when the user hasn't chosen one, for the settings screen.
