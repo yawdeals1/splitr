@@ -1,6 +1,7 @@
 //! Tauri commands called from the React interface.
 
 use crate::error::{Result, SplitError};
+use crate::key_detect::{self, Detection};
 use crate::pdf::{self, PdfInfo};
 use crate::presets::{self, Preset};
 use crate::ranges::{self, Range};
@@ -37,4 +38,10 @@ pub fn fixed_ranges(page_count: u32, every: Option<u32>, parts: Option<u32>) -> 
 #[tauri::command]
 pub fn validate_ranges(ranges: Vec<Range>, page_count: u32, allow_gaps: bool) -> Result<()> {
     ranges::validate(&ranges, page_count, allow_gaps)
+}
+
+/// Says which platform a pasted key belongs to, from its prefix only (#27). No network call.
+#[tauri::command]
+pub fn detect_api_key(key: String) -> Detection {
+    key_detect::detect(&key)
 }

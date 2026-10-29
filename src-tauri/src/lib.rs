@@ -1,5 +1,6 @@
 mod commands;
 mod error;
+mod key_detect;
 mod naming;
 mod pdf;
 mod presets;
@@ -30,6 +31,7 @@ pub fn run() {
             commands::fixed_ranges,
             commands::validate_ranges,
             commands::open_pdf,
+            commands::detect_api_key,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
