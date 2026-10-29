@@ -77,7 +77,7 @@ Status key: [x] done, [ ] to do. Each phase ends when its exit criterion is met 
 - [x] Bundle a PDFium library per platform (pdfium-binaries) as a Tauri resource, and load it in `pdf.rs` (#2)
 - [x] `open_pdf`: name, page count and size; password prompt; clear errors for corrupt files (FR-01 to FR-05) (#3)
 - [x] File picker and drag and drop (`@tauri-apps/plugin-dialog`) (#4)
-- [ ] Lazy thumbnail grid with a larger page view; thumbnails cached in a per-session temp folder (FR-10, FR-11, NFR-03) (#5)
+- [x] Lazy thumbnail grid with a larger page view; thumbnails cached in a per-session temp folder (FR-10, FR-11, NFR-03) (#5)
 - [ ] `export_parts` with `lopdf`: write each range to a chosen folder, temp-then-rename, keep links and bookmarks where possible (FR-50, FR-54, NFR-09) (#6)
 - **Exit:** a custom range split saves correctly on the developer's machine.
 

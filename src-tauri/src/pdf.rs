@@ -4,11 +4,12 @@
 //! The PDFium library ships as a Tauri resource in `pdfium/` (SRS 2.5, 5.3, NFR-12), fetched by
 //! `scripts/fetch-pdfium.mjs`. The original file is never modified (FR-04).
 
-use std::io::ErrorKind;
+use std::io::{Cursor, ErrorKind};
 use std::path::Path;
 use std::sync::OnceLock;
 
-use pdfium_render::prelude::{Pdfium, PdfiumError, PdfiumInternalError};
+use image::ImageFormat;
+use pdfium_render::prelude::{PdfDocument, PdfRenderConfig, Pdfium, PdfiumError, PdfiumInternalError};
 use serde::Serialize;
 
 use crate::error::{Result, SplitError};
@@ -60,7 +61,9 @@ pub struct PdfInfo {
 /// Opens the PDF at `path` read-only and returns its name, page count and size (FR-01, FR-02).
 /// `password` unlocks an encrypted file (FR-03). Every failure is a specific, user-facing error,
 /// so the app stays usable (FR-05, NFR-08). The file is only read, never written (FR-04).
-pub fn open(path: &str, password: Option<&str>) -> Result<PdfInfo> {
+/// The loaded document is returned too, so its pages can be rendered (FR-10); the password
+/// unlocks it in memory and is not kept.
+pub fn open_document(path: &str, password: Option<&str>) -> Result<(PdfInfo, PdfDocument<'static>)> {
     let file_path = Path::new(path);
     let file_name = file_path
         .file_name()
@@ -82,7 +85,26 @@ pub fn open(path: &str, password: Option<&str>) -> Result<PdfInfo> {
         return Err(SplitError::EmptyPdf(file_name));
     }
 
-    Ok(PdfInfo { path: path.to_string(), file_name, page_count, size_bytes: metadata.len() })
+    let info = PdfInfo { path: path.to_string(), file_name, page_count, size_bytes: metadata.len() };
+    Ok((info, document))
+}
+
+/// Renders page `page` (1-based) of `document` as a JPEG `width` pixels wide (FR-10, FR-11).
+pub fn render_page(document: &PdfDocument, page: u32, width: u32) -> Result<Vec<u8>> {
+    let failed = |e: String| SplitError::RenderFailed(page, e);
+    let index = i32::try_from(page.saturating_sub(1)).map_err(|e| failed(e.to_string()))?;
+    let width = i32::try_from(width).map_err(|e| failed(e.to_string()))?;
+    let pdf_page = document.pages().get(index).map_err(|e| failed(e.to_string()))?;
+    let image = pdf_page
+        .render_with_config(&PdfRenderConfig::new().set_target_width(width))
+        .and_then(|bitmap| bitmap.as_image())
+        .map_err(|e| failed(e.to_string()))?;
+    let mut jpeg = Vec::new();
+    image
+        .to_rgb8()
+        .write_to(&mut Cursor::new(&mut jpeg), ImageFormat::Jpeg)
+        .map_err(|e| failed(e.to_string()))?;
+    Ok(jpeg)
 }
 
 fn io_error(e: &std::io::Error, file_name: &str) -> SplitError {
@@ -109,7 +131,7 @@ fn load_error(e: PdfiumError, file_name: &str, had_password: bool) -> SplitError
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use lopdf::{Document, Object, Stream, dictionary};
     use std::path::PathBuf;
@@ -129,12 +151,16 @@ mod tests {
         assert_eq!(doc.pages().len(), 0);
     }
 
-    fn start_engine() {
+    fn open(path: &str, password: Option<&str>) -> Result<PdfInfo> {
+        open_document(path, password).map(|(info, _)| info)
+    }
+
+    pub(crate) fn start_engine() {
         init(&PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("pdfium")).unwrap();
     }
 
     /// A PDF with `pages` text pages. The trailer `/ID` is there because encryption needs it.
-    fn document(pages: usize) -> Document {
+    pub(crate) fn document(pages: usize) -> Document {
         let mut doc = Document::with_version("1.5");
         doc.trailer.set(
             "ID",
@@ -170,7 +196,7 @@ mod tests {
         doc
     }
 
-    fn encrypted(pages: usize, user_password: &str) -> Document {
+    pub(crate) fn encrypted(pages: usize, user_password: &str) -> Document {
         let mut doc = document(pages);
         let state = lopdf::EncryptionState::try_from(lopdf::EncryptionVersion::V2 {
             document: &doc,
@@ -184,7 +210,7 @@ mod tests {
         doc
     }
 
-    fn save(dir: &tempfile::TempDir, name: &str, mut doc: Document) -> String {
+    pub(crate) fn save(dir: &tempfile::TempDir, name: &str, mut doc: Document) -> String {
         let path = dir.path().join(name);
         doc.save(&path).unwrap();
         path.to_string_lossy().into_owned()
@@ -271,6 +297,29 @@ mod tests {
 
         let folder = open(&dir.path().to_string_lossy(), None).unwrap_err();
         assert!(matches!(folder, SplitError::CorruptPdf(_)), "{folder}");
+    }
+
+    #[test]
+    fn renders_a_page_as_a_jpeg_of_the_requested_width() {
+        start_engine();
+        let dir = tempfile::tempdir().unwrap();
+        let path = save(&dir, "report.pdf", document(2));
+        let (_, doc) = open_document(&path, None).unwrap();
+
+        let jpeg = render_page(&doc, 2, 200).unwrap();
+        let image = image::load_from_memory_with_format(&jpeg, ImageFormat::Jpeg).unwrap();
+        assert_eq!(image.width(), 200);
+        // US Letter is 612 x 792 points, so the height keeps the page's aspect ratio.
+        assert_eq!(image.height(), 259);
+    }
+
+    #[test]
+    fn rendering_a_missing_page_gives_a_clear_error() {
+        start_engine();
+        let dir = tempfile::tempdir().unwrap();
+        let (_, doc) = open_document(&save(&dir, "a.pdf", document(1)), None).unwrap();
+        let err = render_page(&doc, 5, 100).unwrap_err();
+        assert!(err.to_string().starts_with("Page 5 could not be shown"), "{err}");
     }
 
     /// The interface shows a password prompt by matching these messages.

@@ -5,14 +5,18 @@ mod pdf;
 mod presets;
 mod ranges;
 mod strategy;
+mod viewer;
 
-use tauri::Manager;
+use tauri::{Manager, RunEvent};
+
+use viewer::Viewer;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        .manage(Viewer::new(Viewer::session_cache_dir()))
         // Load PDFium from the bundled resource folder. A failure is reported by every PDF command.
         .setup(|app| {
             match app.path().resource_dir() {
@@ -31,7 +35,14 @@ pub fn run() {
             commands::fixed_ranges,
             commands::validate_ranges,
             commands::open_pdf,
+            commands::render_page,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app, event| {
+            // NFR-07: delete this session's thumbnails when the app closes.
+            if let RunEvent::Exit = event {
+                app.state::<Viewer>().close();
+            }
+        });
 }
