@@ -228,7 +228,7 @@ function App() {
                 Open another
               </button>
             </header>
-            <PageGrid key={opened} path={pdf.path} pageCount={pdf.pageCount} onOpen={setViewing} />
+            <PageGrid key={opened} path={pdf.path} pageCount={pdf.pageCount} ranges={ranges} onOpen={setViewing} />
             {viewing !== null && (
               <PageViewer
                 key={opened}

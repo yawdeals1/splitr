@@ -233,6 +233,7 @@ button.primary {
 }
 
 .page-image {
+  position: relative;
   display: grid;
   place-items: center;
   width: 100%;
@@ -253,6 +254,35 @@ button.primary {
 .page-error {
   color: var(--error);
   font-weight: 600;
+}
+
+/* FR-12: split marks. A part's first page gets an accent edge and a badge; left-out pages fade. */
+.starts-part .page-image {
+  border-left: 4px solid var(--accent);
+}
+
+.part-badge {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  max-width: calc(100% - 8px);
+  padding: 1px 6px;
+  overflow: hidden;
+  border-radius: 4px;
+  background: var(--accent);
+  color: var(--accent-text);
+  font-size: 12px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.left-out .page-image {
+  opacity: 0.35;
+}
+
+.left-out .page-number::after {
+  content: " · left out";
 }
 
 .page-number {
