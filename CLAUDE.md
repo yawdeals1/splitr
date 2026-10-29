@@ -9,7 +9,7 @@ Splitr (working name) is Smart PDF Splitter: a local-first desktop app for Windo
 - Tauri 2 shell, Rust backend in `src-tauri/`
 - React 19 + TypeScript + Vite frontend in `src/`
 - PDF engine: `pdfium-render` (render, text, outline) and `lopdf` (write parts)
-- AI: Claude API over HTTPS from the Rust backend, with the user's own key
+- AI: several platforms behind one provider interface, called over HTTPS from the Rust backend with the user's own key or account: Claude, OpenAI (GPT), a ChatGPT account, Gemini, OpenCode Go, OpenAI-compatible platforms (OpenRouter, NVIDIA and others) and a local model
 
 ## Commands
 
@@ -37,7 +37,9 @@ Splitr (working name) is Smart PDF Splitter: a local-first desktop app for Windo
 ### Security and privacy (never break these)
 
 - Never commit secrets: API keys, tokens, passwords, signing keys, `.env` files or certificates. `.gitignore` blocks the common ones; check `git diff --staged` before every commit anyway.
-- The user's API key is stored only in the OS credential store (the `keyring` crate). It must never be written to settings files or logs, sent to the frontend after it's saved, or bundled in the app (NFR-05).
+- Every API key and account token is stored only in the OS credential store (the `keyring` crate), one entry per platform. It must never be written to settings files or logs, sent to the frontend after it's saved (show only the last 4 characters), or bundled in the app (NFR-05).
+- Send a key only to the platform it belongs to: the one detected from its prefix or chosen by the user. Never try a key against several platforms to find out where it belongs.
+- Account sign-in (ChatGPT) uses OAuth in the system browser with PKCE. Never embed a login page and never ask for an account password.
 - Signing keys and certificates live only in GitHub Actions encrypted secrets.
 - Don't change environment variables, PATH or system settings from code, scripts or config in the repo. Don't commit machine-specific paths.
 - Rule-based splitting makes no network calls (NFR-06). Only the AI strategy and the update check may use the network.
@@ -95,6 +97,13 @@ Status key: [x] done, [ ] to do. Each phase ends when its exit criterion is met 
 - [ ] Strict JSON parsing, merging chunk results, `validate`, retrying once and then manual fixing (FR-35, FR-36) (#16)
 - [ ] Save a custom prompt as a user preset (FR-71) (#17)
 - [ ] Integration tests with a mocked AI provider (#18)
+- [ ] Multiple API keys with automatic platform detection from the key prefix, verified with one call to that platform only (#27)
+- [ ] OpenAI (GPT) provider (#28)
+- [ ] Google Gemini provider (#29)
+- [ ] OpenAI-compatible platforms from a data file: OpenRouter, NVIDIA, Groq, xAI, DeepSeek, Mistral, Together AI, plus a custom base URL (#30)
+- [ ] Connect a ChatGPT account instead of an API key (Sign in with ChatGPT); confirm OpenAI's developer terms first (#31)
+- [ ] OpenCode Go provider, routing each model to its API style (#32)
+- [x] Update this plan for multiple AI platforms (#33)
 - **Exit:** 80% of AI test files are correct after at most 2 range edits.
 
 ### Phase 3: Packaging and updates
@@ -117,5 +126,4 @@ Status key: [x] done, [ ] to do. Each phase ends when its exit criterion is met 
 ## Open questions (from PRD 14)
 - Final product name
 - Personal tool or a product for sale (decides whether code signing and licensing are needed)
-- Claude-only or multiple AI providers
 - Maximum file size and page count, and languages for the interface and OCR
