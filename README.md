@@ -27,6 +27,7 @@ src-tauri/src/
   naming.rs           Output file name templates and sanitizing
   presets.rs          Preset loading
   strategy/           One module per split strategy (fixed, outline, pattern, blank, ai)
+scripts/fetch-pdfium.mjs  Downloads the pinned PDFium build for a platform (checksum-verified)
 .github/workflows/    CI (build and test) and Release (installers for 3 platforms)
 ```
 
@@ -36,6 +37,7 @@ Prerequisites: Node.js 20+, Rust (stable) and the [Tauri prerequisites](https://
 
 ```sh
 npm install
+npm run fetch-pdfium   # download the PDFium library into src-tauri/pdfium (not committed)
 npm run tauri dev      # run the app
 npm run build          # type-check and build the frontend
 cd src-tauri && cargo test

@@ -13,6 +13,8 @@ pub enum SplitError {
     NothingFound,
     #[error("{0} is not implemented yet")]
     NotImplemented(&'static str),
+    #[error("The PDF engine could not start: {0}")]
+    PdfEngine(String),
 }
 
 impl Serialize for SplitError {

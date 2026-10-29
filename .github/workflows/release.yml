@@ -48,6 +48,12 @@ jobs:
 
       - run: npm ci
 
+      # tauri build runs this too (beforeBuildCommand), with TAURI_ENV_TARGET_TRIPLE set.
+      # Fetching here first makes a download failure show up as its own step.
+      - name: Fetch PDFium for the target
+        shell: bash
+        run: node scripts/fetch-pdfium.mjs ${{ matrix.args }}
+
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
