@@ -387,6 +387,11 @@ textarea:focus-visible {
   outline-offset: 1px;
 }
 
+.notice {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
 .password-prompt {
   display: flex;
   flex-direction: column;

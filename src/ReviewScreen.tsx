@@ -26,9 +26,11 @@ interface Props {
   onChange: (ranges: Range[]) => void;
   onBack: () => void;
   onExport: () => void;
+  /** True while the parts are being saved (FR-50). */
+  exporting?: boolean;
 }
 
-export function ReviewScreen({ totalPages, ranges, allowGaps, onChange, onBack, onExport }: Props) {
+export function ReviewScreen({ totalPages, ranges, allowGaps, onChange, onBack, onExport, exporting = false }: Props) {
   // Pages of parts the user deleted. Only these may be missing when the mode must cover every page.
   const [leftOut, setLeftOut] = useState<Span[]>([]);
   // Page fields whose text isn't a valid page yet, by field. Their parts keep the last valid page.
@@ -57,7 +59,7 @@ export function ReviewScreen({ totalPages, ranges, allowGaps, onChange, onBack, 
   const draftProblem = Object.keys(drafts).length > 0 ? `Enter a page from 1 to ${totalPages}.` : "";
   const problem = draftProblem || (checked && !checking ? checked.problem : "");
   // FR-42: export only after the backend has accepted exactly these bounds.
-  const canExport = !checking && !problem;
+  const canExport = !checking && !problem && !exporting;
 
   const cancelSplit = () => {
     setSplitting(null);
@@ -226,7 +228,7 @@ export function ReviewScreen({ totalPages, ranges, allowGaps, onChange, onBack, 
           Back
         </button>
         <button type="button" className="primary" disabled={!canExport} onClick={() => canExport && onExport()}>
-          Export {ranges.length} {ranges.length === 1 ? "file" : "files"}
+          {exporting ? "Saving…" : `Export ${ranges.length} ${ranges.length === 1 ? "file" : "files"}`}
         </button>
       </footer>
     </section>
