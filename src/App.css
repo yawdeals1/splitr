@@ -8,6 +8,7 @@
   --accent-text: #ffffff;
   --error: #b42318;
 
+  color-scheme: light dark;
   font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
   font-size: 15px;
   line-height: 1.5;
@@ -15,8 +16,9 @@
   background: var(--bg);
 }
 
+/* FR-63: "system" follows the OS; a theme chosen in the panel sets data-theme on <html> (theme.ts). */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
     --bg: #161615;
     --surface: #1f1f1e;
     --border: #353532;
@@ -26,6 +28,22 @@
     --accent-text: #0f0f0e;
     --error: #f97066;
   }
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #161615;
+  --surface: #1f1f1e;
+  --border: #353532;
+  --text: #ecebe6;
+  --muted: #9b9a94;
+  --accent: #7c9cf0;
+  --accent-text: #0f0f0e;
+  --error: #f97066;
 }
 
 * {
@@ -148,9 +166,19 @@ body {
   opacity: 0;
 }
 
+/* NFR-11: a visible focus ring on every control reached by keyboard. */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
 .modes label:has(input:focus-visible) {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
+}
+
+.modes.theme {
+  font-size: 13px;
 }
 
 input,
