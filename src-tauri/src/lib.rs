@@ -6,6 +6,7 @@ mod presets;
 mod ranges;
 mod settings;
 mod strategy;
+mod user_presets;
 mod viewer;
 
 use tauri::{Manager, RunEvent};
@@ -48,6 +49,8 @@ pub fn run() {
             commands::validate_ranges,
             commands::open_pdf,
             commands::render_page,
+            commands::save_user_preset,
+            commands::delete_user_preset,
             commands::get_settings,
             commands::save_settings,
         ])

@@ -15,6 +15,8 @@ pub enum SplitError {
     NotImplemented(&'static str),
     #[error("The PDF engine could not start: {0}")]
     PdfEngine(String),
+    #[error("{0}")]
+    Presets(String),
     #[error("Could not load settings: {0}")]
     SettingsLoad(String),
     #[error("Could not save settings: {0}")]
