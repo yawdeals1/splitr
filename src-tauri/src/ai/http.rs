@@ -103,6 +103,8 @@ impl Api {
             },
             400 => format!("{name} couldn't accept this request{detail}"),
             403 => format!("Your {name} API key isn't allowed to make this request{detail}"),
+            // A GET names no model: it is a model list or key check at a wrong address.
+            404 if model.is_empty() => format!("{name} has nothing at this address (error 404). Check the address in Settings"),
             404 => format!("{name} doesn't offer the model \"{model}\" to your account. Check the model name in Settings"),
             413 => format!("This request is too large for {name}. Split a smaller part of the file"),
             500..=599 => format!("{name} had a problem on its side (error {}). Try again in a minute", status.as_u16()),
@@ -269,6 +271,14 @@ mod tests {
             assert!(err.contains(expected), "{status} {body}: {err}");
             assert!(!err.contains("secret-key"), "{err}");
         }
+    }
+
+    #[test]
+    fn a_missing_address_on_a_get_names_no_model() {
+        let (url, _got) = serve("/v1/models", "404 Not Found", "", "{}");
+        let api = Api::new("Example", Duration::from_secs(5)).unwrap();
+        let err = tauri::async_runtime::block_on(api.get(&url, &[])).unwrap_err().to_string();
+        assert!(err.contains("nothing at this address") && !err.contains("model"), "{err}");
     }
 
     #[test]
