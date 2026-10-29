@@ -150,6 +150,14 @@ pub fn status(store: &dyn SecretStore, platform: &str) -> Result<KeyStatus> {
     Ok(KeyStatus { platform: platform.into(), last4 })
 }
 
+/// The saved key for `platform`, for the AI client only. It is read for each call and never kept.
+pub fn key_for(store: &dyn SecretStore, platform: &str) -> Result<String> {
+    let name = label(platform)?;
+    store.get(platform)?.ok_or_else(|| {
+        SplitError::ApiKey(format!("Add your {name} API key in Settings to use Smart mode with AI"))
+    })
+}
+
 /// Removes the key for `platform`.
 pub fn delete(store: &dyn SecretStore, platform: &str) -> Result<KeyStatus> {
     label(platform)?;
@@ -222,6 +230,16 @@ mod tests {
         save(&store, "anthropic", KEY).unwrap();
         save(&store, "anthropic", "sk-ant-api03-another-key-1234").unwrap();
         assert_eq!(status(&store, "anthropic").unwrap().last4.as_deref(), Some("1234"));
+    }
+
+    #[test]
+    fn key_for_returns_the_saved_key_or_asks_for_one() {
+        let store = MemoryStore::default();
+        let err = key_for(&store, "anthropic").unwrap_err().to_string();
+        assert!(err.contains("Add your Claude API key"), "{err}");
+        save(&store, "anthropic", KEY).unwrap();
+        assert_eq!(key_for(&store, "anthropic").unwrap(), KEY);
+        assert!(key_for(&store, "nope").is_err());
     }
 
     #[test]

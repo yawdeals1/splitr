@@ -5,6 +5,8 @@ use std::path::PathBuf;
 use tauri::ipc::Response;
 use tauri::{AppHandle, Manager};
 
+use crate::ai::claude::Claude;
+use crate::ai::{AiCalls, AiRequest, Provider};
 use crate::error::{Result, SplitError};
 use crate::export;
 use crate::keystore::{self, KeyStatus, OsStore};
@@ -15,6 +17,9 @@ use crate::settings::{self, Settings};
 use crate::strategy::{DocumentText, FixedStrategy, Strategy};
 use crate::user_presets::{self, PresetInput, PresetList};
 use crate::viewer::Viewer;
+
+/// The credential store entry for the Claude key (`keystore::PLATFORMS`).
+const CLAUDE_PLATFORM: &str = "anthropic";
 
 fn user_presets_path(app: &AppHandle) -> Result<PathBuf> {
     let dir = app.path().app_config_dir().map_err(|e| {
@@ -105,6 +110,29 @@ pub async fn api_key_status(platform: String) -> Result<KeyStatus> {
 #[tauri::command]
 pub async fn delete_api_key(platform: String) -> Result<KeyStatus> {
     key_store(move || keystore::delete(&OsStore, &platform)).await
+}
+
+/// Sends one chunk of page excerpts to Claude and returns its reply text, which the caller parses
+/// and validates (FR-33 to FR-36). Runs only when AI is on and the user accepted the notice
+/// (FR-61, FR-62). The key is read from the credential store for this call only (NFR-05).
+#[tauri::command]
+pub async fn ask_ai(app: AppHandle, request: AiRequest) -> Result<String> {
+    let settings = get_settings(app.clone()).await?;
+    if !settings.ai_enabled {
+        return Err(SplitError::Ai("AI is turned off. Turn it on in Settings to use Smart mode with AI".into()));
+    }
+    if !settings.ai_consent {
+        return Err(SplitError::Ai("Accept the AI notice before Splitr sends page excerpts to Claude".into()));
+    }
+    let key = key_store(|| keystore::key_for(&OsStore, CLAUDE_PLATFORM)).await?;
+    let claude = Claude::new(key, settings.ai_model)?;
+    app.state::<AiCalls>().run(claude.complete(&request)).await
+}
+
+/// Stops the AI calls in progress. They end with `SplitError::AiCancelled`.
+#[tauri::command]
+pub fn cancel_ai(app: AppHandle) {
+    app.state::<AiCalls>().cancel();
 }
 
 #[tauri::command]

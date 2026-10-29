@@ -40,6 +40,31 @@ export function useApiKey() {
   };
 }
 
+/** The Claude model name (#15). Saved when the field loses focus or on Enter; blank restores the default. */
+function ModelField({ saved, onSave }: { saved: string; onSave: (model: string) => void }) {
+  const [draft, setDraft] = useState(saved);
+  useEffect(() => setDraft(saved), [saved]);
+
+  function commit() {
+    if (draft.trim() !== saved) onSave(draft.trim());
+  }
+
+  return (
+    <label>
+      Claude model
+      <input
+        type="text"
+        autoComplete="off"
+        spellCheck={false}
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => e.key === "Enter" && commit()}
+      />
+    </label>
+  );
+}
+
 interface Props {
   settings: Settings | null;
   apiKey: ReturnType<typeof useApiKey>;
@@ -137,6 +162,7 @@ export function AiSettings({ settings, apiKey, onChange }: Props) {
           <p className="muted">
             Kept in your system&rsquo;s credential store, never in a file. It is sent only to Anthropic.
           </p>
+          <ModelField saved={settings?.aiModel ?? ""} onSave={(aiModel) => change({ aiModel })} />
           {settings?.aiConsent && (
             <p className="muted">
               You agreed to the AI notice.{" "}

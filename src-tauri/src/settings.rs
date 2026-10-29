@@ -38,6 +38,8 @@ pub struct Settings {
     pub ai_enabled: bool,
     /// Whether the user accepted the AI notice (FR-61).
     pub ai_consent: bool,
+    /// The Claude model Smart mode uses (#15).
+    pub ai_model: String,
 }
 
 impl Default for Settings {
@@ -49,6 +51,7 @@ impl Default for Settings {
             blank_threshold: 0,
             ai_enabled: true,
             ai_consent: false,
+            ai_model: crate::ai::claude::DEFAULT_MODEL.into(),
         }
     }
 }
@@ -58,6 +61,10 @@ impl Settings {
     fn normalized(mut self) -> Self {
         if self.name_template.trim().is_empty() {
             self.name_template = Self::default().name_template;
+        }
+        self.ai_model = self.ai_model.trim().to_string();
+        if self.ai_model.is_empty() {
+            self.ai_model = Self::default().ai_model;
         }
         if self.last_output_folder.as_deref().is_some_and(|f| f.trim().is_empty()) {
             self.last_output_folder = None;
@@ -89,6 +96,7 @@ pub fn load(path: &Path) -> Result<Settings> {
         blank_threshold: field(&fields, "blankThreshold", defaults.blank_threshold),
         ai_enabled: field(&fields, "aiEnabled", defaults.ai_enabled),
         ai_consent: field(&fields, "aiConsent", defaults.ai_consent),
+        ai_model: field(&fields, "aiModel", defaults.ai_model),
     }
     .normalized())
 }
@@ -162,6 +170,7 @@ mod tests {
             blank_threshold: 5,
             ai_enabled: false,
             ai_consent: true,
+            ai_model: "claude-haiku-5-5".into(),
         };
         save(&path, &settings).unwrap();
         assert_eq!(load(&path).unwrap(), settings);
@@ -220,10 +229,11 @@ mod tests {
         let dir = temp_dir("partial");
         let path = dir.join(FILE_NAME);
         fs::create_dir_all(&dir).unwrap();
-        fs::write(&path, r#"{"theme": "light", "nameTemplate": "  "}"#).unwrap();
+        fs::write(&path, r#"{"theme": "light", "nameTemplate": "  ", "aiModel": " "}"#).unwrap();
         let loaded = load(&path).unwrap();
         assert_eq!(loaded.theme, Theme::Light);
         assert_eq!(loaded.name_template, Settings::default().name_template);
+        assert_eq!(loaded.ai_model, crate::ai::claude::DEFAULT_MODEL);
         fs::remove_dir_all(dir).unwrap();
     }
 

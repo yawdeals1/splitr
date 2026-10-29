@@ -58,6 +58,8 @@ export interface Settings {
   /** AI features are on (FR-62). */
   aiEnabled: boolean;
   aiConsent: boolean;
+  /** The Claude model Smart mode uses. Blank means the default. */
+  aiModel: string;
 }
 
 /** Mirrors keystore::KeyStatus: all the interface learns about a saved API key (NFR-05). */
