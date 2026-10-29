@@ -29,6 +29,9 @@ pub enum SplitError {
     Ai(String),
     #[error("The AI request was cancelled")]
     AiCancelled,
+    // An AI answer still unusable after one retry (FR-36): pages, then the problem.
+    #[error("The AI's answer for pages {0} to {1} could not be used: {2}. Set the parts by hand instead")]
+    AiReply(u32, u32, String),
     // Opening a PDF (FR-03, FR-05). The interface matches the two password messages to show a
     // password prompt; `src/types.ts` holds the same text, checked by a test in `pdf.rs`.
     #[error("This PDF is password protected. Enter its password to open it.")]

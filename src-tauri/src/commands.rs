@@ -6,9 +6,10 @@ use std::path::PathBuf;
 use tauri::ipc::Response;
 use tauri::{AppHandle, Manager};
 
-use crate::ai::{self, AiCalls, AiRequest};
+use crate::ai::{self, response, AiCalls, AiRequest, Provider};
 use crate::error::{Result, SplitError};
-use crate::export;
+use crate::export::{self, ExportRequest, SavedParts};
+use crate::naming;
 use crate::keystore::{self, KeyStatus, OsStore};
 use crate::pdf::PdfInfo;
 use crate::presets::{self, Preset};
@@ -109,11 +110,26 @@ pub async fn delete_api_key(platform: String) -> Result<KeyStatus> {
     key_store(move || keystore::delete(&OsStore, &platform)).await
 }
 
-/// Sends one chunk of page excerpts to the chosen AI platform and returns its reply text, which the caller parses
-/// and validates (FR-33 to FR-36). Runs only when AI is on and the user accepted the notice
-/// (FR-61, FR-62). The key is read from the credential store for this call only (NFR-05).
+/// Sends one chunk of page excerpts to the chosen AI platform and returns its reply text. `ai_split`
+/// parses and validates replies (FR-33 to FR-36).
 #[tauri::command]
 pub async fn ask_ai(app: AppHandle, request: AiRequest) -> Result<String> {
+    let provider = ai_provider(&app).await?;
+    app.state::<AiCalls>().run(provider.complete(&request)).await
+}
+
+/// Sends every chunk of page excerpts and returns one validated range list for a `page_count`-page
+/// PDF (FR-33 to FR-35). A reply that can't be used is asked for again once; if it still fails,
+/// the error says what was wrong so the user can set the parts by hand (FR-36).
+#[tauri::command]
+pub async fn ai_split(app: AppHandle, chunks: Vec<AiRequest>, page_count: u32, allow_gaps: bool) -> Result<Vec<Range>> {
+    let provider = ai_provider(&app).await?;
+    app.state::<AiCalls>().run(response::split(&provider, &chunks, page_count, allow_gaps)).await
+}
+
+/// The AI provider the user chose. Only when AI is on and the user accepted the notice (FR-61,
+/// FR-62). The key is read from the credential store for this call only (NFR-05).
+async fn ai_provider(app: &AppHandle) -> Result<ai::Chosen> {
     let settings = get_settings(app.clone()).await?;
     if !settings.ai_enabled {
         return Err(SplitError::Ai("AI is turned off. Turn it on in Settings to use Smart mode with AI".into()));
@@ -128,13 +144,11 @@ pub async fn ask_ai(app: AppHandle, request: AiRequest) -> Result<String> {
     let model = settings
         .model_for(platform)
         .ok_or_else(|| SplitError::Ai("Enter a model name under AI in Settings".into()))?;
-    let platform = platform.to_string();
     let key = {
-        let platform = platform.clone();
+        let platform = platform.to_string();
         key_store(move || keystore::key_for(&OsStore, &platform)).await?
     };
-    let custom_url = settings.ai_custom_url.clone();
-    app.state::<AiCalls>().run(ai::complete(&platform, &custom_url, key, model, &request)).await
+    ai::provider(platform, &settings.ai_custom_url, key, model)
 }
 
 /// The models an OpenAI-compatible platform (#30) or OpenCode Go (#32) offers, for the settings screen. Runs only when
@@ -193,19 +207,32 @@ pub async fn render_page(app: AppHandle, path: String, page: u32, width: u32) ->
         .map(Response::new)
 }
 
-/// Saves each range as its own PDF in `folder`, named from `names` (FR-50 to FR-52), off the UI
-/// thread (NFR-02). Returns the paths written. `password` is only needed for encrypted files.
-#[tauri::command]
-pub async fn export_parts(
-    path: String,
-    password: Option<String>,
-    ranges: Vec<Range>,
-    folder: String,
-    names: Vec<String>,
-) -> Result<Vec<String>> {
-    tauri::async_runtime::spawn_blocking(move || export::export(&path, password.as_deref(), &ranges, &folder, &names))
+/// Runs an export off the UI thread (NFR-02): writing large parts takes a while.
+async fn export_off_ui<T: Send + 'static>(work: impl FnOnce() -> Result<T> + Send + 'static) -> Result<T> {
+    tauri::async_runtime::spawn_blocking(work)
         .await
-        .map_err(|e| SplitError::ExportFailed(e.to_string()))?
+        .map_err(|e| SplitError::ExportFailed(format!("the export stopped unexpectedly ({e})")))?
+}
+
+/// Saves each part as its own PDF in the chosen folder, named from `request.names` (FR-50 to FR-52).
+#[tauri::command]
+pub async fn export_parts(request: ExportRequest) -> Result<SavedParts> {
+    export_off_ui(move || export::export(&request)).await
+}
+
+/// Like `export_parts`, but bundles the parts into `<zip_name>.zip` in the folder (FR-53).
+/// `zip_name` comes from `export_names`.
+#[tauri::command]
+pub async fn export_zip(request: ExportRequest, zip_name: String) -> Result<String> {
+    export_off_ui(move || export::export_zip(&request, &zip_name)).await
+}
+
+/// File names (without extensions) for parts with these titles, from the user's template, and for
+/// the ZIP (FR-51 to FR-53). The interface shows them as a preview and passes them to the export
+/// commands, so the two can't disagree.
+#[tauri::command]
+pub fn export_names(template: String, original: String, titles: Vec<String>) -> naming::ExportNames {
+    naming::export_names(&template, &original, &titles)
 }
 
 #[tauri::command]

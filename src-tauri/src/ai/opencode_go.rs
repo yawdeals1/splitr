@@ -94,9 +94,23 @@ fn configure(api: &mut Api) {
     api.add_header("user-agent", format!("splitr/{}", env!("CARGO_PKG_VERSION")));
 }
 
-/// Sends `request` to `model` on OpenCode Go, in the model's API style.
-pub async fn complete(key: String, model: String, request: &AiRequest) -> Result<String> {
-    complete_at(&TABLE.base_url, key, model, request, TIMEOUT).await
+/// OpenCode Go with one key and model. Deliberately not `Debug`, so the key can't end up in a log.
+pub struct OpenCodeGo {
+    key: String,
+    model: String,
+}
+
+impl OpenCodeGo {
+    pub fn new(key: String, model: String) -> Self {
+        Self { key, model }
+    }
+}
+
+impl Provider for OpenCodeGo {
+    /// Sends `request` to the model on OpenCode Go, in the model's API style.
+    async fn complete(&self, request: &AiRequest) -> Result<String> {
+        complete_at(&TABLE.base_url, self.key.clone(), self.model.clone(), request, TIMEOUT).await
+    }
 }
 
 async fn complete_at(base: &str, key: String, model: String, request: &AiRequest, timeout: Duration) -> Result<String> {
@@ -273,7 +287,8 @@ mod tests {
     fn real_opencode_go_call() {
         use crate::keystore::{self, OsStore};
         let key = keystore::key_for(&OsStore, "opencode-go").unwrap();
-        let reply = tauri::async_runtime::block_on(complete(key, default_model().unwrap().into(), &request())).unwrap();
+        let client = OpenCodeGo::new(key, default_model().unwrap().into());
+        let reply = tauri::async_runtime::block_on(client.complete(&request())).unwrap();
         println!("{reply}");
         assert!(reply.trim_start().starts_with('['), "{reply}");
     }

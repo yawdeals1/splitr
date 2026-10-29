@@ -45,7 +45,7 @@ export const AI_SERVICES: AiService[] = [
   {
     id: "custom",
     label: "Other OpenAI-compatible platform",
-    name: "the custom platform",
+    name: "Custom platform",
     company: "the platform at the address you entered",
     keyHint: "",
     listsModels: true,
