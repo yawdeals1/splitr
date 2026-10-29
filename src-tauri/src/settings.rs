@@ -44,6 +44,9 @@ pub struct Settings {
     pub ai_platform: String,
     /// Models the user chose, by service. A service that isn't here uses its default.
     pub ai_models: BTreeMap<String, String>,
+    /// The address of the custom OpenAI-compatible platform (#30), such as
+    /// "https://llm.example.com/v1". Checked when it is used.
+    pub ai_custom_url: String,
 }
 
 impl Default for Settings {
@@ -57,6 +60,7 @@ impl Default for Settings {
             ai_consent: false,
             ai_platform: ai::DEFAULT_PLATFORM.into(),
             ai_models: BTreeMap::new(),
+            ai_custom_url: String::new(),
         }
     }
 }
@@ -84,6 +88,7 @@ impl Settings {
             .map(|(platform, model)| (platform, model.trim().to_string()))
             .filter(|(platform, model)| ai::is_platform(platform) && !model.is_empty())
             .collect();
+        self.ai_custom_url = self.ai_custom_url.trim().to_string();
         if self.last_output_folder.as_deref().is_some_and(|f| f.trim().is_empty()) {
             self.last_output_folder = None;
         }
@@ -116,6 +121,7 @@ pub fn load(path: &Path) -> Result<Settings> {
         ai_consent: field(&fields, "aiConsent", defaults.ai_consent),
         ai_platform: field(&fields, "aiPlatform", defaults.ai_platform),
         ai_models: field(&fields, "aiModels", defaults.ai_models),
+        ai_custom_url: field(&fields, "aiCustomUrl", defaults.ai_custom_url),
     }
     .normalized())
 }
@@ -191,6 +197,7 @@ mod tests {
             ai_consent: true,
             ai_platform: "anthropic".into(),
             ai_models: BTreeMap::from([("anthropic".into(), "claude-haiku-5-5".into())]),
+            ai_custom_url: "http://localhost:11434/v1".into(),
         };
         save(&path, &settings).unwrap();
         assert_eq!(load(&path).unwrap(), settings);

@@ -57,10 +57,26 @@ export function useApiKey(platform: string | undefined) {
   };
 }
 
-/** The model for the chosen service. Saved when the field loses focus or on Enter; blank means the default. */
-function ModelField({ saved, fallback, onSave }: { saved: string; fallback: string; onSave: (model: string) => void }) {
+/**
+ * A text setting saved when the field loses focus or on Enter. For the model, blank means the
+ * default; `models` offers the platform's model list as suggestions (#30).
+ */
+function SavedField({
+  label,
+  saved,
+  placeholder,
+  onSave,
+  models = [],
+}: {
+  label: string;
+  saved: string;
+  placeholder: string;
+  onSave: (value: string) => void;
+  models?: string[];
+}) {
   const [draft, setDraft] = useState(saved);
   useEffect(() => setDraft(saved), [saved]);
+  const listId = models.length > 0 ? `${label.toLowerCase().replace(/\W+/g, "-")}-options` : undefined;
 
   function commit() {
     if (draft.trim() !== saved) onSave(draft.trim());
@@ -68,17 +84,25 @@ function ModelField({ saved, fallback, onSave }: { saved: string; fallback: stri
 
   return (
     <label>
-      Model
+      {label}
       <input
         type="text"
-        placeholder={fallback}
+        placeholder={placeholder}
         autoComplete="off"
         spellCheck={false}
         value={draft}
+        list={listId}
         onChange={(e) => setDraft(e.target.value)}
         onBlur={commit}
         onKeyDown={(e) => e.key === "Enter" && commit()}
       />
+      {listId && (
+        <datalist id={listId}>
+          {models.map((m) => (
+            <option key={m} value={m} />
+          ))}
+        </datalist>
+      )}
     </label>
   );
 }
@@ -95,6 +119,9 @@ export function AiSettings({ settings, apiKey, onChange }: Props) {
   const [saving, setSaving] = useState(false);
   const [problem, setProblem] = useState("");
   const [defaults, setDefaults] = useState<Record<string, string>>({});
+  // #30: the chosen platform's models, fetched when the user asks.
+  const [models, setModels] = useState<{ service: string; list: string[] } | null>(null);
+  const [loadingModels, setLoadingModels] = useState(false);
   const enabled = settings?.aiEnabled ?? false;
   const service = settings?.aiPlatform ?? "chatgpt";
   const current = aiService(service);
@@ -106,6 +133,20 @@ export function AiSettings({ settings, apiKey, onChange }: Props) {
 
   async function change(value: Partial<Settings>) {
     setProblem((await onChange(value)) ?? "");
+  }
+
+  // #30: asks the platform for its models, with its saved key. Only on request: it's a network call.
+  async function loadModels() {
+    setLoadingModels(true);
+    try {
+      const list = await invoke<string[]>("list_ai_models", { platform: service });
+      setModels({ service, list });
+      setProblem(list.length ? "" : `${current.name} didn't list any models. Type the model name.`);
+    } catch (e) {
+      setProblem(String(e));
+    } finally {
+      setLoadingModels(false);
+    }
   }
 
   async function saveKey() {
@@ -147,6 +188,15 @@ export function AiSettings({ settings, apiKey, onChange }: Props) {
         <p className="muted">
           Signing in with your ChatGPT account is coming. Until then, choose a service that uses an API key.
         </p>
+      )}
+
+      {enabled && service === "custom" && (
+        <SavedField
+          label="Address"
+          saved={settings?.aiCustomUrl ?? ""}
+          placeholder="https://example.com/v1"
+          onSave={(url) => change({ aiCustomUrl: url })}
+        />
       )}
 
       {enabled && usesKey(current) && (
@@ -211,12 +261,19 @@ export function AiSettings({ settings, apiKey, onChange }: Props) {
 
       {enabled && (
         <>
-          <ModelField
+          <SavedField
             key={service}
+            label="Model"
             saved={settings?.aiModels[service] ?? ""}
-            fallback={defaults[service] ?? ""}
+            placeholder={defaults[service] ?? ""}
+            models={models?.service === service ? models.list : []}
             onSave={(model) => change({ aiModels: { ...settings?.aiModels, [service]: model } })}
           />
+          {current.listsModels && apiKey.hasKey && (
+            <button type="button" className="link" disabled={loadingModels} onClick={loadModels}>
+              {loadingModels ? "Loading models…" : "Show available models"}
+            </button>
+          )}
           {settings?.aiConsent && (
             <p className="muted">
               You agreed to the AI notice.{" "}

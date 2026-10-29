@@ -64,6 +64,7 @@ pub fn run() {
             commands::ask_ai,
             commands::cancel_ai,
             commands::default_ai_models,
+            commands::list_ai_models,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

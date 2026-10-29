@@ -2,6 +2,7 @@
 //! the rest of the app doesn't know which one answers. Only the AI strategy calls these (NFR-06).
 
 pub mod claude;
+pub mod compatible;
 pub mod gemini;
 pub mod http;
 pub mod openai;
@@ -13,6 +14,7 @@ use tokio::sync::watch;
 
 use crate::error::{Result, SplitError};
 use claude::Claude;
+use compatible::ChatCompletions;
 use gemini::Gemini;
 use openai::OpenAi;
 
@@ -21,7 +23,7 @@ pub const DEFAULT_PLATFORM: &str = "chatgpt";
 
 /// The model each service uses until the user sets another. The ChatGPT default is the model
 /// OpenAI's Sign in with ChatGPT docs use; the OpenAI API matches it. The OpenAI-compatible
-/// platforms keep theirs in #30's data file, and a custom platform has none.
+/// platforms keep theirs in `compatible.json`, and a custom platform has none.
 const DEFAULT_MODELS: &[(&str, &str)] = &[
     ("chatgpt", "gpt-6.1-sol"),
     ("openai", "gpt-6.1-sol"),
@@ -31,12 +33,24 @@ const DEFAULT_MODELS: &[(&str, &str)] = &[
 
 /// The default model for `platform`, if it has one.
 pub fn default_model(platform: &str) -> Option<&'static str> {
-    DEFAULT_MODELS.iter().find(|(id, _)| *id == platform).map(|(_, model)| *model)
+    DEFAULT_MODELS
+        .iter()
+        .find(|(id, _)| *id == platform)
+        .map(|(_, model)| *model)
+        .or_else(|| compatible::default_model(platform))
 }
 
 /// Every default, for the settings screen.
 pub fn default_models() -> BTreeMap<String, String> {
-    DEFAULT_MODELS.iter().map(|(id, model)| (id.to_string(), model.to_string())).collect()
+    let compatible = compatible::platforms()
+        .iter()
+        .filter_map(|p| Some((p.id.as_str(), p.default_model.as_deref()?)));
+    DEFAULT_MODELS
+        .iter()
+        .copied()
+        .chain(compatible)
+        .map(|(id, model)| (id.to_string(), model.to_string()))
+        .collect()
 }
 
 /// Services Smart mode can be set to: the ChatGPT account, or a platform with a saved key.
@@ -66,8 +80,12 @@ pub trait Provider {
 }
 
 /// Sends `request` to `platform` with its saved `key` and the chosen `model`, and returns the
-/// reply text. The key goes only to that platform (NFR-05).
-pub async fn complete(platform: &str, key: String, model: String, request: &AiRequest) -> Result<String> {
+/// reply text. The key goes only to that platform (NFR-05). `custom_url` is the address of the
+/// custom platform, from settings.
+pub async fn complete(platform: &str, custom_url: &str, key: String, model: String, request: &AiRequest) -> Result<String> {
+    if compatible::is_compatible(platform) {
+        return ChatCompletions::new(platform, custom_url, key, model)?.complete(request).await;
+    }
     match platform {
         "anthropic" => Claude::new(key, model)?.complete(request).await,
         "openai" => OpenAi::new(key, model)?.complete(request).await,
@@ -78,7 +96,7 @@ pub async fn complete(platform: &str, key: String, model: String, request: &AiRe
 
 /// Whether Smart mode can send requests to `platform` yet.
 pub fn is_supported(platform: &str) -> bool {
-    matches!(platform, "anthropic" | "openai" | "gemini")
+    matches!(platform, "anthropic" | "openai" | "gemini") || compatible::is_compatible(platform)
 }
 
 /// Why Smart mode can't use `platform` yet.
@@ -162,6 +180,8 @@ mod tests {
         assert_eq!(default_model(DEFAULT_PLATFORM), Some("gpt-6.1-sol"));
         assert_eq!(default_model("openai"), default_model("chatgpt"));
         assert_eq!(default_model("custom"), None);
+        assert_eq!(default_model("deepseek"), Some("deepseek-flash"));
+        assert_eq!(default_models().get("deepseek").map(String::as_str), Some("deepseek-flash"));
         for (id, model) in DEFAULT_MODELS {
             assert!(is_platform(id), "{id}");
             assert!(!model.trim().is_empty());
@@ -172,9 +192,10 @@ mod tests {
     #[test]
     fn only_finished_providers_are_offered() {
         assert!(is_supported("anthropic") && is_supported("openai") && is_supported("gemini"));
-        assert!(!is_supported("chatgpt") && !is_supported("openrouter"));
+        assert!(is_supported("openrouter") && is_supported("custom"));
+        assert!(!is_supported("chatgpt") && !is_supported("opencode-go"));
         assert!(unsupported("chatgpt").to_string().contains("ChatGPT isn't available yet"));
-        let err = tauri::async_runtime::block_on(complete("openrouter", "k".into(), "m".into(), &AiRequest {
+        let err = tauri::async_runtime::block_on(complete("opencode-go", "", "k".into(), "m".into(), &AiRequest {
             instruction: "x".into(),
             pages: vec![],
         }))

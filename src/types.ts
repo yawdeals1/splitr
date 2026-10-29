@@ -62,6 +62,8 @@ export interface Settings {
   aiPlatform: string;
   /** Models the user chose, by service. A service that isn't listed uses its default. */
   aiModels: Record<string, string>;
+  /** The address of the custom OpenAI-compatible platform (#30). */
+  aiCustomUrl: string;
 }
 
 /** Mirrors keystore::KeyStatus: all the interface learns about a saved API key (NFR-05). */
