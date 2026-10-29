@@ -31,15 +31,3 @@ export function rejectReason(paths: string[]): string | null {
   if (!isPdfPath(paths[0])) return `"${baseName(paths[0])}" is not a PDF. Choose a file that ends in .pdf.`;
   return null;
 }
-
-/**
- * Default file names for the parts of `fileName`, without ".pdf": "book - 01", or
- * "book - 01 - Title" when the part has a title. The backend makes them safe and unique (FR-52).
- */
-export function partNames(fileName: string, titles: string[]): string[] {
-  const original = fileName.replace(/\.pdf$/i, "");
-  return titles.map((title, i) => {
-    const index = String(i + 1).padStart(2, "0");
-    return title.trim() ? `${original} - ${index} - ${title.trim()}` : `${original} - ${index}`;
-  });
-}

@@ -66,3 +66,12 @@ export interface KeyStatus {
   /** The key's last 4 characters, or null when none is saved. */
   last4: string | null;
 }
+
+/** Mirrors export::ExportRequest: which parts to save, where, and their names without ".pdf". */
+export interface ExportRequest {
+  path: string;
+  password?: string;
+  ranges: Range[];
+  folder: string;
+  names: string[];
+}

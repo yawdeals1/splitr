@@ -1,5 +1,5 @@
 // Review and edit the proposed parts before anything is written (FR-40 to FR-42).
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import {
   canJoin,
@@ -28,9 +28,11 @@ interface Props {
   onExport: () => void;
   /** True while the parts are being saved (FR-50). */
   exporting?: boolean;
+  /** Export options, shown above the Export button (FR-51 to FR-53). */
+  children?: ReactNode;
 }
 
-export function ReviewScreen({ totalPages, ranges, allowGaps, onChange, onBack, onExport, exporting = false }: Props) {
+export function ReviewScreen({ totalPages, ranges, allowGaps, onChange, onBack, onExport, exporting = false, children }: Props) {
   // Pages of parts the user deleted. Only these may be missing when the mode must cover every page.
   const [leftOut, setLeftOut] = useState<Span[]>([]);
   // Page fields whose text isn't a valid page yet, by field. Their parts keep the last valid page.
@@ -245,6 +247,8 @@ export function ReviewScreen({ totalPages, ranges, allowGaps, onChange, onBack, 
           {problem}
         </p>
       )}
+
+      {children}
 
       <footer className="row review-actions">
         <button type="button" onClick={onBack}>

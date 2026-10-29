@@ -446,8 +446,44 @@ textarea:focus-visible {
 }
 
 .notice {
-  margin: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
   overflow-wrap: anywhere;
+}
+
+.notice p {
+  margin: 0;
+}
+
+/* FR-51 to FR-53: file names and the ZIP choice on the review screen. */
+.export-options {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.export-options p {
+  margin: 0;
+  font-size: 13px;
+}
+
+.name-preview {
+  margin: 0;
+  padding-left: 1.2em;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.export-options .check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .password-prompt {

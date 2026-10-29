@@ -2,37 +2,60 @@
 
 use std::collections::HashSet;
 
-/// Separators trimmed from around an empty `{title}` and from the ends of a name.
-const SEPARATORS: &[char] = &[' ', '-', '_', '.', ','];
+/// Characters trimmed from around an empty `{title}` and from the ends of a name. Not ".", which
+/// usually belongs to the word before it ("Vol. {title}").
+const SEPARATORS: &[char] = &[' ', '-', '_', ','];
 
 /// Fills a template such as "{original} - {index} - {title}" for part `index` of `total` (FR-51).
-/// `{index}` is zero-padded to the width of `total` (at least 2), so names sort in order. An empty
-/// title takes the separator before it along, so the name doesn't end in " - ". The result is
-/// sanitized; [`dedupe`] makes it unique.
+/// Tokens are replaced in one pass, so a title that contains "{index}" stays as typed. `{index}` is
+/// zero-padded to the width of `total` (at least 2), so names sort in order. An empty title takes
+/// the separator before it along, and the brackets around it, so a name doesn't end in " - " or
+/// " ()". The result is sanitized; [`part_names`] makes names unique.
 pub fn render(template: &str, index: usize, total: usize, title: &str, original: &str) -> String {
     let width = total.to_string().len().max(2);
     let title = title.trim();
-    let mut name = template.to_string();
-    if title.is_empty() {
-        while let Some(at) = name.find("{title}") {
-            let start = name[..at].trim_end_matches(SEPARATORS).len();
-            name.replace_range(start..at + "{title}".len(), "");
+    let mut name = String::new();
+    let mut rest = template;
+    while let Some(at) = rest.find('{') {
+        name.push_str(&rest[..at]);
+        rest = &rest[at..];
+        let Some(token) = ["{index}", "{title}", "{original}"].into_iter().find(|t| rest.starts_with(t)) else {
+            name.push('{');
+            rest = &rest[1..];
+            continue;
+        };
+        rest = &rest[token.len()..];
+        match token {
+            "{index}" => name.push_str(&format!("{index:0width$}")),
+            "{original}" => name.push_str(original),
+            _ if !title.is_empty() => name.push_str(title),
+            _ => {
+                // Drop an opening bracket right before the empty title, its closing partner after
+                // it, and the separators before them.
+                if name.ends_with(['(', '[']) {
+                    name.pop();
+                    if rest.starts_with([')', ']']) {
+                        rest = &rest[1..];
+                    }
+                }
+                name.truncate(name.trim_end_matches(SEPARATORS).len());
+            }
         }
     }
-    let name = name
-        .replace("{index}", &format!("{index:0width$}"))
-        .replace("{title}", title)
-        .replace("{original}", original);
+    name.push_str(rest);
     sanitize(name.trim_matches(SEPARATORS))
 }
 
-/// The file names (without ".pdf") for parts with these `titles`, from `template` (FR-51).
+/// The file names (without ".pdf") for parts with these `titles`, from `template` (FR-51). Names
+/// that would repeat get " (2)", " (3)"... (FR-52), so this is exactly what goes in a ZIP and what
+/// the interface previews. Export adds a number too if the folder already has a file of that name.
 pub fn part_names(template: &str, original: &str, titles: &[String]) -> Vec<String> {
     let original = strip_pdf(original);
+    let mut taken = HashSet::new();
     titles
         .iter()
         .enumerate()
-        .map(|(i, title)| render(template, i + 1, titles.len(), title, original))
+        .map(|(i, title)| dedupe(&render(template, i + 1, titles.len(), title, original), &mut taken))
         .collect()
 }
 
@@ -59,8 +82,11 @@ pub fn sanitize(name: &str) -> String {
     if result.is_empty() {
         result = "part".into();
     }
-    if RESERVED.contains(&result.to_uppercase().as_str()) {
-        result.push('_');
+    // Windows reserves these names with any extension too ("CON.txt"), so check the part before the
+    // first dot, and add "_" there.
+    let stem = result.find('.').unwrap_or(result.len());
+    if RESERVED.contains(&result[..stem].trim_end().to_uppercase().as_str()) {
+        result.insert(stem, '_');
     }
     result
 }
@@ -85,6 +111,13 @@ mod tests {
         assert_eq!(render("{index} - {title}", 3, 10, "Memory Hierarchy", "book"), "03 - Memory Hierarchy");
         assert_eq!(render("{original}_{index}", 1, 1, "", "book"), "book_01");
         assert_eq!(render("{title}: {original}", 1, 1, "A/B", "book"), "A_B_ book");
+        assert_eq!(render("{original} {unknown} {", 1, 1, "", "book"), "book {unknown} {");
+    }
+
+    #[test]
+    fn tokens_inside_a_title_stay_as_typed() {
+        assert_eq!(render("{title} - {index}", 1, 1, "{index} and {original}", "book"), "{index} and {original} - 01");
+        assert_eq!(render("{original}", 1, 1, "", "{title}"), "{title}");
     }
 
     #[test]
@@ -102,6 +135,10 @@ mod tests {
         assert_eq!(render("{title} - {index}", 2, 2, "", "book"), "02");
         assert_eq!(render("{original} - {title} - {index}", 2, 2, "", "book"), "book - 02");
         assert_eq!(render("{title}", 1, 1, "", "book"), "part");
+        assert_eq!(render("{original} ({title})", 1, 1, "", "book"), "book");
+        assert_eq!(render("{original} [{title}] {index}", 1, 1, "", "book"), "book 01");
+        assert_eq!(render("{original} ({title})", 1, 1, "Intro", "book"), "book (Intro)");
+        assert_eq!(render("Vol. {title} - {index}", 1, 1, "", "book"), "Vol. - 01");
     }
 
     #[test]
@@ -111,6 +148,8 @@ mod tests {
             part_names("{original} - {index} - {title}", "Book.PDF", &titles),
             ["Book - 01 - Intro", "Book - 02"]
         );
+        let same = ["Intro".to_string(), "intro".to_string(), "Intro".to_string()];
+        assert_eq!(part_names("{title}", "a.pdf", &same), ["Intro", "intro (2)", "Intro (3)"]);
         assert!(part_names("{index}", "a.pdf", &[]).is_empty());
     }
 
@@ -128,6 +167,9 @@ mod tests {
         assert_eq!(sanitize("a/b:c?"), "a_b_c_");
         assert_eq!(sanitize("  "), "part");
         assert_eq!(sanitize("con"), "con_");
+        assert_eq!(sanitize("CON.x"), "CON_.x");
+        assert_eq!(sanitize("lpt1 .notes"), "lpt1 _.notes");
+        assert_eq!(sanitize("console.x"), "console.x");
         assert_eq!(sanitize("notes..."), "notes");
     }
 
