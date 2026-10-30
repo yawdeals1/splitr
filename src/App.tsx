@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open } from "@tauri-apps/plugin-dialog";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
-import { aiBlock, aiBlockMessage, aiService, usesAi } from "./ai";
+import { aiBlock, aiBlockMessage, aiService } from "./ai";
 import { AiConsent } from "./AiConsent";
 import { AiSettings, useApiKeys } from "./AiSettings";
 import { ExportOptions } from "./ExportOptions";
@@ -16,16 +17,19 @@ import { PasswordPrompt } from "./PasswordPrompt";
 import { PresetEditor } from "./PresetEditor";
 import { ReviewScreen } from "./ReviewScreen";
 import { useSettings } from "./settings";
+import { aiNotYet, smartResult, usesBlank } from "./smart";
 import { showTheme } from "./theme";
 import {
   PASSWORD_REQUIRED,
   WRONG_PASSWORD,
   type ExportNames,
   type ExportRequest,
+  type ExtractProgress,
   type PdfInfo,
   type Preset,
   type PresetInput,
   type PresetList,
+  type PresetRun,
   type Range,
   type RangeMode,
   type SavedParts,
@@ -58,8 +62,13 @@ function App({ initialSettings }: { initialSettings: Settings | null }) {
   const [customPrompt, setCustomPrompt] = useState("");
   const [customRanges, setCustomRanges] = useState("");
   const [fixedEvery, setFixedEvery] = useState(10);
+  // FR-32: leave blank separator pages out of the parts.
+  const [dropSeparators, setDropSeparators] = useState(false);
+  // #8: pages read so far while Smart mode reads the PDF's text, or null when it isn't reading.
+  const [reading, setReading] = useState<ExtractProgress | null>(null);
   const [ranges, setRanges] = useState<Range[]>([]);
-  // Custom mode may leave pages out (FR-20); other modes must cover every page (FR-35).
+  // Custom mode may leave pages out (FR-20), and so may dropped blank pages (FR-32); otherwise
+  // every page must be in a part (FR-35).
   const [allowGaps, setAllowGaps] = useState(false);
   // Bumped on every split so the review screen starts fresh.
   const [reviewId, setReviewId] = useState(0);
@@ -290,21 +299,44 @@ function App({ initialSettings }: { initialSettings: Settings | null }) {
     setNotice("");
     setSavedFile(null);
     if (!pdf) return setError("Open a PDF first.");
-    let next: Range[];
+    let next: Range[] | null = null;
+    let gaps = mode === "custom";
+    let fellBack = "";
     try {
       if (mode === "custom") {
         next = await invoke<Range[]>("parse_custom_ranges", { input: customRanges, pageCount: pdf.pageCount });
       } else if (mode === "fixed") {
         next = await invoke<Range[]>("fixed_ranges", { pageCount: pdf.pageCount, every: fixedEvery });
       } else {
+        if (!settings) throw "Settings are still loading.";
+        let needsAi = aiNotYet(null);
+        if (presetId !== CUSTOM_PROMPT) {
+          // FR-30: the preset's rules run first; the AI is needed only if they or the preset ask for it.
+          if (reading) return;
+          setReading({ done: 0, total: pdf.pageCount });
+          const stop = listen<ExtractProgress>("extract-progress", ({ payload }) => setReading(payload));
+          let run: PresetRun;
+          try {
+            const options = { blankThreshold: settings.blankThreshold, dropSeparators };
+            run = await invoke<PresetRun>("run_preset", { path: pdf.path, presetId, options });
+          } finally {
+            (await stop)();
+            setReading(null);
+          }
+          const result = smartResult(run);
+          if (result.kind === "parts") {
+            next = result.ranges;
+            gaps = result.allowGaps;
+            fellBack = result.notice;
+          } else needsAi = result.message;
+        }
         // FR-60 to FR-62: AI runs only when it is on, a key is saved and the user agreed to the notice.
-        if (usesAi(presetId === CUSTOM_PROMPT ? null : selectedPreset ?? null)) {
-          if (!settings) throw "Settings are still loading.";
+        if (!next) {
           const block = aiBlock({ ...settings, aiConsent: settings.aiConsent || consented }, apiKeys.has(settings.aiPlatform));
           if (block === "consent") return setAskConsent(true);
           if (block) throw aiBlockMessage(block, aiService(settings.aiPlatform));
+          throw needsAi;
         }
-        throw "Smart split is not implemented yet.";
       }
     } catch (e) {
       // The parts of an earlier split no longer match the options, so they aren't kept.
@@ -312,7 +344,8 @@ function App({ initialSettings }: { initialSettings: Settings | null }) {
       return setError(String(e));
     }
     // The gap rule and a fresh review screen only change once the new parts have arrived.
-    setAllowGaps(mode === "custom");
+    setAllowGaps(gaps);
+    setNotice(fellBack);
     setReviewId((n) => n + 1);
     setRanges(next);
   }
@@ -599,13 +632,24 @@ function App({ initialSettings }: { initialSettings: Settings | null }) {
                 </div>
               )
             )}
+            {presetId !== CUSTOM_PROMPT && usesBlank(selectedPreset) && (
+              <label className="check">
+                <input type="checkbox" checked={dropSeparators} onChange={(e) => setDropSeparators(e.target.checked)} />
+                Leave blank pages out of the parts
+              </label>
+            )}
             <AiSettings settings={settings} apiKeys={apiKeys} onChange={updateSettings} />
           </>
         )}
 
-        <button type="button" className="primary" onClick={() => split()} ref={splitButton}>
+        <button type="button" className="primary" onClick={() => split()} ref={splitButton} disabled={reading !== null}>
           Split
         </button>
+        {reading && (
+          <p role="status">
+            Reading page text: {reading.done} of {reading.total}
+          </p>
+        )}
         {error && <p className="error" role="alert">{error}</p>}
         {notice && (
           <div className="notice" role="status">

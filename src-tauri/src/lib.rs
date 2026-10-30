@@ -6,6 +6,7 @@ mod key_detect;
 mod keystore;
 mod naming;
 mod pdf;
+mod preset_run;
 mod presets;
 mod ranges;
 mod settings;
@@ -55,6 +56,7 @@ pub fn run() {
             commands::open_pdf,
             commands::render_page,
             commands::extract_text,
+            commands::run_preset,
             commands::cancel_extract,
             commands::export_parts,
             commands::export_zip,
