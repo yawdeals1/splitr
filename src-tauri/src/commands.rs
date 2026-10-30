@@ -2,6 +2,7 @@
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use serde::Serialize;
 use tauri::ipc::Response;
@@ -14,6 +15,7 @@ use crate::key_detect::{self, Detection};
 use crate::naming;
 use crate::keystore::{self, KeyStatus, OsStore};
 use crate::pdf::PdfInfo;
+use crate::preset_run::{self, PresetRun, RunOptions};
 use crate::presets::{self, Preset};
 use crate::ranges::{self, Range};
 use crate::settings::{self, Settings};
@@ -251,18 +253,43 @@ pub struct TextSummary {
 #[tauri::command]
 pub async fn extract_text(app: AppHandle, path: String) -> Result<TextSummary> {
     tauri::async_runtime::spawn_blocking(move || {
-        // Sending about 100 events is enough for a progress bar, however long the file.
-        let text = app.state::<Viewer>().extract(&path, |done, total| {
-            if done == total || done % total.div_ceil(100) == 0 {
-                let _ = app.emit(EXTRACT_PROGRESS, ExtractProgress { done, total });
-            }
-        })?;
+        let text = extract_with_progress(&app, &path)?;
         let pages_with_text = text.pages.iter().filter(|p| p.chars().any(|c| !c.is_whitespace())).count();
         Ok(TextSummary {
             page_count: text.page_count,
             pages_with_text: u32::try_from(pages_with_text).unwrap_or(u32::MAX),
             outline: text.outline.clone(),
         })
+    })
+    .await
+    .map_err(|e| SplitError::ExtractFailed(e.to_string()))?
+}
+
+/// The open PDF's text, read once and then kept (#7). Sends `extract-progress` events while it reads.
+fn extract_with_progress(app: &AppHandle, path: &str) -> Result<Arc<DocumentText>> {
+    // Sending about 100 events is enough for a progress bar, however long the file.
+    app.state::<Viewer>().extract(path, |done, total| {
+        if done == total || done % total.div_ceil(100) == 0 {
+            let _ = app.emit(EXTRACT_PROGRESS, ExtractProgress { done, total });
+        }
+    })
+}
+
+/// Runs the preset `preset_id` on the open PDF at `path`: its strategy, then its fallback when the
+/// first finds nothing (FR-30 to FR-32). Reads the text first if `extract_text` hasn't, off the UI
+/// thread and with `extract-progress` events (NFR-02). The parts have passed `ranges::validate`
+/// (FR-35); an AI preset, or an AI fallback, comes back as `NeedsAi`.
+#[tauri::command]
+pub async fn run_preset(app: AppHandle, path: String, preset_id: String, options: RunOptions) -> Result<PresetRun> {
+    let preset = list_presets(app.clone())
+        .await
+        .presets
+        .into_iter()
+        .find(|p| p.id == preset_id)
+        .ok_or_else(|| SplitError::Presets("This preset is no longer available. Choose another one".into()))?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let text = extract_with_progress(&app, &path)?;
+        preset_run::run(&preset, &text, &options)
     })
     .await
     .map_err(|e| SplitError::ExtractFailed(e.to_string()))?

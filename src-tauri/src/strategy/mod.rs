@@ -9,12 +9,9 @@ mod pattern;
 
 #[allow(unused_imports)]
 pub use ai::AiStrategy;
-#[allow(unused_imports)]
 pub use blank::BlankPageStrategy;
 pub use fixed::FixedStrategy;
-#[allow(unused_imports)]
 pub use outline::OutlineStrategy;
-#[allow(unused_imports)]
 pub use pattern::PatternStrategy;
 
 use serde::Serialize;

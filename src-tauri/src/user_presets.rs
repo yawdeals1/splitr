@@ -53,6 +53,7 @@ impl From<Stored> for Preset {
             fallback: None,
             prompt: s.prompt,
             pattern: None,
+            every: None,
             user: true,
         }
     }

@@ -10,6 +10,8 @@ export interface Preset {
   fallback?: StrategyKind | null;
   prompt: string;
   pattern?: string | null;
+  /** Pages in each part, for the fixed strategy (FR-21). */
+  every?: number | null;
   /** True for presets the user saved (FR-71). */
   user?: boolean;
 }
@@ -54,6 +56,27 @@ export interface TextSummary {
   pagesWithText: number;
   outline: OutlineEntry[];
 }
+
+/** Mirrors preset_run::RunOptions: what the user set for a Smart split (FR-32). */
+export interface RunOptions {
+  blankThreshold: number;
+  dropSeparators: boolean;
+}
+
+/** Mirrors preset_run::PresetRun, returned by run_preset (#8). */
+export type PresetRun =
+  | {
+      kind: "parts";
+      ranges: Range[];
+      /** The strategy that found the parts: the preset's own, or its fallback. */
+      strategy: StrategyKind;
+      /** True when dropped blank pages leave gaps. */
+      allowGaps: boolean;
+      /** Why the preset's own strategy found nothing, when its fallback found the parts. */
+      fallbackReason: string | null;
+    }
+  /** The preset splits with the AI, or falls back to it; `reason` says why the rules found nothing. */
+  | { kind: "needsAi"; reason: string | null };
 
 /** The payload of the "extract-progress" event that extract_text sends. */
 export interface ExtractProgress {
