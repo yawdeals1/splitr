@@ -65,6 +65,9 @@ jobs:
         shell: bash
         run: node scripts/fetch-pdfium.mjs ${{ matrix.args }}
 
+      - name: Fetch the OCR models
+        run: node scripts/fetch-ocr-models.mjs
+
       - uses: tauri-apps/tauri-action@v0
         id: tauri
         env:

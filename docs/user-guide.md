@@ -62,6 +62,8 @@ Some presets use a fast method that works offline:
 - **Text pattern:** a new part wherever a page matches, for example "Invoice No. 1042" for *Split by invoice number*.
 - **Blank pages:** a new part at each blank separator page, for *Split at blank pages*.
 
+**Scanned pages.** Pages that are pictures, such as scans, have no text for Text pattern, Blank pages or the AI to read. With **Read scanned pages (OCR)** on (the default), Splitr reads the text on those pages first, on your computer; nothing is sent anywhere. This takes a second or so a page, and the status line shows *Reading scanned pages (OCR)* with a **Cancel** button. Pages that already have text aren't read again. OCR can misread a letter, so check part titles on the review screen. It reads printed text in Latin script (English and similar languages), not handwriting. With OCR off, Splitr tells you which pages had no text.
+
 If the PDF has no bookmarks, or nothing on its pages matches, and you've turned on AI, the preset asks the AI instead. If AI is off, Splitr says it found no split points. When the offline method does find split points, the AI isn't used, so check the parts on the review screen.
 
 Other presets need the AI from the start, because the split depends on what the pages mean, for example *Split by vendor*, *Split exams by student* or *Split by patient*. These only work when AI is turned on.
@@ -132,6 +134,7 @@ Each time it starts, Splitr checks GitHub for a newer version. This check is the
 | "This PDF is password protected" | Enter the file's password when asked |
 | "This PDF has no bookmarks" | Try a Text pattern or Custom prompt preset, or use Custom or Fixed mode |
 | "No split points were found" | The preset found nothing to split on. If AI is off, turn it on so the preset can ask the AI. Otherwise try another preset, a custom prompt, or Custom mode |
-| No text found on scanned pages | Scanned pages are images with no text, so Smart mode can't read them yet, and *Split at blank pages* would treat every page as blank. Use Custom or Fixed mode. Text recognition (OCR) is planned |
+| "No text found on pages …, try turning on “Read scanned pages (OCR)”" | Those pages are images with no text, such as scans. Turn on **Read scanned pages (OCR)** in Smart mode and split again |
+| "Splitr couldn't find any text on this PDF's pages, even with OCR" | The pages have no readable text, for example blurry or handwritten scans. Use Custom or Fixed mode |
 | "Splitr couldn't reach Local model on this computer" | Start your model server (open Ollama or LM Studio and start its server), and check that **Address** under **AI** matches it |
 | A warning when installing or first opening Splitr | See [Why your computer warns you](download.md#why-your-computer-warns-you) |

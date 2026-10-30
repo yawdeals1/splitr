@@ -18,7 +18,9 @@ The integration tests in `fixtures.rs` open, split and export each file with the
 | `blank-separators.pdf` | 7 | Letters separated by blank pages | 3 parts with separators dropped, 5 with them kept |
 | `textbook-no-bookmarks.pdf` | 14 | Textbook without bookmarks | Falls back to the AI |
 | `contract-bundle.pdf` | 6 | Contract bundle, an AI preset | Needs the AI |
-| `scanned-pages.pdf` | 4 | Pages with a picture and no text layer | "No text layer" error |
+| `scanned-pages.pdf` | 4 | Pages with a grey picture and no text layer | "No text found" error (with OCR: "even with OCR") |
 | `corrupt.pdf` | | A cut-off file | "Damaged or is not a PDF" error |
+
+The scanned versions for OCR (FR-80, #24) are not committed either: `scanned_files_split_correctly_with_ocr` renders the invoice, bill of lading, employee and blank-separator files to pictures with no text layer, reads them with OCR, and checks that they split at the same pages. It needs the OCR models from `npm run fetch-ocr`.
 
 The 1,000-page file is not committed. The tests build it in a temp folder, and `npm run fixtures` also writes it to `generated/`, which git ignores.

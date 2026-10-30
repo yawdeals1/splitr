@@ -1,7 +1,7 @@
 // Unit tests for smart.ts. Run with `npm test` (Node's built-in test runner).
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { aiFallbackNotice, aiReview, aiStatus, smartResult, usesBlank } from "./smart.ts";
+import { aiFallbackNotice, aiReview, aiStatus, readingStatus, smartResult, usesBlank, usesText } from "./smart.ts";
 
 test("the drop separators option applies to blank presets and blank fallbacks", () => {
   assert.equal(usesBlank({ strategy: "blank", fallback: "ai" }), true);
@@ -58,6 +58,22 @@ test("cancel returns to the options", () => {
 
 test("the status says what the AI step is doing", () => {
   assert.equal(aiStatus({ reading: true, done: 3, total: 40 }), "Reading page text: 3 of 40");
+  assert.equal(aiStatus({ reading: true, done: 2, total: 5, ocr: true }), "Reading scanned pages (OCR): 2 of 5");
   assert.equal(aiStatus({ reading: false, done: 0, total: 1 }), "Asking the AI…");
   assert.equal(aiStatus({ reading: false, done: 1, total: 3 }), "Asking the AI: 1 of 3 parts of the file answered");
+});
+
+test("only presets that read the page text need OCR", () => {
+  assert.equal(usesText({ strategy: "pattern" }), true);
+  assert.equal(usesText({ strategy: "blank" }), true);
+  assert.equal(usesText({ strategy: "ai" }), true);
+  assert.equal(usesText({ strategy: "outline", fallback: "ai" }), true);
+  assert.equal(usesText(null), true);
+  assert.equal(usesText({ strategy: "outline", fallback: null }), false);
+  assert.equal(usesText({ strategy: "fixed" }), false);
+});
+
+test("readingStatus says when OCR is reading scanned pages", () => {
+  assert.equal(readingStatus({ done: 4, total: 9, ocr: false }), "Reading page text: 4 of 9");
+  assert.equal(readingStatus({ done: 1, total: 3, ocr: true }), "Reading scanned pages (OCR): 1 of 3");
 });

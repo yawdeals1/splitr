@@ -17,6 +17,7 @@ Splitr (working name) is Smart PDF Splitter: a local-first desktop app for Windo
 | --- | --- |
 | Install dependencies | `npm install` |
 | Download the PDFium library (once; `tauri dev` and `tauri build` also run it) | `npm run fetch-pdfium` |
+| Download the OCR models (once; `tauri dev` and `tauri build` also run it) | `npm run fetch-ocr` |
 | Run the app | `npm run tauri dev` |
 | Frontend type-check and build | `npm run build` |
 | Rust tests | `cargo test --manifest-path src-tauri/Cargo.toml` |
@@ -30,6 +31,7 @@ Splitr (working name) is Smart PDF Splitter: a local-first desktop app for Windo
 - `src-tauri/src/ranges.rs`: range parsing and validation (FR-20, FR-35). Every proposed range list goes through `validate`.
 - `src-tauri/src/naming.rs`: output file names (FR-51, FR-52).
 - `src-tauri/src/pdf.rs`: the only place that touches PDF libraries. PDFium loads at startup from the `pdfium/` resource folder, which `scripts/fetch-pdfium.mjs` fills (never commit the binaries).
+- `src-tauri/src/ocr.rs`: OCR of pages without a text layer (FR-80), with the `ocrs` engine. Its models load on first use from the `ocr/` resource folder, which `scripts/fetch-ocr-models.mjs` fills (never commit them).
 - `presets/presets.json`: presets are data, not code (FR-72). The `bundled_presets_are_valid` test checks the file.
 - `src/types.ts`: TypeScript mirrors of the Rust types. Update it whenever a serialized Rust type changes.
 
@@ -122,7 +124,7 @@ Status key: [x] done, [ ] to do. Each phase ends when its exit criterion is met 
 - **Exit:** no open critical bugs.
 
 ### Phase 5: v1.1
-- [ ] OCR for pages without a text layer (FR-80) (#24)
+- [x] OCR for pages without a text layer (FR-80) (#24)
 - [x] Local AI model option (FR-81) (#25)
 - **Exit:** scanned test PDFs split correctly.
 

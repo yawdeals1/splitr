@@ -11,8 +11,13 @@ pub enum SplitError {
     NoOutline,
     #[error("No split points were found")]
     NothingFound,
-    #[error("This PDF has no text layer (it may be scanned), so Splitr can't split it by its text yet")]
+    #[error("No text found on any page (the PDF may be scanned), try turning on “Read scanned pages (OCR)”")]
     NoTextLayer,
+    #[error("Splitr couldn't find any text on this PDF's pages, even with OCR, so it can't split it by its text")]
+    NoTextEvenWithOcr,
+    // Reading scanned pages (FR-80).
+    #[error("OCR couldn't run: {0}")]
+    Ocr(String),
     #[error("The PDF engine could not start: {0}")]
     PdfEngine(String),
     #[error("{0}")]

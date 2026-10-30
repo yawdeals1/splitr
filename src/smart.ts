@@ -1,6 +1,22 @@
 // What Smart mode does with the result of run_preset (FR-30 to FR-32, #8).
 import type { AiRun, Preset, PresetRun, Range, StrategyKind } from "./types";
 
+/**
+ * True if splitting with this preset reads the page text, so scanned pages need OCR (FR-80):
+ * pattern, blank page and AI presets, presets that fall back to one, and the custom prompt (`null`).
+ */
+export function usesText(preset: Pick<Preset, "strategy" | "fallback"> | null): boolean {
+  const reads = (kind: StrategyKind | null | undefined) => kind === "pattern" || kind === "blank" || kind === "ai";
+  return preset === null || reads(preset.strategy) || reads(preset.fallback);
+}
+
+/** The status line while the text is read: the text layer, then OCR of the pages without text. */
+export function readingStatus(progress: { done: number; total: number; ocr?: boolean }): string {
+  return progress.ocr
+    ? `Reading scanned pages (OCR): ${progress.done} of ${progress.total}`
+    : `Reading page text: ${progress.done} of ${progress.total}`;
+}
+
 /** True if the preset may split at blank pages, so the "drop separators" option applies (FR-32). */
 export function usesBlank(preset: Pick<Preset, "strategy" | "fallback"> | null | undefined): boolean {
   return preset?.strategy === "blank" || preset?.fallback === "blank";
@@ -50,8 +66,8 @@ export function aiReview(run: AiRun, pageCount: number): AiReview | null {
 }
 
 /** The status line while the AI step runs: reading the text first, then the requests. */
-export function aiStatus(step: { reading: boolean; done: number; total: number }): string {
-  if (step.reading) return `Reading page text: ${step.done} of ${step.total}`;
+export function aiStatus(step: { reading: boolean; done: number; total: number; ocr?: boolean }): string {
+  if (step.reading) return readingStatus(step);
   if (step.total <= 1) return "Asking the AI…";
   return `Asking the AI: ${step.done} of ${step.total} parts of the file answered`;
 }

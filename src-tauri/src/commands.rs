@@ -350,6 +350,8 @@ pub const EXTRACT_PROGRESS: &str = "extract-progress";
 struct ExtractProgress {
     done: u32,
     total: u32,
+    /// True while OCR reads the pages that have no text (FR-80); `total` is then those pages.
+    ocr: bool,
 }
 
 /// What `extract_text` found. The page text stays in the backend for `run_preset` (#8).
@@ -368,7 +370,7 @@ pub struct TextSummary {
 #[tauri::command]
 pub async fn extract_text(app: AppHandle, path: String) -> Result<TextSummary> {
     tauri::async_runtime::spawn_blocking(move || {
-        let text = extract_with_progress(&app, &path)?;
+        let text = extract_with_progress(&app, &path, false)?;
         let pages_with_text = text.pages.iter().filter(|p| p.chars().any(|c| !c.is_whitespace())).count();
         Ok(TextSummary {
             page_count: text.page_count,
@@ -380,14 +382,38 @@ pub async fn extract_text(app: AppHandle, path: String) -> Result<TextSummary> {
     .map_err(|e| SplitError::ExtractFailed(e.to_string()))?
 }
 
-/// The open PDF's text, read once and then kept (#7). Sends `extract-progress` events while it reads.
-fn extract_with_progress(app: &AppHandle, path: &str) -> Result<Arc<DocumentText>> {
+/// The open PDF's text, read once and then kept (#7). With `ocr`, the pages without text are then
+/// read by OCR (FR-80). Sends `extract-progress` events while it reads.
+fn extract_with_progress(app: &AppHandle, path: &str, ocr: bool) -> Result<Arc<DocumentText>> {
     // Sending about 100 events is enough for a progress bar, however long the file.
-    app.state::<Viewer>().extract(path, |done, total| {
-        if done == total || done % total.div_ceil(100) == 0 {
-            let _ = app.emit(EXTRACT_PROGRESS, ExtractProgress { done, total });
+    let progress = |done: u32, total: u32| {
+        if done == total || done.is_multiple_of(total.div_ceil(100)) {
+            let _ = app.emit(EXTRACT_PROGRESS, ExtractProgress { done, total, ocr: false });
         }
+    };
+    let viewer = app.state::<Viewer>();
+    if !ocr {
+        return viewer.extract(path, progress);
+    }
+    // OCR takes a second or more a page, so every page is reported.
+    viewer.extract_with_ocr(path, progress, |done, total| {
+        let _ = app.emit(EXTRACT_PROGRESS, ExtractProgress { done, total, ocr: true });
     })
+}
+
+/// When OCR is off and the open PDF has pages without text, the message that says so (FR-80).
+/// The interface shows it after a split by the page text. Uses the text already read.
+#[tauri::command]
+pub async fn text_note(app: AppHandle, path: String) -> Result<Option<String>> {
+    if get_settings(app.clone()).await?.ocr_enabled {
+        return Ok(None);
+    }
+    tauri::async_runtime::spawn_blocking(move || {
+        let text = app.state::<Viewer>().extract(&path, |_, _| ())?;
+        Ok(crate::ocr::missing_note(&text))
+    })
+    .await
+    .map_err(|e| SplitError::ExtractFailed(e.to_string()))?
 }
 
 /// Runs the preset `preset_id` on the open PDF at `path`: its strategy, then its fallback when the
@@ -402,9 +428,13 @@ pub async fn run_preset(app: AppHandle, path: String, preset_id: String, options
         .into_iter()
         .find(|p| p.id == preset_id)
         .ok_or_else(|| SplitError::Presets("This preset is no longer available. Choose another one".into()))?;
+    let ocr = get_settings(app.clone()).await?.ocr_enabled && preset_run::reads_text(&preset);
     tauri::async_runtime::spawn_blocking(move || {
-        let text = extract_with_progress(&app, &path)?;
-        preset_run::run(&preset, &text, &options)
+        let text = extract_with_progress(&app, &path, ocr)?;
+        match preset_run::run(&preset, &text, &options) {
+            Err(SplitError::NoTextLayer) if ocr => Err(SplitError::NoTextEvenWithOcr),
+            result => result,
+        }
     })
     .await
     .map_err(|e| SplitError::ExtractFailed(e.to_string()))?
@@ -431,16 +461,17 @@ pub async fn run_ai(app: AppHandle, path: String, preset_id: Option<String>, pro
         None => prompt.unwrap_or_default(),
     };
     let provider = ai_provider(&app).await?;
+    let ocr = get_settings(app.clone()).await?.ocr_enabled;
     let result = async {
         let text = {
             let app = app.clone();
-            tauri::async_runtime::spawn_blocking(move || extract_with_progress(&app, &path))
+            tauri::async_runtime::spawn_blocking(move || extract_with_progress(&app, &path, ocr))
                 .await
                 .map_err(|e| SplitError::ExtractFailed(e.to_string()))??
         };
         let strategy = AiStrategy { instruction };
         let progress = |done, total| {
-            let _ = app.emit(AI_PROGRESS, ExtractProgress { done, total });
+            let _ = app.emit(AI_PROGRESS, ExtractProgress { done, total, ocr: false });
         };
         app.state::<AiCalls>().run(strategy.propose(&provider, &text, progress)).await
     }

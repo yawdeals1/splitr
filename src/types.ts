@@ -90,7 +90,13 @@ export type AiRun =
 export interface ExtractProgress {
   done: number;
   total: number;
+  /** True while OCR reads the pages without text (FR-80); `total` is then those pages. */
+  ocr: boolean;
 }
+
+// The error run_preset ends with when Cancel stops the text read or OCR (FR-80, NFR-02). Must match
+// SplitError::ExtractCancelled in error.rs.
+export const READING_CANCELLED = "Reading the PDF's text was cancelled";
 
 // open_pdf errors that mean "ask for the password" (FR-03). Must match SplitError in error.rs.
 export const PASSWORD_REQUIRED = "This PDF is password protected. Enter its password to open it.";
@@ -106,6 +112,8 @@ export interface Settings {
   lastOutputFolder: string | null;
   nameTemplate: string;
   blankThreshold: number;
+  /** Read pages without a text layer with OCR before the text strategies run (FR-80). */
+  ocrEnabled: boolean;
   /** AI features are on (FR-62). */
   aiEnabled: boolean;
   aiConsent: boolean;

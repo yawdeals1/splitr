@@ -17,11 +17,12 @@ import { PasswordPrompt } from "./PasswordPrompt";
 import { PresetEditor } from "./PresetEditor";
 import { ReviewScreen } from "./ReviewScreen";
 import { useSettings } from "./settings";
-import { aiReview, aiStatus, smartResult, usesBlank, type AiReview } from "./smart";
+import { aiReview, aiStatus, readingStatus, smartResult, usesBlank, usesText, type AiReview } from "./smart";
 import { showTheme } from "./theme";
 import { UpdateNotice } from "./UpdateNotice";
 import {
   PASSWORD_REQUIRED,
+  READING_CANCELLED,
   WRONG_PASSWORD,
   type AiRun,
   type ExportNames,
@@ -320,7 +321,7 @@ function App({ initialSettings }: { initialSettings: Settings | null }) {
         if (reading || aiStep) return;
         if (presetId !== CUSTOM_PROMPT) {
           // FR-30: the preset's rules run first; the AI is needed only if they or the preset ask for it.
-          setReading({ done: 0, total: pdf.pageCount });
+          setReading({ done: 0, total: pdf.pageCount, ocr: false });
           const stop = listen<ExtractProgress>("extract-progress", ({ payload }) => setReading(payload));
           let run: PresetRun;
           try {
@@ -353,10 +354,20 @@ function App({ initialSettings }: { initialSettings: Settings | null }) {
           next = review.ranges;
           problem = review.problem;
         }
+        // FR-80: with OCR off, say which pages had no text to read.
+        if (presetId === CUSTOM_PROMPT || usesText(selectedPreset ?? null)) {
+          const note = await invoke<string | null>("text_note", { path: pdf.path });
+          if (note) fellBack = [fellBack, `${note}.`].filter(Boolean).join(" ");
+        }
       }
     } catch (e) {
       // The parts of an earlier split no longer match the options, so they aren't kept.
       setRanges([]);
+      // Cancel while the text is read returns to the options (NFR-02).
+      if (String(e) === READING_CANCELLED) {
+        splitButton.current?.focus();
+        return setNotice("Reading the text was cancelled.");
+      }
       return setError(String(e));
     }
     // The gap rule and a fresh review screen only change once the new parts have arrived.
@@ -370,7 +381,7 @@ function App({ initialSettings }: { initialSettings: Settings | null }) {
   // #64: the AI step, with progress and Cancel (NFR-02). Called only after the checks in `split`
   // passed; the backend checks again before it sends anything (FR-61, FR-62).
   async function runAi(file: PdfInfo): Promise<AiReview | null> {
-    setAiStep({ reading: true, done: 0, total: file.pageCount });
+    setAiStep({ reading: true, done: 0, total: file.pageCount, ocr: false });
     const stops = [
       listen<ExtractProgress>("extract-progress", ({ payload }) => setAiStep({ reading: true, ...payload })),
       listen<ExtractProgress>("ai-progress", ({ payload }) => setAiStep({ reading: false, ...payload })),
@@ -684,6 +695,18 @@ function App({ initialSettings }: { initialSettings: Settings | null }) {
                 Leave blank pages out of the parts
               </label>
             )}
+            <label className="check">
+              <input
+                type="checkbox"
+                checked={settings?.ocrEnabled ?? true}
+                disabled={!settings}
+                onChange={async (e) => {
+                  const problem = await updateSettings({ ocrEnabled: e.target.checked });
+                  if (problem) setError(problem);
+                }}
+              />
+              Read scanned pages (OCR)
+            </label>
             <AiSettings settings={settings} apiKeys={apiKeys} chatGpt={chatGpt} onChange={updateSettings} />
           </>
         )}
@@ -692,9 +715,12 @@ function App({ initialSettings }: { initialSettings: Settings | null }) {
           Split
         </button>
         {reading && (
-          <p role="status">
-            Reading page text: {reading.done} of {reading.total}
-          </p>
+          <div className="row" role="status">
+            <p>{readingStatus(reading)}</p>
+            <button type="button" onClick={() => invoke("cancel_extract").catch(() => {})}>
+              Cancel
+            </button>
+          </div>
         )}
         {aiStep && (
           <div className="row" role="status">

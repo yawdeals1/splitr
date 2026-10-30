@@ -122,6 +122,32 @@ pub fn render_page(document: &PdfDocument, page: u32, width: u32) -> Result<Vec<
     Ok(jpeg)
 }
 
+/// OCR reads pages rendered at about this many dots per inch (FR-80). The ocrs models read
+/// ordinary print best around here; 200 and 300 were slower and misread more in the tests.
+const OCR_DPI: f32 = 150.0;
+/// The widest page image OCR reads, so a poster-sized page can't need a huge bitmap.
+const OCR_MAX_WIDTH: f32 = 3000.0;
+
+/// Renders page `page` (1-based) of `document` for OCR, at about `OCR_DPI` (FR-80).
+pub fn render_for_ocr(document: &PdfDocument, page: u32) -> Result<image::RgbImage> {
+    let failed = |e: String| SplitError::RenderFailed(page, e);
+    let page_count = u32::try_from(document.pages().len()).unwrap_or(0);
+    if page == 0 || page > page_count {
+        return Err(SplitError::PageOutOfRange(page, page_count));
+    }
+    let index = i32::try_from(page - 1).map_err(|e| failed(e.to_string()))?;
+    let pdf_page = document.pages().get(index).map_err(|e| failed(e.to_string()))?;
+    // Page sizes are in points, 72 to the inch.
+    let width = (pdf_page.width().value * OCR_DPI / 72.0).round().clamp(100.0, OCR_MAX_WIDTH) as i32;
+    let max_height = i32::try_from(MAX_RENDER_HEIGHT).map_err(|e| failed(e.to_string()))?;
+    let config = PdfRenderConfig::new().set_target_width(width).set_maximum_height(max_height);
+    pdf_page
+        .render_with_config(&config)
+        .and_then(|bitmap| bitmap.as_image())
+        .map(|image| image.to_rgb8())
+        .map_err(|e| failed(e.to_string()))
+}
+
 /// A damaged outline could link back to itself, so reading stops after this many bookmarks.
 const MAX_BOOKMARKS: usize = 10_000;
 
@@ -800,7 +826,7 @@ pub(crate) mod tests {
     #[test]
     fn password_messages_match_the_frontend() {
         let types = include_str!("../../src/types.ts");
-        for err in [SplitError::PasswordRequired, SplitError::WrongPassword] {
+        for err in [SplitError::PasswordRequired, SplitError::WrongPassword, SplitError::ExtractCancelled] {
             assert!(types.contains(&format!("\"{err}\"")), "src/types.ts is missing \"{err}\"");
         }
     }

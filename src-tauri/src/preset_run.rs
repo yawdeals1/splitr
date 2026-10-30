@@ -94,8 +94,15 @@ fn attempt(
     Ok(PresetRun::Parts { ranges, strategy: kind, allow_gaps, fallback_reason })
 }
 
-/// Text-based strategies can't read a PDF without a text layer, such as a scan, until OCR
-/// arrives (FR-80). Without this check every page of a scan would count as blank.
+/// True if `preset`, or its fallback, splits by the page text: the strategies that OCR reads
+/// scanned pages for (FR-80). Bookmarks and fixed lengths don't need the text.
+pub fn reads_text(preset: &Preset) -> bool {
+    let reads = |kind: StrategyKind| matches!(kind, StrategyKind::Pattern | StrategyKind::Blank | StrategyKind::Ai);
+    reads(preset.strategy) || preset.fallback.is_some_and(reads)
+}
+
+/// Text-based strategies can't read a PDF with no text at all, such as a scan without OCR
+/// (FR-80). Without this check every page of a scan would count as blank.
 fn needs_text(doc: &DocumentText) -> Result<()> {
     if doc.pages.iter().any(|p| p.chars().any(|c| !c.is_whitespace())) {
         Ok(())
@@ -213,6 +220,16 @@ mod tests {
         assert!(matches!(run(&blank, &scan, &OPTIONS), Err(SplitError::NoTextLayer)));
         let pattern = preset(StrategyKind::Pattern, Some(StrategyKind::Ai));
         assert!(matches!(run(&pattern, &scan, &OPTIONS), Err(SplitError::NoTextLayer)));
+    }
+
+    #[test]
+    fn only_text_strategies_need_ocr() {
+        assert!(reads_text(&preset(StrategyKind::Pattern, None)));
+        assert!(reads_text(&preset(StrategyKind::Blank, None)));
+        assert!(reads_text(&preset(StrategyKind::Ai, None)));
+        assert!(reads_text(&preset(StrategyKind::Outline, Some(StrategyKind::Ai))));
+        assert!(!reads_text(&preset(StrategyKind::Outline, None)));
+        assert!(!reads_text(&preset(StrategyKind::Fixed, Some(StrategyKind::Outline))));
     }
 
     #[test]

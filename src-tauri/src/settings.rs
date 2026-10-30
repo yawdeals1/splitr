@@ -36,6 +36,8 @@ pub struct Settings {
     pub name_template: String,
     /// A page with at most this many visible characters counts as blank (FR-32).
     pub blank_threshold: u32,
+    /// Read pages without a text layer with OCR before the text strategies run (FR-80).
+    pub ocr_enabled: bool,
     /// AI features are on (FR-62). Off hides Smart mode's AI options and blocks every AI call.
     pub ai_enabled: bool,
     /// Whether the user accepted the AI notice (FR-61).
@@ -58,6 +60,7 @@ impl Default for Settings {
             last_output_folder: None,
             name_template: "{original} - {index} - {title}".into(),
             blank_threshold: 0,
+            ocr_enabled: true,
             ai_enabled: true,
             ai_consent: false,
             ai_platform: ai::DEFAULT_PLATFORM.into(),
@@ -124,6 +127,7 @@ pub fn load(path: &Path) -> Result<Settings> {
         last_output_folder: field(&fields, "lastOutputFolder", defaults.last_output_folder),
         name_template: field(&fields, "nameTemplate", defaults.name_template),
         blank_threshold: field(&fields, "blankThreshold", defaults.blank_threshold),
+        ocr_enabled: field(&fields, "ocrEnabled", defaults.ocr_enabled),
         ai_enabled: field(&fields, "aiEnabled", defaults.ai_enabled),
         ai_consent: field(&fields, "aiConsent", defaults.ai_consent),
         ai_platform: field(&fields, "aiPlatform", defaults.ai_platform),
@@ -201,6 +205,7 @@ mod tests {
             last_output_folder: Some("out".into()),
             name_template: "{index} - {title}".into(),
             blank_threshold: 5,
+            ocr_enabled: false,
             ai_enabled: false,
             ai_consent: true,
             ai_platform: "anthropic".into(),
@@ -246,6 +251,7 @@ mod tests {
         assert_eq!(loaded.last_output_folder.as_deref(), Some("D:/x"));
         assert!(loaded.ai_consent);
         assert!(loaded.ai_enabled);
+        assert!(loaded.ocr_enabled, "OCR is on unless turned off");
         fs::remove_dir_all(dir).unwrap();
     }
 
