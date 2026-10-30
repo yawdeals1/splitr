@@ -62,7 +62,7 @@
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEQxOUY0QjZFOUQ5ODdFMkUKUldRdWZwaWRia3VmMFIvSWRmdVc1c0xPT0ErVjYzall2L1l5QnZaRjZjbkpwQ1BjamY2SUcwencK",
       "endpoints": [
-        "https://github.com/yawdeals1/splitr/releases/latest/download/latest.json"
+        "https://github.com/yawdeals1/splitr-releases/releases/latest/download/latest.json"
       ],
       "windows": {
         "installMode": "passive"
