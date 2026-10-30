@@ -29,11 +29,11 @@ Status: ✅ means merged; "In review" means a PR is open.
 | ✅ Done (#79) | #64 | Smart mode: run AI presets and show the result on the review screen | `phase-2/64-smart-ai-flow` |
 | ✅ Done (#81) | #31 | Connect a ChatGPT account (Sign in with ChatGPT) | `phase-2/31-chatgpt-signin` |
 | ✅ Done (#80) | #19 | Auto-update with signed update manifest | `phase-3/19-auto-update` |
-|  | #21 | Installer size check and clean-machine install test | `phase-3/21-installer-size` |
+| ✅ Done (#82) | #21 | Installer size check and clean-machine install test | `phase-3/21-installer-size` |
 |  | #24 | OCR for pages without a text layer | `phase-5/24-ocr` |
 |  | #25 | Local AI model option | `phase-5/25-local-model` |
 
-#19 needs the updater signing key in GitHub secrets, and #31 needs the owner to confirm OpenAI's developer terms, so both stay with the owner.
+The updater signing key for #19 is in the repository's encrypted secrets, and its public key is in `src-tauri/tauri.conf.json`. #31 uses OpenAI's self-serve Sign in with ChatGPT route for open-source and locally hosted apps; if Splitr is ever sold, it needs OpenAI's interest form instead (see the findings on #31).
 
 ## @iamromelalvin7
 
@@ -45,14 +45,14 @@ Status: ✅ means merged; "In review" means a PR is open.
 | ✅ Done (#50) | #10 | Naming template, ZIP and open folder | `phase-1/10-naming-zip-open-folder` |
 | ✅ Done (#39) | #11 | Settings file | `phase-1/11-settings-file` |
 | ✅ Done (#40) | #17 | Save a custom prompt as a reusable preset | `phase-2/17-custom-prompt-preset` |
-|  | #18 | Integration tests with a mocked AI provider | `phase-2/18-mock-ai-tests` |
-| In review (#44) | #27 | Bring your own key: multiple AI platforms with automatic key detection | `phase-2/27-multi-key-detection` |
-| In review (#59) | #28 | OpenAI (GPT) provider | `phase-2/28-openai-provider` |
-| In review (#60) | #29 | Google Gemini provider | `phase-2/29-gemini-provider` |
-| In review (#61) | #30 | OpenAI-compatible platforms: OpenRouter, NVIDIA and others | `phase-2/30-openai-compatible` |
-| In review (#62) | #32 | OpenCode Go provider | `phase-2/32-opencode-go` |
+| In review (#67) | #18 | Integration tests with a mocked AI provider | `phase-2/18-mock-ai-tests` |
+| ✅ Done (#44) | #27 | Bring your own key: multiple AI platforms with automatic key detection | `phase-2/27-multi-key-detection` |
+| ✅ Done (#59) | #28 | OpenAI (GPT) provider | `phase-2/28-openai-provider` |
+| ✅ Done (#60) | #29 | Google Gemini provider | `phase-2/29-gemini-provider` |
+| ✅ Done (#61) | #30 | OpenAI-compatible platforms: OpenRouter, NVIDIA and others | `phase-2/30-openai-compatible` |
+| ✅ Done (#62) | #32 | OpenCode Go provider | `phase-2/32-opencode-go` |
 | ✅ Done (#47) | #20 | Theme toggle and keyboard navigation pass | `phase-3/20-theme-keyboard` |
-|  | #22 | v1.0 acceptance pass | `phase-4/22-acceptance-pass` |
+| In review (#72, draft) | #22 | v1.0 acceptance pass | `phase-4/22-acceptance-pass` |
 | ✅ Done (#43) | #23 | Download page and user guide | `phase-4/23-download-page` |
 
 ## Other finished issues
@@ -76,7 +76,7 @@ Some issues wait on other work. Start with work that has no blockers, and rebase
 | --- | --- |
 | #22 acceptance pass (@iamromelalvin7) | everything in phases 0 to 3 |
 
-Unblocked starting points: @iamromelalvin7 on finishing the open provider PRs (#44, #59 to #62), and #18, which is now unblocked. #18 can build its mock on `ai::Provider` and test `ai::response::split`, which takes a provider.
+Open work: Caleb on #24 (OCR) and #25 (local model). @iamromelalvin7 on finishing #18 (#67), now that the Smart flow (#64) has landed, and the v1.0 acceptance pass #22 (#72), which can start now that the phase 3 work has merged.
 
 ## Working on your branch
 
