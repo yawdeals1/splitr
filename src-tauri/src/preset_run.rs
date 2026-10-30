@@ -75,7 +75,8 @@ fn attempt(
             needs_text(doc)?;
             allow_gaps = options.drop_separators;
             let strategy = BlankPageStrategy {
-                max_chars: options.blank_threshold as usize,
+                // Capped here too, not only in saved settings, since callers send the value (FR-32).
+                max_chars: options.blank_threshold.min(crate::settings::MAX_BLANK_THRESHOLD) as usize,
                 drop_separators: options.drop_separators,
             };
             strategy.propose(doc)?
@@ -211,6 +212,15 @@ mod tests {
         let drop = RunOptions { blank_threshold: 3, drop_separators: true };
         assert_eq!(parts(run(&blank, &d, &drop).unwrap()), (vec![(1, 1), (3, 4)], StrategyKind::Blank, true, None));
         assert!(matches!(run(&blank, &d, &OPTIONS), Err(SplitError::NothingFound)));
+    }
+
+    #[test]
+    fn the_blank_threshold_is_capped() {
+        // A page with more text than the cap is never blank, however high the threshold sent.
+        let long = "x".repeat(crate::settings::MAX_BLANK_THRESHOLD as usize + 1);
+        let d = doc(&[&long, "p. 2", &long, &long]);
+        let huge = RunOptions { blank_threshold: 100_000, drop_separators: false };
+        assert_eq!(parts(run(&preset(StrategyKind::Blank, None), &d, &huge).unwrap()).0, vec![(1, 1), (2, 2), (3, 4)]);
     }
 
     #[test]

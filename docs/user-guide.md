@@ -124,7 +124,7 @@ If an export fails part way, for example because the disk is full, Splitr leaves
 
 - **Theme:** Light, Dark, or System to follow your computer. It's at the bottom of the split options on the right.
 - **AI:** turn Smart mode's AI on or off, and add or remove API keys. Only the last 4 characters of a saved key are shown. **AI service** picks what Smart mode uses: your ChatGPT account (the default), a Claude, OpenAI or Gemini API key (Gemini keys come from Google AI Studio), an API key for a platform that works like OpenAI's (OpenRouter, NVIDIA, Groq, xAI, DeepSeek, Mistral or Together AI), an **OpenCode Go subscription** key (from the OpenCode console), a **Local model (offline)** on your own computer (see [Smart mode and AI](#smart-mode-and-ai)), or **Other OpenAI-compatible platform**, where you also enter its address. Addresses must start with `https://`, except for a model running on your own computer (`http://localhost`). **Model** sets the model for that service; leave it blank for the default (GPT-6.1 Sol for ChatGPT and OpenAI, Claude Opus 5.5 for Claude, Gemini 4 Argon for Gemini, DeepSeek Flash for DeepSeek). For OpenCode Go and the OpenAI-compatible platforms, click **Show available models** to pick from the platform's list. OpenCode Go limits use per 5 hours, week and month; when a limit is reached, Splitr says when it resets.
-- **Blank page sensitivity:** how much may be on a page (such as a page number) for it to still count as blank.
+- **Blank page sensitivity:** under **Leave blank pages out of the parts**, shown in Smart mode when the preset splits at blank pages. How many characters, not counting spaces, a page may have (such as a page number) and still count as blank. It starts at 0 and goes up to 200.
 
 ## Updates
 

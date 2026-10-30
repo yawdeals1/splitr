@@ -9,6 +9,7 @@ import { aiBlock, aiBlockMessage, aiService } from "./ai";
 import { AiConsent } from "./AiConsent";
 import { AiSettings, useApiKeys, useChatGpt } from "./AiSettings";
 import { ExportOptions } from "./ExportOptions";
+import { BlankSensitivity } from "./BlankSensitivity";
 import { baseName, formatSize, rejectReason } from "./file";
 import { DEFAULT_TEMPLATE, savedMessage, usableTemplate } from "./naming";
 import { PageGrid } from "./PageGrid";
@@ -716,10 +717,16 @@ function App({ initialSettings }: { initialSettings: Settings | null }) {
               )
             )}
             {presetId !== CUSTOM_PROMPT && usesBlank(selectedPreset) && (
-              <label className="check">
-                <input type="checkbox" checked={dropSeparators} onChange={(e) => setDropSeparators(e.target.checked)} />
-                Leave blank pages out of the parts
-              </label>
+              <>
+                <label className="check">
+                  <input type="checkbox" checked={dropSeparators} onChange={(e) => setDropSeparators(e.target.checked)} />
+                  Leave blank pages out of the parts
+                </label>
+                <BlankSensitivity
+                  saved={settings?.blankThreshold}
+                  onSave={(blankThreshold) => updateSettings({ blankThreshold })}
+                />
+              </>
             )}
             <label className="check">
               <input

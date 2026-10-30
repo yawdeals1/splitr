@@ -600,6 +600,15 @@ button.link {
   margin-top: 0;
 }
 
+/* FR-32: the blank page sensitivity field and its help text. */
+.blank-sensitivity span {
+  font-size: 13px;
+}
+
+.blank-sensitivity input {
+  width: 6em;
+}
+
 /* FR-21: the Fixed mode choice is smaller than the range mode switch above it. */
 .modes.fixed-by {
   font-size: 13px;
