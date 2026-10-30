@@ -21,7 +21,7 @@ Status: ✅ means merged; "In review" means a PR is open.
 | ✅ Done (#66) | #7 | Extract page text and outline into DocumentText | `phase-1/7-extract-text` |
 | ✅ Done (#76) | #8 | run_preset command with fallback strategies | `phase-1/8-run-preset` |
 | ✅ Done (#75) | #73 | Use the chapters under a single top-level bookmark as the outline | `phase-1/73-single-root-outline` |
-|  | #12 | Test fixture set of 10+ PDFs | `phase-1/12-test-fixtures` |
+| ✅ Done (#78) | #12 | Test fixture set of 10+ PDFs | `phase-1/12-test-fixtures` |
 | ✅ Done (#53) | #13 | API key storage, AI toggle and consent notice | `phase-2/13-api-key-storage` |
 | ✅ Done (#77) | #14 | Page excerpts and overlapping chunks | `phase-2/14-excerpts-chunks` |
 | ✅ Done (#58) | #15 | Claude API client | `phase-2/15-claude-client` |
@@ -77,7 +77,7 @@ Some issues wait on other work. Start with work that has no blockers, and rebase
 | #64 Smart mode AI flow (@yawdeals1) | #8 run_preset, #14 excerpts (@yawdeals1) |
 | #22 acceptance pass (@iamromelalvin7) | everything in phases 0 to 3 |
 
-Unblocked starting points: Caleb on #12, and #64 now that #8 and #14 have landed. @iamromelalvin7 on finishing the open provider PRs (#44, #59 to #62), and #18, which is now unblocked. #18 can build its mock on `ai::Provider` and test `ai::response::split`, which takes a provider.
+Unblocked starting points: Caleb on #64, now that #8 and #14 have landed. @iamromelalvin7 on finishing the open provider PRs (#44, #59 to #62), and #18, which is now unblocked. #18 can build its mock on `ai::Provider` and test `ai::response::split`, which takes a provider.
 
 ## Working on your branch
 

@@ -2,6 +2,8 @@ mod ai;
 mod commands;
 mod error;
 mod export;
+#[cfg(test)]
+mod fixtures;
 mod key_detect;
 mod keystore;
 mod naming;
