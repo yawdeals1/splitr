@@ -223,6 +223,29 @@ mod tests {
         assert_eq!(err.to_string(), "Every page is blank, so there are no parts to save");
     }
 
+    /// A bundled preset on a real PDF, read by PDFium: the path `run_preset` takes.
+    #[test]
+    fn bundled_presets_split_real_pdfs() {
+        use crate::pdf::{self, tests as pdfs};
+        let extract = |doc| {
+            pdfs::start_engine();
+            let dir = tempfile::tempdir().unwrap();
+            let (_, doc) = pdf::open_document(&pdfs::save(&dir, "a.pdf", doc), None).unwrap();
+            pdf::extract_text(&doc, |_, _| std::ops::ControlFlow::Continue(())).unwrap()
+        };
+        let bundled = crate::presets::bundled();
+        let book = bundled.iter().find(|p| p.id == "books-by-chapter").unwrap();
+
+        let run = run(book, &extract(pdfs::outlined()), &OPTIONS).unwrap();
+        let PresetRun::Parts { ranges, .. } = run else { panic!("expected parts, got {run:?}") };
+        let ranges: Vec<_> = ranges.iter().map(|r| (r.start, r.end, r.title.as_str())).collect();
+        assert_eq!(ranges, [(1, 2, "Chapter 1"), (3, 4, "Chapter 2")]);
+
+        // Without bookmarks the preset falls back to the AI.
+        let run = super::run(book, &extract(pdfs::document(3)), &OPTIONS).unwrap();
+        assert_eq!(run, PresetRun::NeedsAi { reason: Some("This PDF has no bookmarks".into()) });
+    }
+
     #[test]
     fn fixed_presets_split_every_n_pages() {
         let run = run(&preset(StrategyKind::Fixed, None), &doc(&["a", "b", "c"]), &OPTIONS).unwrap();
