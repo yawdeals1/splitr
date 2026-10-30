@@ -8,6 +8,7 @@ mod fixtures;
 mod key_detect;
 mod keystore;
 mod naming;
+mod ocr;
 mod pdf;
 mod preset_run;
 mod presets;
@@ -49,6 +50,8 @@ pub fn run() {
                     if let Err(e) = pdf::init(&dir.join("pdfium")) {
                         eprintln!("{e}");
                     }
+                    // The OCR models load the first time a scanned page is read (FR-80).
+                    ocr::init(&dir.join("ocr"));
                 }
                 Err(e) => eprintln!("Could not find the resource folder: {e}"),
             }
@@ -64,6 +67,7 @@ pub fn run() {
             commands::extract_text,
             commands::run_preset,
             commands::cancel_extract,
+            commands::text_note,
             commands::export_parts,
             commands::export_zip,
             commands::export_names,

@@ -10,6 +10,7 @@
     "fixtures": "cargo test --manifest-path src-tauri/Cargo.toml fixtures::tests::write_fixtures -- --ignored --exact",
     "preview": "vite preview",
     "fetch-pdfium": "node scripts/fetch-pdfium.mjs",
+    "fetch-ocr": "node scripts/fetch-ocr-models.mjs",
     "tauri": "tauri"
   },
   "dependencies": {

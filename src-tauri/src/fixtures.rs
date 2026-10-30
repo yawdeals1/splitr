@@ -600,6 +600,84 @@ mod tests {
     fn a_scan_without_text_is_not_split_by_its_text() {
         let err = run_preset(&path("scanned-pages.pdf"), None, "scanned-blank-pages", &KEEP).unwrap_err();
         assert!(matches!(err, SplitError::NoTextLayer), "{err}");
+        assert!(err.to_string().contains("try turning on"), "{err}");
+    }
+
+    /// `file` as a scan: each page replaced by a greyscale picture of it, rendered by PDFium, with
+    /// no text layer (FR-80). Saved as `scan.pdf` in `dir`.
+    fn scanned(file: &str, dir: &tempfile::TempDir) -> String {
+        start_engine();
+        let (_, source) = pdf::open_document(&path(file), None).unwrap();
+        let mut doc = Document::with_version("1.7");
+        let pages_id = doc.new_object_id();
+        let kids: Vec<Object> = (1..=source.pages().len() as u32)
+            .map(|page| {
+                let picture = image::DynamicImage::from(pdf::render_for_ocr(&source, page).unwrap()).to_luma8();
+                let mut stream = Stream::new(
+                    dictionary! {
+                        "Type" => "XObject", "Subtype" => "Image", "Width" => picture.width(), "Height" => picture.height(),
+                        "ColorSpace" => "DeviceGray", "BitsPerComponent" => 8,
+                    },
+                    picture.into_raw(),
+                );
+                stream.compress().unwrap();
+                let picture = doc.add_object(stream);
+                let content = doc.add_object(Stream::new(dictionary! {}, b"q 612 0 0 792 0 0 cm /Im1 Do Q".to_vec()));
+                doc.add_object(dictionary! {
+                    "Type" => "Page", "Parent" => pages_id, "Contents" => content,
+                    "MediaBox" => vec![0.into(), 0.into(), 612.into(), 792.into()],
+                    "Resources" => dictionary! { "XObject" => dictionary! { "Im1" => picture } },
+                })
+                .into()
+            })
+            .collect();
+        let count = kids.len() as i64;
+        doc.objects.insert(pages_id, Object::Dictionary(dictionary! { "Type" => "Pages", "Kids" => kids, "Count" => count }));
+        let catalog = doc.add_object(dictionary! { "Type" => "Catalog", "Pages" => pages_id });
+        doc.trailer.set("Root", catalog);
+        let out = dir.path().join("scan.pdf");
+        doc.save(&out).unwrap();
+        out.to_string_lossy().into_owned()
+    }
+
+    /// Phase 5 exit (#24): scans of the sample files split at the same pages as the files with
+    /// text, once OCR has read them through the viewer, as the app does. OCR can misread a letter
+    /// of a title (the user fixes it on the review screen), so titles are checked where it reads
+    /// them reliably.
+    #[test]
+    fn scanned_files_split_correctly_with_ocr() {
+        crate::ocr::tests::start_ocr();
+        let separators = RunOptions { blank_threshold: 0, drop_separators: true };
+        for (file, preset, options, expected, check_titles) in [
+            ("invoice-batch.pdf", "invoices-by-number", KEEP, INVOICES, true),
+            (
+                "bills-of-lading.pdf",
+                "shipping-by-shipment",
+                KEEP,
+                &[(1, 1, "Bill of Lading No: BL-5001"), (2, 3, "Bill of Lading No: BL-5002")][..],
+                true,
+            ),
+            ("employee-records.pdf", "hr-by-employee", KEEP, &[(1, 1, ""), (2, 3, ""), (4, 4, "")][..], false),
+            ("blank-separators.pdf", "scanned-blank-pages", separators, &[(1, 2, ""), (4, 4, ""), (6, 7, "")][..], true),
+        ] {
+            let dir = tempfile::tempdir().unwrap();
+            let scan = scanned(file, &dir);
+            assert!(extract(&scan, None).pages.iter().all(|p| p.trim().is_empty()), "{file}: the scan has a text layer");
+
+            let viewer = crate::viewer::Viewer::new(dir.path().join("cache"));
+            viewer.open(&scan, None).unwrap();
+            let mut ocr_steps = Vec::new();
+            let text = viewer.extract_with_ocr(&scan, |_, _| (), |done, total| ocr_steps.push((done, total))).unwrap();
+            assert!(!ocr_steps.is_empty(), "{file}: OCR didn't run");
+
+            let preset = presets::bundled().into_iter().find(|p| p.id == preset).unwrap();
+            let run = preset_run::run(&preset, &text, &options).unwrap();
+            let PresetRun::Parts { ranges, .. } = run else { panic!("{file}: expected parts, got {run:?}") };
+            let got: Vec<(u32, u32, &str)> =
+                ranges.iter().map(|r| (r.start, r.end, if check_titles { r.title.as_str() } else { "" })).collect();
+            assert_eq!(got, expected, "{file}");
+            viewer.close();
+        }
     }
 
     #[test]

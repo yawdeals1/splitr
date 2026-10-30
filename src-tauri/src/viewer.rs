@@ -19,6 +19,7 @@ use pdfium_render::prelude::PdfDocument;
 use tempfile::TempDir;
 
 use crate::error::{Result, SplitError};
+use crate::ocr;
 use crate::pdf::{self, PdfInfo};
 use crate::strategy::DocumentText;
 
@@ -42,6 +43,8 @@ struct OpenPdf {
     cache_dir: PathBuf,
     /// The page text and bookmarks, read once for the rule strategies (#7).
     text: OnceLock<Arc<DocumentText>>,
+    /// The same, with the pages that had no text read by OCR (FR-80).
+    ocr_text: OnceLock<Arc<DocumentText>>,
 }
 
 /// The private cache folder of this app session.
@@ -80,6 +83,7 @@ impl Viewer {
             document,
             cache_dir,
             text: OnceLock::new(),
+            ocr_text: OnceLock::new(),
         });
         let previous = {
             let mut current = lock(&self.current);
@@ -134,6 +138,39 @@ impl Viewer {
             }
         })?;
         Ok(open.text.get_or_init(|| Arc::new(text)).clone())
+    }
+
+    /// Like `extract`, then reads the pages that have no text with OCR, such as scans (FR-80).
+    /// `ocr_progress` gets the pages read and how many need reading. The result is kept while the
+    /// PDF stays open. `cancel_extract` stops the OCR too.
+    pub fn extract_with_ocr(
+        &self,
+        path: &str,
+        progress: impl FnMut(u32, u32),
+        mut ocr_progress: impl FnMut(u32, u32),
+    ) -> Result<Arc<DocumentText>> {
+        let generation = self.extract_generation.load(Ordering::SeqCst);
+        let text = self.extract(path, progress)?;
+        let open = lock(&self.current).as_ref().filter(|o| o.path == path).cloned().ok_or(SplitError::NotOpen)?;
+        if let Some(done) = open.ocr_text.get() {
+            return Ok(done.clone());
+        }
+        if ocr::pages_without_text(&text).is_empty() {
+            return Ok(open.ocr_text.get_or_init(|| text).clone());
+        }
+        let filled = ocr::fill_missing(
+            &text,
+            |page| ocr::recognize(&pdf::render_for_ocr(&open.document, page)?),
+            |done, total| {
+                ocr_progress(done, total);
+                if self.extract_generation.load(Ordering::SeqCst) == generation {
+                    ControlFlow::Continue(())
+                } else {
+                    ControlFlow::Break(())
+                }
+            },
+        )?;
+        Ok(open.ocr_text.get_or_init(|| Arc::new(filled)).clone())
     }
 
     /// Stops every text extraction running now. Later ones are not affected.
@@ -461,6 +498,18 @@ mod tests {
         let second = viewer.extract(&path, |_, _| again += 1).unwrap();
         assert!(Arc::ptr_eq(&first, &second));
         assert_eq!(again, 0, "the cached text should be reused");
+    }
+
+    #[test]
+    fn ocr_is_skipped_when_every_page_has_text() {
+        let dir = tempfile::tempdir().unwrap();
+        let viewer = viewer(&dir);
+        let path = save(&dir, "a.pdf", document(3));
+        viewer.open(&path, None).unwrap();
+        let mut ocr_steps = 0;
+        let text = viewer.extract_with_ocr(&path, |_, _| (), |_, _| ocr_steps += 1).unwrap();
+        assert_eq!(ocr_steps, 0);
+        assert!(Arc::ptr_eq(&text, &viewer.extract(&path, |_, _| ()).unwrap()));
     }
 
     #[test]
