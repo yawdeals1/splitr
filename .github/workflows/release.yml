@@ -1,5 +1,8 @@
 # Builds installers on each OS and attaches them to a draft GitHub Release (SRS 8).
 # Trigger by pushing a tag such as v0.1.0. Installers are unsigned in v1.
+# This repo is private, so releases go to the public repo yawdeals1/splitr-releases (#83), where
+# anyone can download them and the updater can read latest.json. RELEASES_TOKEN is a fine-grained
+# token with Contents read and write on that repo only, stored in this repo's encrypted secrets.
 # Updates (FR-64, #19): each bundle is signed with the updater key, and tauri-action uploads
 # latest.json, the manifest the app checks. Installed apps see the update once the draft is
 # published, because the app reads releases/latest. The key and its password live only in the
@@ -68,15 +71,31 @@ jobs:
       - name: Fetch the OCR models
         run: node scripts/fetch-ocr-models.mjs
 
+      - name: Check the releases token
+        if: github.ref_type == 'tag'
+        shell: bash
+        env:
+          RELEASES_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+        run: |
+          if [ -z "$RELEASES_TOKEN" ]; then
+            echo "::error::Add the RELEASES_TOKEN secret (Contents read and write on yawdeals1/splitr-releases) before tagging a release."
+            exit 1
+          fi
+
       - uses: tauri-apps/tauri-action@v0
         id: tauri
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # A branch run uploads nothing, so it doesn't need the releases token.
+          GITHUB_TOKEN: ${{ github.ref_type == 'tag' && secrets.RELEASES_TOKEN || secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           # Only a tag makes a release. A run on a branch builds and checks, and uploads nothing.
           tagName: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
+          owner: yawdeals1
+          repo: splitr-releases
+          # The tag is created in splitr-releases, which doesn't have this repo's commits.
+          releaseCommitish: main
           releaseName: ${{ github.ref_type == 'tag' && format('Splitr {0}', github.ref_name) || '' }}
           releaseBody: See the assets below to download and install this version.
           releaseDraft: true

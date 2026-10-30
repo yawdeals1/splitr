@@ -2,10 +2,13 @@
 
 Splitr splits one PDF into several files by chapter, invoice, student or any condition you pick. Your files stay on your computer.
 
-<!-- Maintainers: release.yml creates each release as a draft. Publish the draft on GitHub before
-     sharing this page; a draft is not shown on the Releases page to anyone outside the repo. -->
+<!-- Maintainers: the source repo is private, so release.yml publishes each release as a draft in
+     the public repo yawdeals1/splitr-releases. Publish the draft there before sharing this page;
+     a draft is not shown on the Releases page to anyone outside the repo. That repo's README.md
+     is a copy of this page and its user-guide.md a copy of docs/user-guide.md: when either
+     changes here, copy it there too (links to download.md become README.md). -->
 
-**[Download Splitr from the Releases page](https://github.com/yawdeals1/splitr/releases)**
+**[Download Splitr from the Releases page](https://github.com/yawdeals1/splitr-releases/releases)**
 
 On the Releases page, the newest version is at the top. Open its **Assets** and pick the file for your computer:
 
