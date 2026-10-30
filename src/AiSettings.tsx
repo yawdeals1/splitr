@@ -1,5 +1,6 @@
 // The AI section of the panel: the AI switch (FR-62), the AI service and its model, the saved API
-// keys (FR-60, #27), the ChatGPT account (#31) and the consent status (FR-61).
+// keys (FR-60, #27), the ChatGPT account (#31), the local model's address (#25) and the consent
+// status (FR-61).
 // A pasted key goes straight to the backend, which keeps it in the OS credential store. After
 // saving, the interface only ever sees its last 4 characters (NFR-05).
 import { useCallback, useEffect, useState } from "react";
@@ -398,6 +399,21 @@ export function AiSettings({ settings, apiKeys, chatGpt, onChange }: Props) {
         <p className="muted">Add your {current.name} API key below to use it.</p>
       )}
 
+      {enabled && current.local && (
+        <>
+          <SavedField
+            label="Address"
+            saved={settings?.aiLocalUrl ?? ""}
+            placeholder="http://localhost:11434/v1"
+            onSave={(url) => change({ aiLocalUrl: url })}
+          />
+          <p className="muted">
+            Uses a model server on this computer, such as Ollama or LM Studio. Page text never leaves your computer,
+            so Smart mode works offline.
+          </p>
+        </>
+      )}
+
       {enabled && service === "custom" && (
         <SavedField
           label="Address"
@@ -417,7 +433,7 @@ export function AiSettings({ settings, apiKeys, chatGpt, onChange }: Props) {
             models={models?.service === service ? models.list : []}
             onSave={(model) => change({ aiModels: { ...settings?.aiModels, [service]: model } })}
           />
-          {current.listsModels && apiKeys.has(service) && (
+          {current.listsModels && (current.local || apiKeys.has(service)) && (
             <button type="button" className="link" disabled={loadingModels} onClick={loadModels}>
               {loadingModels ? "Loading models…" : "Show available models"}
             </button>

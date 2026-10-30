@@ -154,6 +154,15 @@ impl ChatCompletions {
         &mut self.api
     }
 
+    fn auth(&self) -> String {
+        format!("Bearer {}", self.key)
+    }
+
+    /// The key as a bearer token, or no header for a local model server that takes no key (#25).
+    fn headers<'a>(&self, auth: &'a str) -> Vec<(&'static str, &'a str)> {
+        if self.key.is_empty() { Vec::new() } else { vec![("authorization", auth)] }
+    }
+
     fn body(&self, request: &AiRequest) -> Value {
         // No token limit or sampling settings: platforms disagree on their names and some
         // reasoning models reject them.
@@ -168,8 +177,8 @@ impl ChatCompletions {
 
     /// The models the platform offers, sorted (#30). Sent to that platform only.
     pub async fn models(&self) -> Result<Vec<String>> {
-        let auth = format!("Bearer {}", self.key);
-        let reply = self.api.get(&format!("{}/models", self.base), &[("authorization", &auth)]).await?;
+        let auth = self.auth();
+        let reply = self.api.get(&format!("{}/models", self.base), &self.headers(&auth)).await?;
         model_ids(&reply).ok_or_else(|| SplitError::Ai(format!("{} sent a model list Splitr couldn't read", self.name)))
     }
 }
@@ -186,9 +195,9 @@ impl Provider for ChatCompletions {
         if self.model.trim().is_empty() {
             return Err(SplitError::Ai(format!("Choose a model for {name} under AI in Settings")));
         }
-        let auth = format!("Bearer {}", self.key);
+        let auth = self.auth();
         let url = format!("{}/chat/completions", self.base);
-        let reply = self.api.post(&url, &[("authorization", &auth)], &self.body(request), &self.model).await?;
+        let reply = self.api.post(&url, &self.headers(&auth), &self.body(request), &self.model).await?;
         reply_text(name, &reply)
     }
 }

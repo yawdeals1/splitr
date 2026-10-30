@@ -7,6 +7,7 @@ pub mod compatible;
 pub mod excerpts;
 pub mod gemini;
 pub mod http;
+pub mod local;
 pub mod openai;
 pub mod opencode_go;
 pub mod response;
@@ -63,9 +64,10 @@ pub fn default_models() -> BTreeMap<String, String> {
         .collect()
 }
 
-/// Services Smart mode can be set to: the ChatGPT account, or a platform with a saved key.
+/// Services Smart mode can be set to: the ChatGPT account, a model on this computer (#25), or a
+/// platform with a saved key.
 pub fn is_platform(platform: &str) -> bool {
-    platform == "chatgpt" || crate::keystore::is_platform(platform)
+    platform == "chatgpt" || platform == local::LOCAL || crate::keystore::is_platform(platform)
 }
 
 /// One page in a request: short excerpts, never the whole page (FR-33, FR-61). See `excerpts`.
@@ -128,10 +130,11 @@ pub fn provider(platform: &str, custom_url: &str, key: String, model: String) ->
     }
 }
 
-/// Whether Smart mode can send requests to `platform` yet. The ChatGPT account (#31) signs in
-/// instead of using a key, so `provider` doesn't build it.
+/// Whether Smart mode can send requests to `platform` yet. The ChatGPT account (#31) signs in and
+/// the local model (#25) takes no key, so `provider` builds neither.
 pub fn is_supported(platform: &str) -> bool {
-    matches!(platform, "chatgpt" | "anthropic" | "openai" | "gemini" | "opencode-go") || compatible::is_compatible(platform)
+    matches!(platform, "chatgpt" | "anthropic" | "openai" | "gemini" | "opencode-go" | local::LOCAL)
+        || compatible::is_compatible(platform)
 }
 
 /// Why Smart mode can't use `platform` yet.
@@ -218,13 +221,14 @@ mod tests {
             assert!(!model.trim().is_empty());
         }
         assert!(!is_platform("../evil"));
+        assert!(is_platform(local::LOCAL) && default_model(local::LOCAL).is_none());
     }
 
     #[test]
     fn only_finished_providers_are_offered() {
         assert!(is_supported("anthropic") && is_supported("openai") && is_supported("gemini"));
         assert!(is_supported("openrouter") && is_supported("custom"));
-        assert!(is_supported("opencode-go") && is_supported("chatgpt"));
+        assert!(is_supported("opencode-go") && is_supported("chatgpt") && is_supported("local"));
         assert!(!is_supported("../evil"));
         let err = provider("someday", "", "k".into(), "m".into()).err().unwrap();
         assert!(err.to_string().contains("can't use this AI service yet"), "{err}");
