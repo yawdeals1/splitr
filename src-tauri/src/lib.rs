@@ -25,6 +25,9 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        // FR-64: update checks, verified with the public key in tauri.conf.json, and the restart after.
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .setup(|app| {
             // Page images are cached in the user's own cache folder (NFR-07). Folders left by a
             // crashed session are deleted first.

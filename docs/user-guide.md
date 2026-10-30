@@ -119,7 +119,9 @@ If an export fails part way, for example because the disk is full, Splitr leaves
 - **AI:** turn Smart mode's AI on or off, and add or remove API keys. Only the last 4 characters of a saved key are shown. **AI service** picks what Smart mode uses: your ChatGPT account (the default), a Claude, OpenAI or Gemini API key (Gemini keys come from Google AI Studio), an API key for a platform that works like OpenAI's (OpenRouter, NVIDIA, Groq, xAI, DeepSeek, Mistral or Together AI), an **OpenCode Go subscription** key (from the OpenCode console), or **Other OpenAI-compatible platform**, where you also enter its address. Addresses must start with `https://`, except for a model running on your own computer (`http://localhost`). **Model** sets the model for that service; leave it blank for the default (GPT-6.1 Sol for ChatGPT and OpenAI, Claude Opus 5.5 for Claude, Gemini 4 Argon for Gemini, DeepSeek Flash for DeepSeek). For OpenCode Go and the OpenAI-compatible platforms, click **Show available models** to pick from the platform's list. OpenCode Go limits use per 5 hours, week and month; when a limit is reached, Splitr says when it resets.
 - **Blank page sensitivity:** how much may be on a page (such as a page number) for it to still count as blank.
 
-Splitr checks for new versions and offers to install them.
+## Updates
+
+Each time it starts, Splitr checks GitHub for a newer version. This check is the only time Splitr goes online without an AI split. If a newer version exists, a notice under the split options names it. Click **Install and restart** to download it and restart, or **Later** to keep working. Splitr checks each update's signature before installing it, so only updates published by Splitr's developer install.
 
 ## Troubleshooting
 

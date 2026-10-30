@@ -19,6 +19,7 @@ import { ReviewScreen } from "./ReviewScreen";
 import { useSettings } from "./settings";
 import { aiReview, aiStatus, smartResult, usesBlank, type AiReview } from "./smart";
 import { showTheme } from "./theme";
+import { UpdateNotice } from "./UpdateNotice";
 import {
   PASSWORD_REQUIRED,
   WRONG_PASSWORD,
@@ -712,6 +713,7 @@ function App({ initialSettings }: { initialSettings: Settings | null }) {
             )}
           </div>
         )}
+        <UpdateNotice />
         {askConsent && <AiConsent service={aiService(settings?.aiPlatform)} onAgree={consentGiven} onCancel={() => setAskConsent(false)} />}
 
         <fieldset className="modes theme">

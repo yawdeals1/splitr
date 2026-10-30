@@ -43,6 +43,10 @@ keyring = { version = "3.6", features = ["apple-native", "windows-native", "sync
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 # Cancelling an AI call (#15). Tauri already runs on tokio, so this adds no new runtime.
 tokio = { version = "1", features = ["macros", "sync"] }
+# Update checks against the GitHub release manifest, signed with the updater key (FR-64, #19),
+# and the restart after an update installs.
+tauri-plugin-updater = "2"
+tauri-plugin-process = "2"
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration
 [profile.release]

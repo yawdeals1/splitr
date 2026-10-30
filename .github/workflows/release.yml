@@ -1,5 +1,9 @@
 # Builds installers on each OS and attaches them to a draft GitHub Release (SRS 8).
 # Trigger by pushing a tag such as v0.1.0. Installers are unsigned in v1.
+# Updates (FR-64, #19): each bundle is signed with the updater key, and tauri-action uploads
+# latest.json, the manifest the app checks. Installed apps see the update once the draft is
+# published, because the app reads releases/latest. The key and its password live only in the
+# repository's encrypted secrets; the public key is in src-tauri/tauri.conf.json.
 name: Release
 
 on:
@@ -57,6 +61,8 @@ jobs:
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           tagName: ${{ github.ref_name }}
           releaseName: Splitr ${{ github.ref_name }}
@@ -64,3 +70,5 @@ jobs:
           releaseDraft: true
           prerelease: false
           args: ${{ matrix.args }}
+          # Upload latest.json with the platform entries of every build in the matrix.
+          uploadUpdaterJson: true
