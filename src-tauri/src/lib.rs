@@ -2,6 +2,7 @@ mod ai;
 mod commands;
 mod error;
 mod export;
+mod key_detect;
 mod keystore;
 mod naming;
 mod pdf;
@@ -65,11 +66,14 @@ pub fn run() {
             commands::save_api_key,
             commands::api_key_status,
             commands::delete_api_key,
+            commands::saved_api_keys,
+            commands::verify_api_key,
             commands::ask_ai,
             commands::ai_split,
             commands::cancel_ai,
             commands::default_ai_models,
             commands::list_ai_models,
+            commands::detect_api_key,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

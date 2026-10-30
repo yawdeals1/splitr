@@ -31,6 +31,11 @@ pub struct Platform {
     /// The address `/chat/completions` and `/models` are added to.
     pub base_url: String,
     pub default_model: Option<String>,
+    /// The path a key check GETs (#27), when `/models` doesn't need a key on this platform.
+    pub check_path: Option<String>,
+    /// True when the platform has no call that needs a key, short of running a request (#27).
+    #[serde(default)]
+    pub no_key_check: bool,
 }
 
 /// The built-in platforms. The `platforms_file_is_valid` test checks the file, so it can't be
@@ -73,6 +78,25 @@ fn endpoint(id: &str, custom_url: &str) -> Result<Endpoint> {
     }
     let platform = platform(id).ok_or_else(|| SplitError::Ai(format!("Splitr doesn't know the AI platform \"{id}\"")))?;
     Ok(Endpoint { name: platform.name.clone(), base: platform.base_url.clone(), local: false })
+}
+
+/// Where a key check for `id` goes (#27): the platform's name, the address, and whether it is on
+/// this computer.
+pub struct CheckTarget {
+    pub name: String,
+    pub url: String,
+    pub local: bool,
+}
+
+/// The check for `id`, or `Err` with the platform's name when no call can check a key there,
+/// because even its model list answers without one.
+pub fn check_target(id: &str, custom_url: &str) -> Result<std::result::Result<CheckTarget, String>> {
+    let endpoint = endpoint(id, custom_url)?;
+    if platform(id).is_some_and(|p| p.no_key_check) {
+        return Ok(Err(endpoint.name));
+    }
+    let path = platform(id).and_then(|p| p.check_path.as_deref()).unwrap_or("/models");
+    Ok(Ok(CheckTarget { name: endpoint.name, url: format!("{}{path}", endpoint.base), local: endpoint.local }))
 }
 
 /// The base address of a custom platform, without a trailing "/", and whether it is local. Remote
@@ -264,6 +288,7 @@ mod tests {
             assert!(p.base_url.starts_with("https://") && !p.base_url.ends_with('/'), "{}", p.base_url);
             assert!(!p.name.trim().is_empty());
             assert!(p.default_model.as_deref().is_none_or(|m| !m.trim().is_empty()));
+            assert!(p.check_path.as_deref().is_none_or(|path| path.starts_with('/')));
         }
         assert_eq!(default_model("deepseek"), Some("deepseek-flash"));
         assert!(is_compatible("openrouter") && is_compatible(CUSTOM) && !is_compatible("openai"));

@@ -113,3 +113,27 @@ export interface SavedParts {
   paths: string[];
   renamed: number;
 }
+
+/** Mirrors key_detect::Platform. */
+export type Platform =
+  | "anthropic"
+  | "openai"
+  | "gemini"
+  | "openrouter"
+  | "nvidia"
+  | "groq"
+  | "xai"
+  | "deepseek"
+  | "mistral"
+  | "together"
+  | "opencode-go"
+  | "custom";
+
+/** Mirrors ai::verify::KeyCheck: what checking a saved key found (#27). */
+export type KeyCheck = { status: "connected" } | { status: "unchecked"; reason: string };
+
+/** Mirrors key_detect::Detection: what a key's prefix says about it. */
+export type KeyDetection =
+  | { kind: "platform"; platform: Platform }
+  | { kind: "ambiguous"; options: Platform[] }
+  | { kind: "rejected"; reason: string };

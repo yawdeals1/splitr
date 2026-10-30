@@ -10,6 +10,7 @@ use tauri::{AppHandle, Emitter, Manager};
 use crate::ai::{self, response, AiCalls, AiRequest, Provider};
 use crate::error::{Result, SplitError};
 use crate::export::{self, ExportRequest, SavedParts};
+use crate::key_detect::{self, Detection};
 use crate::naming;
 use crate::keystore::{self, KeyStatus, OsStore};
 use crate::pdf::PdfInfo;
@@ -109,6 +110,23 @@ pub async fn api_key_status(platform: String) -> Result<KeyStatus> {
 #[tauri::command]
 pub async fn delete_api_key(platform: String) -> Result<KeyStatus> {
     key_store(move || keystore::delete(&OsStore, &platform)).await
+}
+
+/// Every platform with a saved key, and each key's last 4 characters (#27, NFR-05).
+#[tauri::command]
+pub async fn saved_api_keys() -> Result<Vec<KeyStatus>> {
+    key_store(|| keystore::saved(&OsStore)).await
+}
+
+/// Checks the saved key for `platform` with one call to that platform only (#27, NFR-05).
+#[tauri::command]
+pub async fn verify_api_key(app: AppHandle, platform: String) -> Result<ai::verify::KeyCheck> {
+    let settings = get_settings(app).await?;
+    let key = {
+        let platform = platform.clone();
+        key_store(move || keystore::key_for(&OsStore, &platform)).await?
+    };
+    ai::verify::verify(&platform, &settings.ai_custom_url, &key).await
 }
 
 /// Sends one chunk of page excerpts to the chosen AI platform and returns its reply text. `ai_split`
@@ -302,4 +320,10 @@ pub fn fixed_ranges(page_count: u32, every: Option<u32>, parts: Option<u32>) -> 
 #[tauri::command]
 pub fn validate_ranges(ranges: Vec<Range>, page_count: u32, allow_gaps: bool) -> Result<()> {
     ranges::validate(&ranges, page_count, allow_gaps)
+}
+
+/// Says which platform a pasted key belongs to, from its prefix only (#27). No network call.
+#[tauri::command]
+pub fn detect_api_key(key: String) -> Detection {
+    key_detect::detect(&key)
 }

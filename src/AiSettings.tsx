@@ -1,59 +1,51 @@
-// The AI section of the panel: the AI switch (FR-62), the AI service and its model, the API key (FR-60)
-// and the consent status (FR-61).
-// The key goes straight to the backend, which keeps it in the OS credential store. After saving,
-// the interface only ever sees its last 4 characters (NFR-05).
+// The AI section of the panel: the AI switch (FR-62), the AI service and its model, the saved API
+// keys (FR-60, #27) and the consent status (FR-61).
+// A pasted key goes straight to the backend, which keeps it in the OS credential store. After
+// saving, the interface only ever sees its last 4 characters (NFR-05).
 import { useCallback, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { AI_SERVICES, aiService, usesKey } from "./ai";
-import type { KeyStatus, Settings } from "./types";
+import { AI_SERVICES, aiService, keyChoices, type KeyChoices, usesKey } from "./ai";
+import type { KeyCheck, KeyDetection, KeyStatus, Settings } from "./types";
 
-/**
- * The saved key's status for `platform`: undefined while loading, null if it can't be read or the
- * service signs in instead of using a key.
- */
-export function useApiKey(platform: string | undefined) {
-  const [status, setStatus] = useState<KeyStatus | null | undefined>(undefined);
+/** The platforms with a saved key (#27): undefined while loading. */
+export function useApiKeys() {
+  const [keys, setKeys] = useState<KeyStatus[] | undefined>(undefined);
   const [error, setError] = useState("");
-  const keyPlatform = usesKey(aiService(platform)) ? platform : undefined;
+
+  const refresh = useCallback(async () => {
+    try {
+      setKeys(await invoke<KeyStatus[]>("saved_api_keys"));
+      setError("");
+    } catch (e) {
+      setKeys([]);
+      setError(String(e));
+    }
+  }, []);
 
   useEffect(() => {
-    setStatus(undefined);
-    setError("");
-    if (!keyPlatform) return setStatus(null);
-    let current = true;
-    invoke<KeyStatus>("api_key_status", { platform: keyPlatform })
-      .then((s) => current && setStatus(s))
-      .catch((e) => {
-        if (!current) return;
-        setStatus(null);
-        setError(String(e));
-      });
-    return () => {
-      current = false;
-    };
-  }, [keyPlatform]);
+    refresh();
+  }, [refresh]);
 
   const run = useCallback(
     async (command: string, args: Record<string, string>) => {
-      if (!keyPlatform) return false;
       try {
-        setStatus(await invoke<KeyStatus>(command, { platform: keyPlatform, ...args }));
-        setError("");
+        await invoke<KeyStatus>(command, args);
+        await refresh();
         return true;
       } catch (e) {
         setError(String(e));
         return false;
       }
     },
-    [keyPlatform],
+    [refresh],
   );
 
   return {
-    status,
+    keys,
     error,
-    hasKey: Boolean(status?.last4),
-    save: (key: string) => run("save_api_key", { key }),
-    remove: () => run("delete_api_key", {}),
+    has: (platform: string | undefined) => Boolean(keys?.some((k) => k.platform === platform)),
+    save: (platform: string, key: string) => run("save_api_key", { platform, key }),
+    remove: (platform: string) => run("delete_api_key", { platform }),
   };
 }
 
@@ -107,25 +99,121 @@ function SavedField({
   );
 }
 
+/** What the last check of a saved key found (#27). */
+type CheckState = { state: "checking" } | { state: "connected" } | { state: "note" | "error"; text: string };
+
+/**
+ * #27: paste a key, see which platform it belongs to (detected locally from its prefix), correct
+ * it if needed, and save. Nothing is sent anywhere until the key is saved and checked.
+ */
+function AddKey({ onSave }: { onSave: (platform: string, key: string) => Promise<boolean> }) {
+  const [draft, setDraft] = useState("");
+  const [choices, setChoices] = useState<KeyChoices | null>(null);
+  const [platform, setPlatform] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  function reset() {
+    // The pasted key is dropped from memory whether or not it was saved.
+    setDraft("");
+    setChoices(null);
+    setPlatform("");
+  }
+
+  async function detect() {
+    const found = keyChoices(await invoke<KeyDetection>("detect_api_key", { key: draft }));
+    setChoices(found);
+    setPlatform(found.platform);
+  }
+
+  async function save() {
+    setSaving(true);
+    const ok = await onSave(platform, draft);
+    setSaving(false);
+    if (ok) reset();
+  }
+
+  return (
+    <form
+      className="key-form"
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (choices?.options.length) save();
+        else detect();
+      }}
+    >
+      <label>
+        Add an API key
+        <input
+          type="password"
+          autoComplete="off"
+          spellCheck={false}
+          value={draft}
+          onChange={(e) => {
+            setDraft(e.target.value);
+            setChoices(null);
+          }}
+          placeholder="Paste a key"
+        />
+      </label>
+      {choices?.problem && (
+        <p className="error" role="alert">
+          {choices.problem}
+        </p>
+      )}
+      {choices && choices.options.length > 0 && (
+        <label>
+          {choices.detected ? "Detected platform. Change it if it's wrong" : "Which platform is this key for?"}
+          <select value={platform} onChange={(e) => setPlatform(e.target.value)}>
+            {!platform && (
+              <option value="" disabled>
+                Choose a platform
+              </option>
+            )}
+            {choices.options.map((id) => (
+              <option key={id} value={id}>
+                {aiService(id).name}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+      <div className="row">
+        <button type="submit" disabled={saving || !draft.trim() || (choices !== null && !platform)}>
+          {saving ? "Saving…" : !choices?.options.length ? "Next" : platform ? `Save ${aiService(platform).name} key` : "Save key"}
+        </button>
+        {draft && (
+          <button type="button" onClick={reset}>
+            Cancel
+          </button>
+        )}
+      </div>
+      {choices?.options.length && platform ? (
+        <p className="muted">
+          Kept in your system&rsquo;s credential store, never in a file. It is sent only to {aiService(platform).company},
+          to check it and to split.
+        </p>
+      ) : null}
+    </form>
+  );
+}
+
 interface Props {
   settings: Settings | null;
-  apiKey: ReturnType<typeof useApiKey>;
+  apiKeys: ReturnType<typeof useApiKeys>;
   onChange: (change: Partial<Settings>) => Promise<string | null>;
 }
 
-export function AiSettings({ settings, apiKey, onChange }: Props) {
-  const [draft, setDraft] = useState("");
-  const [replacing, setReplacing] = useState(false);
-  const [saving, setSaving] = useState(false);
+export function AiSettings({ settings, apiKeys, onChange }: Props) {
   const [problem, setProblem] = useState("");
   const [defaults, setDefaults] = useState<Record<string, string>>({});
   // #30: the chosen platform's models, fetched when the user asks.
   const [models, setModels] = useState<{ service: string; list: string[] } | null>(null);
   const [loadingModels, setLoadingModels] = useState(false);
+  // #27: the result of the last check of each saved key, by platform.
+  const [checks, setChecks] = useState<Record<string, CheckState>>({});
   const enabled = settings?.aiEnabled ?? false;
   const service = settings?.aiPlatform ?? "chatgpt";
   const current = aiService(service);
-  const last4 = apiKey.status?.last4;
 
   useEffect(() => {
     invoke<Record<string, string>>("default_ai_models").then(setDefaults, () => setDefaults({}));
@@ -154,13 +242,30 @@ export function AiSettings({ settings, apiKey, onChange }: Props) {
     }
   }
 
-  async function saveKey() {
-    setSaving(true);
-    const ok = await apiKey.save(draft);
-    setSaving(false);
-    // The pasted key is dropped from memory whether or not it was saved.
-    setDraft("");
-    if (ok) setReplacing(false);
+  // #27: one call to the key's own platform, to show Connected or the exact error.
+  async function check(platform: string) {
+    setChecks((c) => ({ ...c, [platform]: { state: "checking" } }));
+    let result: CheckState;
+    try {
+      const found = await invoke<KeyCheck>("verify_api_key", { platform });
+      result = found.status === "connected" ? { state: "connected" } : { state: "note", text: found.reason };
+    } catch (e) {
+      result = { state: "error", text: String(e) };
+    }
+    setChecks((c) => ({ ...c, [platform]: result }));
+  }
+
+  async function addKey(platform: string, key: string) {
+    const ok = await apiKeys.save(platform, key);
+    if (!ok) return false;
+    // A new key becomes the service Smart mode uses if the current one can't run yet.
+    if (!usesKey(current) || !apiKeys.has(service)) chooseService(platform);
+    check(platform);
+    return true;
+  }
+
+  async function removeKey(platform: string) {
+    if (await apiKeys.remove(platform)) setChecks(({ [platform]: _, ...rest }) => rest);
   }
 
   return (
@@ -183,6 +288,7 @@ export function AiSettings({ settings, apiKey, onChange }: Props) {
             {AI_SERVICES.map((s) => (
               <option key={s.id} value={s.id}>
                 {s.label}
+                {usesKey(s) && apiKeys.has(s.id) ? " (key saved)" : ""}
               </option>
             ))}
           </select>
@@ -195,6 +301,10 @@ export function AiSettings({ settings, apiKey, onChange }: Props) {
         </p>
       )}
 
+      {enabled && usesKey(current) && apiKeys.keys && !apiKeys.has(service) && (
+        <p className="muted">Add your {current.name} API key below to use it.</p>
+      )}
+
       {enabled && service === "custom" && (
         <SavedField
           label="Address"
@@ -202,66 +312,6 @@ export function AiSettings({ settings, apiKey, onChange }: Props) {
           placeholder="https://example.com/v1"
           onSave={(url) => change({ aiCustomUrl: url })}
         />
-      )}
-
-      {enabled && usesKey(current) && (
-        <>
-          {last4 && !replacing ? (
-            <div className="key-status">
-              <span>
-                {current.name} API key ending in <code>{last4}</code>
-              </span>
-              <div className="row">
-                <button type="button" onClick={() => setReplacing(true)}>
-                  Replace
-                </button>
-                <button type="button" onClick={apiKey.remove}>
-                  Remove
-                </button>
-              </div>
-            </div>
-          ) : (
-            <form
-              className="key-form"
-              onSubmit={(e) => {
-                e.preventDefault();
-                saveKey();
-              }}
-            >
-              <label>
-                {current.name} API key
-                <input
-                  type="password"
-                  autoComplete="off"
-                  spellCheck={false}
-                  value={draft}
-                  onChange={(e) => setDraft(e.target.value)}
-                  placeholder={current.keyHint}
-                  disabled={apiKey.status === undefined}
-                />
-              </label>
-              <div className="row">
-                <button type="submit" disabled={saving || !draft.trim()}>
-                  {saving ? "Saving…" : "Save key"}
-                </button>
-                {replacing && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setDraft("");
-                      setReplacing(false);
-                    }}
-                  >
-                    Cancel
-                  </button>
-                )}
-              </div>
-            </form>
-          )}
-          <p className="muted">
-            Kept in your system&rsquo;s credential store, never in a file. It is sent only to {current.company}.
-          </p>
-        </>
       )}
 
       {enabled && (
@@ -274,11 +324,43 @@ export function AiSettings({ settings, apiKey, onChange }: Props) {
             models={models?.service === service ? models.list : []}
             onSave={(model) => change({ aiModels: { ...settings?.aiModels, [service]: model } })}
           />
-          {current.listsModels && apiKey.hasKey && (
+          {current.listsModels && apiKeys.has(service) && (
             <button type="button" className="link" disabled={loadingModels} onClick={loadModels}>
               {loadingModels ? "Loading models…" : "Show available models"}
             </button>
           )}
+
+          {apiKeys.keys && apiKeys.keys.length > 0 && (
+            <ul className="key-list" aria-label="Saved API keys">
+              {apiKeys.keys.map(({ platform, last4 }) => {
+                const result = checks[platform];
+                return (
+                  <li key={platform}>
+                    <span>
+                      {aiService(platform).name} key ending in <code>{last4}</code>
+                    </span>
+                    <div className="row">
+                      <button type="button" onClick={() => check(platform)} disabled={result?.state === "checking"}>
+                        {result?.state === "checking" ? "Checking…" : "Check"}
+                      </button>
+                      <button type="button" onClick={() => removeKey(platform)}>
+                        Remove
+                      </button>
+                    </div>
+                    {result?.state === "connected" && <p className="notice">Connected</p>}
+                    {result?.state === "note" && <p className="muted">{result.text}</p>}
+                    {result?.state === "error" && (
+                      <p className="error" role="alert">
+                        {result.text}
+                      </p>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+          <AddKey onSave={addKey} />
+
           {settings?.aiConsent && (
             <p className="muted">
               You agreed to the AI notice.{" "}
@@ -289,9 +371,9 @@ export function AiSettings({ settings, apiKey, onChange }: Props) {
           )}
         </>
       )}
-      {(apiKey.error || problem) && (
+      {(apiKeys.error || problem) && (
         <p className="error" role="alert">
-          {apiKey.error || problem}
+          {apiKeys.error || problem}
         </p>
       )}
     </fieldset>

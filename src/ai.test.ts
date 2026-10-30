@@ -2,7 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { aiBlock, aiBlockMessage, aiService, usesAi, usesKey } from "./ai.ts";
+import { aiBlock, aiBlockMessage, aiService, keyChoices, usesAi, usesKey } from "./ai.ts";
 
 test("usesAi covers AI presets, AI fallbacks and the custom prompt", () => {
   assert.equal(usesAi({ strategy: "ai" }), true);
@@ -51,4 +51,25 @@ test("the OpenAI-compatible services match the backend's data file", () => {
   }
   assert.equal(aiService("custom").listsModels, true);
   assert.equal(aiService("opencode-go").listsModels, true);
+});
+
+test("keyChoices preselects a detected platform and lets the user change it", () => {
+  const found = keyChoices({ kind: "platform", platform: "openai" });
+  assert.equal(found.detected, true);
+  assert.equal(found.platform, "openai");
+  assert.equal(found.options[0], "openai");
+  assert.ok(found.options.includes("gemini") && !found.options.includes("chatgpt"));
+});
+
+test("keyChoices makes the user pick when a prefix fits several platforms", () => {
+  const unsure = keyChoices({ kind: "ambiguous", options: ["openai", "deepseek"] });
+  assert.equal(unsure.platform, "");
+  assert.deepEqual(unsure.options.slice(0, 2), ["openai", "deepseek"]);
+  assert.equal(new Set(unsure.options).size, unsure.options.length);
+});
+
+test("keyChoices explains a key of the wrong kind", () => {
+  const wrong = keyChoices({ kind: "rejected", reason: "This is an OpenAI Admin key" });
+  assert.deepEqual(wrong.options, []);
+  assert.match(wrong.problem, /Admin key/);
 });

@@ -8,6 +8,7 @@ pub mod http;
 pub mod openai;
 pub mod opencode_go;
 pub mod response;
+pub mod verify;
 
 use std::collections::BTreeMap;
 

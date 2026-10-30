@@ -6,7 +6,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import { aiBlock, aiBlockMessage, aiService, usesAi } from "./ai";
 import { AiConsent } from "./AiConsent";
-import { AiSettings, useApiKey } from "./AiSettings";
+import { AiSettings, useApiKeys } from "./AiSettings";
 import { ExportOptions } from "./ExportOptions";
 import { baseName, formatSize, rejectReason } from "./file";
 import { DEFAULT_TEMPLATE, savedMessage, usableTemplate } from "./naming";
@@ -90,7 +90,7 @@ function App({ initialSettings }: { initialSettings: Settings | null }) {
   // Set when Escape cancels "Confirm delete", so the "Delete preset" button that replaces it takes focus.
   const refocusDelete = useRef(false);
   const { settings, loadError, update: updateSettings } = useSettings(initialSettings);
-  const apiKey = useApiKey(settings?.aiPlatform);
+  const apiKeys = useApiKeys();
   const theme = settings?.theme;
   const typedTemplate = template ?? settings?.nameTemplate ?? DEFAULT_TEMPLATE;
   // A blank field names files with the default, and the default is what gets saved.
@@ -300,7 +300,7 @@ function App({ initialSettings }: { initialSettings: Settings | null }) {
         // FR-60 to FR-62: AI runs only when it is on, a key is saved and the user agreed to the notice.
         if (usesAi(presetId === CUSTOM_PROMPT ? null : selectedPreset ?? null)) {
           if (!settings) throw "Settings are still loading.";
-          const block = aiBlock({ ...settings, aiConsent: settings.aiConsent || consented }, apiKey.hasKey);
+          const block = aiBlock({ ...settings, aiConsent: settings.aiConsent || consented }, apiKeys.has(settings.aiPlatform));
           if (block === "consent") return setAskConsent(true);
           if (block) throw aiBlockMessage(block, aiService(settings.aiPlatform));
         }
@@ -599,7 +599,7 @@ function App({ initialSettings }: { initialSettings: Settings | null }) {
                 </div>
               )
             )}
-            <AiSettings settings={settings} apiKey={apiKey} onChange={updateSettings} />
+            <AiSettings settings={settings} apiKeys={apiKeys} onChange={updateSettings} />
           </>
         )}
 
