@@ -35,6 +35,14 @@ export const AI_SERVICES: AiService[] = [
     { id: "together", name: "Together AI", company: "Together AI", keyHint: "" },
   ].map((p) => ({ ...p, label: `${p.name} API key`, listsModels: true })),
   {
+    id: "opencode-go",
+    label: "OpenCode Go subscription",
+    name: "OpenCode Go",
+    company: "OpenCode",
+    keyHint: "",
+    listsModels: true,
+  },
+  {
     id: "custom",
     label: "Other OpenAI-compatible platform",
     name: "Custom platform",

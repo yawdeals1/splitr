@@ -6,6 +6,7 @@ pub mod compatible;
 pub mod gemini;
 pub mod http;
 pub mod openai;
+pub mod opencode_go;
 pub mod response;
 
 use std::collections::BTreeMap;
@@ -18,6 +19,7 @@ use claude::Claude;
 use compatible::ChatCompletions;
 use gemini::Gemini;
 use openai::OpenAi;
+use opencode_go::OpenCodeGo;
 
 /// The AI service Smart mode uses until the user picks another: their ChatGPT account (#31).
 pub const DEFAULT_PLATFORM: &str = "chatgpt";
@@ -39,6 +41,7 @@ pub fn default_model(platform: &str) -> Option<&'static str> {
         .find(|(id, _)| *id == platform)
         .map(|(_, model)| *model)
         .or_else(|| compatible::default_model(platform))
+        .or_else(|| (platform == "opencode-go").then(opencode_go::default_model).flatten())
 }
 
 /// Every default, for the settings screen.
@@ -46,10 +49,12 @@ pub fn default_models() -> BTreeMap<String, String> {
     let compatible = compatible::platforms()
         .iter()
         .filter_map(|p| Some((p.id.as_str(), p.default_model.as_deref()?)));
+    let opencode_go = opencode_go::default_model().map(|model| ("opencode-go", model));
     DEFAULT_MODELS
         .iter()
         .copied()
         .chain(compatible)
+        .chain(opencode_go)
         .map(|(id, model)| (id.to_string(), model.to_string()))
         .collect()
 }
@@ -87,6 +92,7 @@ pub enum Chosen {
     OpenAi(OpenAi),
     Gemini(Gemini),
     Compatible(ChatCompletions),
+    OpenCodeGo(OpenCodeGo),
 }
 
 impl Provider for Chosen {
@@ -96,6 +102,7 @@ impl Provider for Chosen {
             Chosen::OpenAi(p) => p.complete(request).await,
             Chosen::Gemini(p) => p.complete(request).await,
             Chosen::Compatible(p) => p.complete(request).await,
+            Chosen::OpenCodeGo(p) => p.complete(request).await,
         }
     }
 }
@@ -110,13 +117,14 @@ pub fn provider(platform: &str, custom_url: &str, key: String, model: String) ->
         "anthropic" => Ok(Chosen::Claude(Claude::new(key, model)?)),
         "openai" => Ok(Chosen::OpenAi(OpenAi::new(key, model)?)),
         "gemini" => Ok(Chosen::Gemini(Gemini::new(key, model)?)),
+        "opencode-go" => Ok(Chosen::OpenCodeGo(OpenCodeGo::new(key, model))),
         _ => Err(unsupported(platform)),
     }
 }
 
 /// Whether Smart mode can send requests to `platform` yet.
 pub fn is_supported(platform: &str) -> bool {
-    matches!(platform, "anthropic" | "openai" | "gemini") || compatible::is_compatible(platform)
+    matches!(platform, "anthropic" | "openai" | "gemini" | "opencode-go") || compatible::is_compatible(platform)
 }
 
 /// Why Smart mode can't use `platform` yet.
@@ -202,6 +210,7 @@ mod tests {
         assert_eq!(default_model("custom"), None);
         assert_eq!(default_model("deepseek"), Some("deepseek-flash"));
         assert_eq!(default_models().get("deepseek").map(String::as_str), Some("deepseek-flash"));
+        assert_eq!(default_model("opencode-go"), Some("deepseek-v4.1-flash"));
         for (id, model) in DEFAULT_MODELS {
             assert!(is_platform(id), "{id}");
             assert!(!model.trim().is_empty());
@@ -213,9 +222,10 @@ mod tests {
     fn only_finished_providers_are_offered() {
         assert!(is_supported("anthropic") && is_supported("openai") && is_supported("gemini"));
         assert!(is_supported("openrouter") && is_supported("custom"));
-        assert!(!is_supported("chatgpt") && !is_supported("opencode-go"));
+        assert!(is_supported("opencode-go"));
+        assert!(!is_supported("chatgpt") && !is_supported("../evil"));
         assert!(unsupported("chatgpt").to_string().contains("ChatGPT isn't available yet"));
-        let err = provider("opencode-go", "", "k".into(), "m".into()).err().unwrap();
+        let err = provider("someday", "", "k".into(), "m".into()).err().unwrap();
         assert!(err.to_string().contains("can't use this AI service yet"), "{err}");
         assert!(matches!(provider("openai", "", "k".into(), "m".into()), Ok(Chosen::OpenAi(_))));
     }

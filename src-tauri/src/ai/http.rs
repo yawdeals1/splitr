@@ -21,6 +21,10 @@ pub struct Api {
     /// The platform's name, as the user knows it ("OpenAI").
     name: String,
     timeout: Duration,
+    /// Headers sent with every call, such as OpenCode's session id (#32). Never the key.
+    extra: Vec<(String, String)>,
+    /// True for subscription plans with usage limits, so a 429 says when the limit resets (#32).
+    usage_limits: bool,
 }
 
 impl Api {
@@ -38,7 +42,17 @@ impl Api {
             .timeout(timeout)
             .build()
             .map_err(|e| SplitError::Ai(format!("Splitr couldn't set up its connection to {name} ({e})")))?;
-        Ok(Self { http, name, timeout })
+        Ok(Self { http, name, timeout, extra: Vec::new(), usage_limits: false })
+    }
+
+    /// Sends `name: value` with every call.
+    pub fn add_header(&mut self, name: &str, value: String) {
+        self.extra.push((name.into(), value));
+    }
+
+    /// Reports a 429 as a plan's usage limit rather than a rate limit.
+    pub fn with_usage_limits(&mut self) {
+        self.usage_limits = true;
     }
 
     /// POSTs `body` as JSON to `url` with `headers`, and returns the reply body of a successful
@@ -53,6 +67,9 @@ impl Api {
     }
 
     async fn send(&self, mut call: reqwest::RequestBuilder, headers: &[(&str, &str)], model: &str) -> Result<String> {
+        for (name, value) in &self.extra {
+            call = call.header(name, value);
+        }
         for (name, value) in headers {
             call = call.header(*name, *value);
         }
@@ -93,6 +110,13 @@ impl Api {
             _ if error.is_bad_key() => format!("{name} didn't accept your API key. Check it in Settings"),
             401 => format!("{name} didn't accept your API key. Check it in Settings"),
             402 => format!("Your {name} account has no credit left for this request. Check billing on {name}'s site{detail}"),
+            429 if self.usage_limits => match retry_after {
+                Some(secs) => format!("You've reached your {name} usage limit. It resets {}", in_about(secs)),
+                None => format!(
+                    "You've reached your {name} usage limit. Limits reset every 5 hours, week and month; check your \
+                     usage on {name}'s site, or choose another model"
+                ),
+            },
             // Running out of quota is a 429 too, but waiting won't help.
             429 if error.is_quota() => {
                 format!("You've used up your {name} quota or credit. Check your plan and billing on {name}'s site{detail}")
@@ -112,6 +136,17 @@ impl Api {
         };
         SplitError::Ai(message)
     }
+}
+
+/// "in about 2 hours" for a wait of `secs` seconds.
+fn in_about(secs: u64) -> String {
+    let (amount, unit) = match secs {
+        0..120 => (secs, "seconds"),
+        120..7200 => (secs.div_ceil(60), "minutes"),
+        7200..172_800 => (secs.div_ceil(3600), "hours"),
+        _ => (secs.div_ceil(86_400), "days"),
+    };
+    format!("in about {amount} {unit}")
 }
 
 /// The parts of an error body that platforms share, in the OpenAI style
@@ -279,6 +314,14 @@ mod tests {
         let api = Api::new("Example", Duration::from_secs(5)).unwrap();
         let err = tauri::async_runtime::block_on(api.get(&url, &[])).unwrap_err().to_string();
         assert!(err.contains("nothing at this address") && !err.contains("model"), "{err}");
+    }
+
+    #[test]
+    fn waits_read_naturally() {
+        assert_eq!(in_about(30), "in about 30 seconds");
+        assert_eq!(in_about(300), "in about 5 minutes");
+        assert_eq!(in_about(7200), "in about 2 hours");
+        assert_eq!(in_about(3 * 86_400), "in about 3 days");
     }
 
     #[test]

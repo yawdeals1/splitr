@@ -152,11 +152,11 @@ async fn ai_provider(app: &AppHandle) -> Result<ai::Chosen> {
     ai::provider(platform, &settings.ai_custom_url, key, model)
 }
 
-/// The models an OpenAI-compatible platform offers (#30), for the settings screen. Runs only when
+/// The models an OpenAI-compatible platform (#30) or OpenCode Go (#32) offers, for the settings screen. Runs only when
 /// the user asks, and sends the platform's saved key to that platform only (NFR-05).
 #[tauri::command]
 pub async fn list_ai_models(app: AppHandle, platform: String) -> Result<Vec<String>> {
-    if !ai::compatible::is_compatible(&platform) {
+    if !ai::compatible::is_compatible(&platform) && platform != "opencode-go" {
         return Err(SplitError::Ai("Splitr can't list the models of this AI service. Type the model name".into()));
     }
     let settings = get_settings(app.clone()).await?;
@@ -164,6 +164,9 @@ pub async fn list_ai_models(app: AppHandle, platform: String) -> Result<Vec<Stri
         let platform = platform.clone();
         key_store(move || keystore::key_for(&OsStore, &platform)).await?
     };
+    if platform == "opencode-go" {
+        return app.state::<AiCalls>().run(ai::opencode_go::models(key)).await;
+    }
     let client = ai::compatible::ChatCompletions::new(&platform, &settings.ai_custom_url, key, String::new())?;
     app.state::<AiCalls>().run(client.models()).await
 }
