@@ -255,6 +255,18 @@ pub async fn refresh(http: &reqwest::Client, url: &str, client_id: &str, refresh
     token_call(http, url, &form).await
 }
 
+/// Ends the connection on OpenAI's side by revoking `token` (RFC 7009). Revoking the refresh token
+/// ends the access tokens made from it too.
+pub async fn revoke(http: &reqwest::Client, url: &str, client_id: &str, token: &str) -> Result<()> {
+    let form = [("token", token), ("token_type_hint", "refresh_token"), ("client_id", client_id)];
+    let response = http.post(url).form(&form).send().await.map_err(|e| unreachable(&e))?;
+    if response.status().is_success() {
+        Ok(())
+    } else {
+        Err(SplitError::Ai(format!("ChatGPT didn't end the connection (error {})", response.status().as_u16())))
+    }
+}
+
 /// OpenAI's signing keys, from its OpenID configuration at `discovery`.
 pub async fn signing_keys(http: &reqwest::Client, discovery: &str) -> Result<Value> {
     let get = |url: String| async move {
@@ -371,5 +383,17 @@ mod tests {
         let (url, _) = serve("/token", "200 OK", "", r#"{"access_token":"at","refresh_token":"rt2","expires_in":3600,"scope":"openid"}"#);
         let t = tauri::async_runtime::block_on(refresh(&http, &url, "oaiapp_1", "rt")).ok().unwrap();
         assert_eq!((t.access_token.as_str(), t.refresh_token.as_deref(), t.expires_in), ("at", Some("rt2"), Some(3600)));
+    }
+
+    #[test]
+    fn revoke_sends_the_refresh_token_to_the_revocation_endpoint() {
+        use crate::ai::http::test_server::serve;
+        let http = client().unwrap();
+        let (url, got) = serve("/revoke", "200 OK", "", "");
+        tauri::async_runtime::block_on(revoke(&http, &url, "oaiapp_1", "rt-1")).unwrap();
+        let raw = got.recv().unwrap();
+        assert!(raw.contains("token=rt-1") && raw.contains("token_type_hint=refresh_token") && raw.contains("client_id=oaiapp_1"));
+        let (url, _) = serve("/revoke", "503 Service Unavailable", "", "");
+        assert!(tauri::async_runtime::block_on(revoke(&http, &url, "oaiapp_1", "rt-1")).is_err());
     }
 }

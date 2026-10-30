@@ -224,15 +224,25 @@ pub async fn chatgpt_connect(app: AppHandle) -> Result<chatgpt::Status> {
     .await
 }
 
-/// Forgets the ChatGPT tokens on this computer (#31). OpenAI offers no way for an app to end the
-/// connection, so the user removes Splitr in ChatGPT's settings to end it there too.
+/// Ends the ChatGPT connection (#31): revokes the refresh token at OpenAI, then forgets the tokens
+/// on this computer. They are forgotten even if OpenAI can't be reached, and the error says so.
 #[tauri::command]
 pub async fn chatgpt_disconnect() -> Result<chatgpt::Status> {
-    key_store(|| {
-        chatgpt::delete_session(&OsStore)?;
-        Ok(chatgpt::Status::default())
+    let session = key_store(|| chatgpt::load_session(&OsStore)).await?;
+    let revoked = match session.as_ref().and_then(|s| Some((s.client_id.clone(), s.refresh_token.clone()?))) {
+        Some((client_id, token)) => {
+            let endpoints = chatgpt::Endpoints::default();
+            chatgpt::oauth::revoke(&chatgpt::oauth::client()?, &endpoints.revoke, &client_id, &token).await
+        }
+        None => Ok(()),
+    };
+    key_store(|| chatgpt::delete_session(&OsStore)).await?;
+    revoked.map(|()| chatgpt::Status::default()).map_err(|e| {
+        SplitError::Ai(format!(
+            "ChatGPT is disconnected on this computer, but Splitr couldn't end the connection at OpenAI ({e}). Remove \
+             Splitr in ChatGPT under Settings to end it there too"
+        ))
     })
-    .await
 }
 
 /// A current access token for the connected ChatGPT account, refreshed and saved again if it was

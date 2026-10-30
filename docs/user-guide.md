@@ -73,6 +73,7 @@ Other presets need the AI from the start, because the split depends on what the 
 AI is optional and off until you set it up. To use it:
 
 1. Under **AI** in the panel, paste an API key for an AI service you have an account with, such as Claude, OpenAI or Gemini, into **Add an API key** and click **Next**. Splitr works out which service the key belongs to from how it starts, without sending it anywhere. If it can't tell, or got it wrong, pick the service yourself, then click **Save key**. Splitr then checks the key with one call to that service only, and shows **Connected** or the exact error. You can save keys for several services and switch between them with **AI service**.
+   Or use your ChatGPT plan instead of a key: choose **ChatGPT account** as the **AI service** and click **Connect ChatGPT**. ChatGPT's sign-in page opens in your browser; sign in there and allow Splitr to use your plan. Splitr never sees your password. The panel then shows the connected account and its plan. Each split counts against your plan's usage, which you can limit in ChatGPT under **Settings > Usage**. **Disconnect** ends the connection at OpenAI and removes it from your computer.
 2. The first time you run an AI split, Splitr explains what it sends and asks for your consent.
 
 What is sent: the first and last lines of each page and the page numbers, along with your instruction. The whole file is never sent. Rule-based splits (Custom, Fixed, bookmarks, patterns and blank pages) never use the internet. You can turn AI off at any time in **Settings**.

@@ -117,6 +117,17 @@ export interface Settings {
   aiCustomUrl: string;
 }
 
+/** Mirrors chatgpt::Status: all the interface learns about a connected ChatGPT account (#31, NFR-05). */
+export interface ChatGptStatus {
+  connected: boolean;
+  email: string | null;
+  name: string | null;
+  /** The ChatGPT plan, such as "plus", when OpenAI names it. */
+  plan: string | null;
+  /** False when the user signed in but didn't allow Splitr to use their plan. */
+  planUsage: boolean;
+}
+
 /** Mirrors keystore::KeyStatus: all the interface learns about a saved API key (NFR-05). */
 export interface KeyStatus {
   platform: string;

@@ -18,7 +18,9 @@ test("aiBlock checks the switch, then the account or key, then consent", () => {
   assert.equal(aiBlock({ ...claude, aiEnabled: true, aiConsent: true }, false), "no-key");
   assert.equal(aiBlock({ ...claude, aiEnabled: true, aiConsent: false }, true), "consent");
   assert.equal(aiBlock({ ...claude, aiEnabled: true, aiConsent: true }, true), null);
-  assert.equal(aiBlock({ aiPlatform: "chatgpt", aiEnabled: true, aiConsent: true }, true), "no-account");
+  assert.equal(aiBlock({ aiPlatform: "chatgpt", aiEnabled: true, aiConsent: true }, false), "no-account");
+  assert.equal(aiBlock({ aiPlatform: "chatgpt", aiEnabled: true, aiConsent: false }, true), "consent");
+  assert.equal(aiBlock({ aiPlatform: "chatgpt", aiEnabled: true, aiConsent: true }, true), null);
 });
 
 test("aiBlockMessage says what to do", () => {

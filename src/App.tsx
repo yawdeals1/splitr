@@ -7,7 +7,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import { aiBlock, aiBlockMessage, aiService } from "./ai";
 import { AiConsent } from "./AiConsent";
-import { AiSettings, useApiKeys } from "./AiSettings";
+import { AiSettings, useApiKeys, useChatGpt } from "./AiSettings";
 import { ExportOptions } from "./ExportOptions";
 import { baseName, formatSize, rejectReason } from "./file";
 import { DEFAULT_TEMPLATE, savedMessage, usableTemplate } from "./naming";
@@ -106,6 +106,7 @@ function App({ initialSettings }: { initialSettings: Settings | null }) {
   const refocusDelete = useRef(false);
   const { settings, loadError, update: updateSettings } = useSettings(initialSettings);
   const apiKeys = useApiKeys();
+  const chatGpt = useChatGpt();
   const theme = settings?.theme;
   const typedTemplate = template ?? settings?.nameTemplate ?? DEFAULT_TEMPLATE;
   // A blank field names files with the default, and the default is what gets saved.
@@ -338,7 +339,8 @@ function App({ initialSettings }: { initialSettings: Settings | null }) {
         } else if (!customPrompt.trim()) throw "Type an instruction for the AI first.";
         // FR-60 to FR-62: AI runs only when it is on, a key is saved and the user agreed to the notice.
         if (!next) {
-          const block = aiBlock({ ...settings, aiConsent: settings.aiConsent || consented }, apiKeys.has(settings.aiPlatform));
+          const ready = aiService(settings.aiPlatform).signIn ? chatGpt.connected : apiKeys.has(settings.aiPlatform);
+          const block = aiBlock({ ...settings, aiConsent: settings.aiConsent || consented }, ready);
           if (block === "consent") return setAskConsent(true);
           if (block) throw aiBlockMessage(block, aiService(settings.aiPlatform));
           const review = await runAi(pdf);
@@ -682,7 +684,7 @@ function App({ initialSettings }: { initialSettings: Settings | null }) {
                 Leave blank pages out of the parts
               </label>
             )}
-            <AiSettings settings={settings} apiKeys={apiKeys} onChange={updateSettings} />
+            <AiSettings settings={settings} apiKeys={apiKeys} chatGpt={chatGpt} onChange={updateSettings} />
           </>
         )}
 

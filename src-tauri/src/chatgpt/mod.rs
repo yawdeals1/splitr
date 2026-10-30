@@ -24,6 +24,7 @@ pub const FILE_NAME: &str = "chatgpt.json";
 pub struct Endpoints {
     pub authorize: String,
     pub token: String,
+    pub revoke: String,
     pub discovery: String,
     pub issuer: String,
 }
@@ -33,6 +34,7 @@ impl Default for Endpoints {
         Self {
             authorize: "https://auth.openai.com/api/accounts/authorize".into(),
             token: "https://auth.openai.com/api/accounts/oauth/token".into(),
+            revoke: "https://auth.openai.com/api/accounts/oauth/revoke".into(),
             discovery: "https://auth.openai.com/.well-known/openid-configuration".into(),
             issuer: "https://auth.openai.com".into(),
         }
@@ -368,6 +370,7 @@ mod tests {
         let endpoints = Endpoints {
             token: token_url,
             authorize: "https://auth.example/authorize".into(),
+            revoke: "https://auth.example/revoke".into(),
             discovery: format!("http://127.0.0.1:{closed}/.well-known/openid-configuration"),
             issuer: "https://auth.openai.com".into(),
         };

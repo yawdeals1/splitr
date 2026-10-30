@@ -1,11 +1,11 @@
 // The AI section of the panel: the AI switch (FR-62), the AI service and its model, the saved API
-// keys (FR-60, #27) and the consent status (FR-61).
+// keys (FR-60, #27), the ChatGPT account (#31) and the consent status (FR-61).
 // A pasted key goes straight to the backend, which keeps it in the OS credential store. After
 // saving, the interface only ever sees its last 4 characters (NFR-05).
 import { useCallback, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { AI_SERVICES, aiService, keyChoices, type KeyChoices, usesKey } from "./ai";
-import type { KeyCheck, KeyDetection, KeyStatus, Settings } from "./types";
+import type { ChatGptStatus, KeyCheck, KeyDetection, KeyStatus, Settings } from "./types";
 
 /** The platforms with a saved key (#27): undefined while loading. */
 export function useApiKeys() {
@@ -47,6 +47,102 @@ export function useApiKeys() {
     save: (platform: string, key: string) => run("save_api_key", { platform, key }),
     remove: (platform: string) => run("delete_api_key", { platform }),
   };
+}
+
+/**
+ * #31: the connected ChatGPT account, or undefined while loading. The tokens stay in the backend;
+ * this only ever holds the account's name, email and plan (NFR-05).
+ */
+export function useChatGpt() {
+  const [status, setStatus] = useState<ChatGptStatus | undefined>(undefined);
+  const [connecting, setConnecting] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    invoke<ChatGptStatus>("chatgpt_status").then(setStatus, (e) => setError(String(e)));
+  }, []);
+
+  async function run(command: string) {
+    setError("");
+    try {
+      setStatus(await invoke<ChatGptStatus>(command));
+    } catch (e) {
+      // Cancel ends the wait for the browser; that isn't a problem to show.
+      if (String(e) !== "The AI request was cancelled") setError(String(e));
+      // A disconnect that couldn't reach OpenAI still disconnected this computer.
+      invoke<ChatGptStatus>("chatgpt_status").then(setStatus, () => {});
+    }
+  }
+
+  return {
+    status,
+    connecting,
+    error,
+    connected: Boolean(status?.connected),
+    connect: async () => {
+      setConnecting(true);
+      await run("chatgpt_connect");
+      setConnecting(false);
+    },
+    cancel: () => invoke("cancel_ai").catch(() => {}),
+    disconnect: () => run("chatgpt_disconnect"),
+  };
+}
+
+/** "Plus" for "plus". */
+function planName(plan: string): string {
+  return plan.charAt(0).toUpperCase() + plan.slice(1);
+}
+
+/** #31: connect, show and disconnect the ChatGPT account. */
+function ChatGptAccount({ account }: { account: ReturnType<typeof useChatGpt> }) {
+  const { status, connecting } = account;
+  if (!status) return null;
+  if (connecting) {
+    return (
+      <div className="row" role="status">
+        <p className="muted">Finish signing in to ChatGPT in your browser…</p>
+        <button type="button" onClick={account.cancel}>
+          Cancel
+        </button>
+      </div>
+    );
+  }
+  if (!status.connected) {
+    return (
+      <>
+        <button type="button" onClick={account.connect}>
+          Connect ChatGPT
+        </button>
+        <p className="muted">
+          Opens ChatGPT&rsquo;s sign-in page in your browser. Splitr never sees your password, and keeps the connection
+          in your system&rsquo;s credential store.
+        </p>
+      </>
+    );
+  }
+  const who = status.email ?? status.name ?? "your account";
+  return (
+    <>
+      <p className="notice">
+        Connected as {who}
+        {status.plan ? ` (${planName(status.plan)} plan)` : ""}
+      </p>
+      {!status.planUsage && (
+        <p className="error" role="alert">
+          You didn&rsquo;t allow Splitr to use your ChatGPT plan, so Smart mode can&rsquo;t use it. Disconnect and connect
+          again to allow it, or use an API key.
+        </p>
+      )}
+      <button type="button" onClick={account.disconnect}>
+        Disconnect
+      </button>
+      <p className="muted">
+        Each split counts against your plan&rsquo;s usage. You can limit it in ChatGPT under Settings → Usage.
+        Disconnect ends the connection at OpenAI and removes it from this computer.
+      </p>
+    </>
+  );
 }
 
 /**
@@ -200,10 +296,11 @@ function AddKey({ onSave }: { onSave: (platform: string, key: string) => Promise
 interface Props {
   settings: Settings | null;
   apiKeys: ReturnType<typeof useApiKeys>;
+  chatGpt: ReturnType<typeof useChatGpt>;
   onChange: (change: Partial<Settings>) => Promise<string | null>;
 }
 
-export function AiSettings({ settings, apiKeys, onChange }: Props) {
+export function AiSettings({ settings, apiKeys, chatGpt, onChange }: Props) {
   const [problem, setProblem] = useState("");
   const [defaults, setDefaults] = useState<Record<string, string>>({});
   // #30: the chosen platform's models, fetched when the user asks.
@@ -259,7 +356,7 @@ export function AiSettings({ settings, apiKeys, onChange }: Props) {
     const ok = await apiKeys.save(platform, key);
     if (!ok) return false;
     // A new key becomes the service Smart mode uses if the current one can't run yet.
-    if (!usesKey(current) || !apiKeys.has(service)) chooseService(platform);
+    if (current.signIn ? !chatGpt.connected : !apiKeys.has(service)) chooseService(platform);
     check(platform);
     return true;
   }
@@ -295,11 +392,7 @@ export function AiSettings({ settings, apiKeys, onChange }: Props) {
         </label>
       )}
 
-      {enabled && service === "chatgpt" && (
-        <p className="muted">
-          Signing in with your ChatGPT account is coming. Until then, choose a service that uses an API key.
-        </p>
-      )}
+      {enabled && current.signIn && <ChatGptAccount account={chatGpt} />}
 
       {enabled && usesKey(current) && apiKeys.keys && !apiKeys.has(service) && (
         <p className="muted">Add your {current.name} API key below to use it.</p>
@@ -371,9 +464,9 @@ export function AiSettings({ settings, apiKeys, onChange }: Props) {
           )}
         </>
       )}
-      {(apiKeys.error || problem) && (
+      {(apiKeys.error || chatGpt.error || problem) && (
         <p className="error" role="alert">
-          {apiKeys.error || problem}
+          {apiKeys.error || chatGpt.error || problem}
         </p>
       )}
     </fieldset>
