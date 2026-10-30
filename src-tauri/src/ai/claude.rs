@@ -156,24 +156,27 @@ struct Block {
 
 /// The text of a successful reply. Thinking and fallback blocks are skipped.
 fn reply_text(body: &str) -> Result<String> {
+    reply_text_for("Claude", body)
+}
+
+/// Like `reply_text`, for an Anthropic-style reply from the platform `name`, such as OpenCode Go (#32).
+pub(crate) fn reply_text_for(name: &str, body: &str) -> Result<String> {
     let reply: Reply = serde_json::from_str(body)
-        .map_err(|_| SplitError::Ai("Claude sent an answer Splitr couldn't read. Try again".into()))?;
+        .map_err(|_| SplitError::Ai(format!("{name} sent an answer Splitr couldn't read. Try again")))?;
     match reply.stop_reason.as_deref() {
         Some("refusal") => {
-            return Err(SplitError::Ai(
-                "Claude declined to split this file. Try rewording the instruction".into(),
-            ));
+            return Err(SplitError::Ai(format!("{name} declined to split this file. Try rewording the instruction")));
         }
         Some("max_tokens") => {
-            return Err(SplitError::Ai(
-                "Claude's answer was cut off because it was too long. Try splitting a smaller part of the file".into(),
-            ));
+            return Err(SplitError::Ai(format!(
+                "{name}'s answer was cut off because it was too long. Try splitting a smaller part of the file"
+            )));
         }
         _ => {}
     }
     let text: String = reply.content.iter().filter(|b| b.kind == "text").map(|b| b.text.as_str()).collect();
     if text.trim().is_empty() {
-        return Err(SplitError::Ai("Claude sent an empty answer. Try again".into()));
+        return Err(SplitError::Ai(format!("{name} sent an empty answer. Try again")));
     }
     Ok(text)
 }

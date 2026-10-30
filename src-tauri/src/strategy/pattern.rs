@@ -10,7 +10,6 @@ pub struct PatternStrategy {
 }
 
 impl PatternStrategy {
-    #[allow(dead_code)]
     pub fn new(pattern: &str) -> Result<Self> {
         Ok(Self { regex: Regex::new(pattern)? })
     }

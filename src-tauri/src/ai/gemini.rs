@@ -19,6 +19,8 @@ const MAX_OUTPUT_TOKENS: u32 = 16_000;
 /// A client for one call. Deliberately not `Debug`, so the key can't end up in a log.
 pub struct Gemini {
     api: Api,
+    /// The platform's name for messages: "Gemini", or another platform on this API (#32).
+    name: String,
     base: String,
     key: String,
     model: String,
@@ -26,11 +28,18 @@ pub struct Gemini {
 
 impl Gemini {
     pub fn new(key: String, model: String) -> Result<Self> {
-        Self::build(API_BASE.into(), key, model, TIMEOUT)
+        Self::build("Gemini", API_BASE.into(), key, model, TIMEOUT)
     }
 
-    fn build(base: String, key: String, model: String, timeout: Duration) -> Result<Self> {
-        Ok(Self { api: Api::new("Gemini", timeout)?, base, key, model: model_id(&model)? })
+    /// A client for any endpoint that speaks this API, such as OpenCode Go (#32). `base` is the
+    /// address the model id and ":generateContent" are added to.
+    pub fn build(name: &str, base: String, key: String, model: String, timeout: Duration) -> Result<Self> {
+        Ok(Self { api: Api::new(name, timeout)?, name: name.into(), base, key, model: model_id(&model)? })
+    }
+
+    /// The HTTPS client, to add headers or usage-limit messages for another platform (#32).
+    pub fn api_mut(&mut self) -> &mut Api {
+        &mut self.api
     }
 
     fn url(&self) -> String {
@@ -77,14 +86,14 @@ fn model_id(model: &str) -> Result<String> {
 impl Provider for Gemini {
     async fn complete(&self, request: &AiRequest) -> Result<String> {
         if request.pages.is_empty() {
-            return Err(SplitError::Ai("There are no pages to send to Gemini".into()));
+            return Err(SplitError::Ai(format!("There are no pages to send to {}", self.name)));
         }
         if request.instruction.trim().is_empty() {
             return Err(SplitError::Ai("Describe how to split the file before using Smart mode".into()));
         }
         let headers = [("x-goog-api-key", self.key.as_str())];
         let reply = self.api.post(&self.url(), &headers, &self.body(request), &self.model).await?;
-        reply_text(&reply)
+        reply_text(&self.name, &reply)
     }
 }
 
@@ -124,37 +133,36 @@ struct Part {
     thought: bool,
 }
 
-/// The text of a successful reply. `response` parses and checks it like any other platform's, so
-/// a reply of the wrong shape is asked for again once and then fixed by hand (FR-36).
-fn reply_text(body: &str) -> Result<String> {
+/// The text of a successful reply from `name`. `response` parses and checks it like any other
+/// platform's, so a reply of the wrong shape is asked for again once and then fixed by hand (FR-36).
+fn reply_text(name: &str, body: &str) -> Result<String> {
     let reply: Reply = serde_json::from_str(body)
-        .map_err(|_| SplitError::Ai("Gemini sent an answer Splitr couldn't read. Try again".into()))?;
+        .map_err(|_| SplitError::Ai(format!("{name} sent an answer Splitr couldn't read. Try again")))?;
+    let declined = || SplitError::Ai(format!("{name} declined to split this file. Try rewording the instruction"));
     if reply.prompt_feedback.and_then(|f| f.block_reason).is_some() {
-        return Err(SplitError::Ai("Gemini declined to split this file. Try rewording the instruction".into()));
+        return Err(declined());
     }
     let candidate = reply
         .candidates
         .into_iter()
         .next()
-        .ok_or_else(|| SplitError::Ai("Gemini sent an empty answer. Try again".into()))?;
+        .ok_or_else(|| SplitError::Ai(format!("{name} sent an empty answer. Try again")))?;
     match candidate.finish_reason.as_deref() {
         None | Some("STOP") => {}
         Some("MAX_TOKENS") => {
-            return Err(SplitError::Ai(
-                "Gemini's answer was cut off because it was too long. Try splitting a smaller part of the file".into(),
-            ));
+            return Err(SplitError::Ai(format!(
+                "{name}'s answer was cut off because it was too long. Try splitting a smaller part of the file"
+            )));
         }
-        Some("SAFETY" | "RECITATION" | "BLOCKLIST" | "PROHIBITED_CONTENT" | "SPII") => {
-            return Err(SplitError::Ai("Gemini declined to split this file. Try rewording the instruction".into()));
-        }
-        Some(other) => return Err(SplitError::Ai(format!("Gemini stopped before finishing ({other}). Try again"))),
+        Some("SAFETY" | "RECITATION" | "BLOCKLIST" | "PROHIBITED_CONTENT" | "SPII") => return Err(declined()),
+        Some(other) => return Err(SplitError::Ai(format!("{name} stopped before finishing ({other}). Try again"))),
     }
     let text: String = candidate
         .content
         .map(|c| c.parts.into_iter().filter(|p| !p.thought).map(|p| p.text).collect())
         .unwrap_or_default();
     if text.trim().is_empty() {
-        return Err(SplitError::Ai("Gemini sent an empty answer. Try again".into()));
+        return Err(SplitError::Ai(format!("{name} sent an empty answer. Try again")));
     }
     Ok(text)
 }
@@ -179,7 +187,7 @@ mod tests {
     }
 
     fn run(base: String, model: &str) -> Result<String> {
-        let gemini = Gemini::build(base, KEY.into(), model.into(), Duration::from_secs(5)).unwrap();
+        let gemini = Gemini::build("Gemini", base, KEY.into(), model.into(), Duration::from_secs(5)).unwrap();
         tauri::async_runtime::block_on(gemini.complete(&request()))
     }
 
@@ -229,18 +237,18 @@ mod tests {
     #[test]
     fn reply_text_handles_blocks_cut_offs_and_bad_bodies() {
         let blocked = r#"{"candidates":[],"promptFeedback":{"blockReason":"SAFETY"}}"#;
-        assert!(reply_text(blocked).unwrap_err().to_string().contains("declined"));
+        assert!(reply_text("Gemini", blocked).unwrap_err().to_string().contains("declined"));
         let safety = r#"{"candidates":[{"finishReason":"SAFETY"}]}"#;
-        assert!(reply_text(safety).unwrap_err().to_string().contains("declined"));
+        assert!(reply_text("Gemini", safety).unwrap_err().to_string().contains("declined"));
         let cut = r#"{"candidates":[{"content":{"parts":[{"text":"[{\"start\":1"}]},"finishReason":"MAX_TOKENS"}]}"#;
-        assert!(reply_text(cut).unwrap_err().to_string().contains("cut off"));
+        assert!(reply_text("Gemini", cut).unwrap_err().to_string().contains("cut off"));
         let odd = r#"{"candidates":[{"finishReason":"OTHER"}]}"#;
-        assert!(reply_text(odd).unwrap_err().to_string().contains("(OTHER)"));
-        assert!(reply_text(r#"{"candidates":[]}"#).unwrap_err().to_string().contains("empty"));
+        assert!(reply_text("Gemini", odd).unwrap_err().to_string().contains("(OTHER)"));
+        assert!(reply_text("Gemini", r#"{"candidates":[]}"#).unwrap_err().to_string().contains("empty"));
         let object = r#"{"candidates":[{"content":{"parts":[{"text":"{\"parts\":[]}"}]},"finishReason":"STOP"}]}"#;
         // `response` checks the shape and retries once (FR-36); the provider passes the text on.
-        assert_eq!(reply_text(object).unwrap(), r#"{"parts":[]}"#);
-        assert!(reply_text("<html>").unwrap_err().to_string().contains("couldn't read"));
+        assert_eq!(reply_text("Gemini", object).unwrap(), r#"{"parts":[]}"#);
+        assert!(reply_text("Gemini", "<html>").unwrap_err().to_string().contains("couldn't read"));
     }
 
     /// The manual check for #29. Needs a Gemini key saved in the app and network access; sends
