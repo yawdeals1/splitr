@@ -119,6 +119,7 @@ Status key: [x] done, [ ] to do. Each phase ends when its exit criterion is met 
 ### Phase 4: v1.0 release
 - [ ] Fix bugs against the SRS 9.3 acceptance criteria, and check docs/user-guide.md against the finished app (#22)
 - [x] Download page with SmartScreen and Gatekeeper instructions, and a user guide (#23)
+- [ ] After #24 and #25: review and merge the open contributor PRs, publish the first release and check that an installed copy updates (FR-64) (#83)
 - **Exit:** no open critical bugs.
 
 ### Phase 5: v1.1
