@@ -125,7 +125,7 @@ Status key: [x] done, [ ] to do. Each phase ends when its exit criterion is met 
 
 ### Phase 5: v1.1
 - [x] OCR for pages without a text layer (FR-80) (#24)
-- [ ] Local AI model option (FR-81) (#25)
+- [x] Local AI model option (FR-81) (#25)
 - **Exit:** scanned test PDFs split correctly.
 
 ## Open questions (from PRD 14)

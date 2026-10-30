@@ -16,6 +16,8 @@ export interface AiService {
   signIn?: boolean;
   /** True for OpenAI-compatible platforms, whose model list Splitr can fetch (#30). */
   listsModels?: boolean;
+  /** True for a model on this computer (#25): no key, no notice, nothing leaves the computer. */
+  local?: boolean;
 }
 
 /** The services Smart mode can be set to. ChatGPT is the default; #27 adds key management. */
@@ -50,6 +52,15 @@ export const AI_SERVICES: AiService[] = [
     keyHint: "",
     listsModels: true,
   },
+  {
+    id: "local",
+    label: "Local model (offline)",
+    name: "Local model",
+    company: "a model server on this computer",
+    keyHint: "",
+    listsModels: true,
+    local: true,
+  },
 ];
 
 /** The service with this id, or the ChatGPT account for an id this version doesn't know. */
@@ -57,9 +68,9 @@ export function aiService(id: string | undefined): AiService {
   return AI_SERVICES.find((s) => s.id === id) ?? AI_SERVICES[0];
 }
 
-/** True for services that use an API key rather than a sign-in. */
+/** True for services that use an API key rather than a sign-in or a local model. */
 export function usesKey(service: AiService): boolean {
-  return !service.signIn;
+  return !service.signIn && !service.local;
 }
 
 /** What to offer after a pasted key's prefix was checked (#27). */
@@ -99,12 +110,16 @@ export function usesAi(preset: Pick<Preset, "strategy" | "fallback"> | null): bo
 /** What has to happen before the AI may run, in the order the user meets it. */
 export type AiBlock = "off" | "no-account" | "no-key" | "consent" | null;
 
-/** `ready` is true when the chosen service has a saved key, or for ChatGPT, a connected account. */
+/**
+ * `ready` is true when the chosen service has a saved key, or for ChatGPT, a connected account.
+ * A local model needs neither, nor the notice: nothing leaves the computer (FR-81).
+ */
 export function aiBlock(
   settings: Pick<Settings, "aiEnabled" | "aiConsent" | "aiPlatform">,
   ready: boolean,
 ): AiBlock {
   if (!settings.aiEnabled) return "off";
+  if (aiService(settings.aiPlatform).local) return null;
   if (!ready) return aiService(settings.aiPlatform).signIn ? "no-account" : "no-key";
   if (!settings.aiConsent) return "consent";
   return null;

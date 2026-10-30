@@ -25,6 +25,8 @@ pub struct Api {
     extra: Vec<(String, String)>,
     /// True for subscription plans with usage limits, so a 429 says when the limit resets (#32).
     usage_limits: bool,
+    /// True for an address on this computer, such as a local model (#25).
+    local: bool,
 }
 
 impl Api {
@@ -35,14 +37,20 @@ impl Api {
     /// Like [`Api::new`]; `local` allows plain HTTP, for an address on this computer that the
     /// caller has checked (a custom platform or local model, #30, #25).
     pub fn build(name: String, timeout: Duration, local: bool) -> Result<Self> {
-        let http = reqwest::Client::builder()
+        let mut builder = reqwest::Client::builder();
+        if local {
+            // A call to this computer must stay on it (FR-81): no system proxy, and no redirect
+            // that a local server could send to another host.
+            builder = builder.no_proxy().redirect(reqwest::redirect::Policy::none());
+        }
+        let http = builder
             // Tests talk to a local server over plain HTTP; the app uses HTTPS except on this computer.
             .https_only(cfg!(not(test)) && !local)
             .connect_timeout(CONNECT_TIMEOUT)
             .timeout(timeout)
             .build()
             .map_err(|e| SplitError::Ai(format!("Splitr couldn't set up its connection to {name} ({e})")))?;
-        Ok(Self { http, name, timeout, extra: Vec::new(), usage_limits: false })
+        Ok(Self { http, name, timeout, extra: Vec::new(), usage_limits: false, local })
     }
 
     /// Sends `name: value` with every call.
@@ -93,6 +101,10 @@ impl Api {
             SplitError::Ai(format!(
                 "{name} didn't answer within {} seconds. Try again, or split a smaller part of the file",
                 self.timeout.as_secs()
+            ))
+        } else if e.is_connect() && self.local {
+            SplitError::Ai(format!(
+                "Splitr couldn't reach {name} on this computer. Check that the model server (such as Ollama or LM                  Studio) is running and the address in Settings is right"
             ))
         } else if e.is_connect() {
             SplitError::Ai(format!("Splitr couldn't reach {name}. Check your internet connection and try again"))

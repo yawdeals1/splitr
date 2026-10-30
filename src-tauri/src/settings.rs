@@ -49,6 +49,8 @@ pub struct Settings {
     /// The address of the custom OpenAI-compatible platform (#30), such as
     /// "https://llm.example.com/v1". Checked when it is used.
     pub ai_custom_url: String,
+    /// The address of the model server on this computer (#25). Blank means Ollama's.
+    pub ai_local_url: String,
 }
 
 impl Default for Settings {
@@ -64,6 +66,7 @@ impl Default for Settings {
             ai_platform: ai::DEFAULT_PLATFORM.into(),
             ai_models: BTreeMap::new(),
             ai_custom_url: String::new(),
+            ai_local_url: ai::local::DEFAULT_URL.into(),
         }
     }
 }
@@ -92,6 +95,10 @@ impl Settings {
             .filter(|(platform, model)| ai::is_platform(platform) && !model.is_empty())
             .collect();
         self.ai_custom_url = self.ai_custom_url.trim().to_string();
+        self.ai_local_url = self.ai_local_url.trim().to_string();
+        if self.ai_local_url.is_empty() {
+            self.ai_local_url = Self::default().ai_local_url;
+        }
         if self.last_output_folder.as_deref().is_some_and(|f| f.trim().is_empty()) {
             self.last_output_folder = None;
         }
@@ -126,6 +133,7 @@ pub fn load(path: &Path) -> Result<Settings> {
         ai_platform: field(&fields, "aiPlatform", defaults.ai_platform),
         ai_models: field(&fields, "aiModels", defaults.ai_models),
         ai_custom_url: field(&fields, "aiCustomUrl", defaults.ai_custom_url),
+        ai_local_url: field(&fields, "aiLocalUrl", defaults.ai_local_url),
     }
     .normalized())
 }
@@ -202,7 +210,8 @@ mod tests {
             ai_consent: true,
             ai_platform: "anthropic".into(),
             ai_models: BTreeMap::from([("anthropic".into(), "claude-haiku-5-5".into())]),
-            ai_custom_url: "http://localhost:11434/v1".into(),
+            ai_custom_url: "https://llm.example.com/v1".into(),
+            ai_local_url: "http://127.0.0.1:1234/v1".into(),
         };
         save(&path, &settings).unwrap();
         assert_eq!(load(&path).unwrap(), settings);
@@ -264,7 +273,7 @@ mod tests {
         fs::create_dir_all(&dir).unwrap();
         fs::write(
             &path,
-            r#"{"theme": "light", "nameTemplate": "  ", "aiPlatform": "nope",
+            r#"{"theme": "light", "nameTemplate": "  ", "aiPlatform": "nope", "aiLocalUrl": " ",
                 "aiModels": {"anthropic": " ", "openai": " gpt-x ", "nope": "m"}}"#,
         )
         .unwrap();
@@ -276,6 +285,7 @@ mod tests {
         assert_eq!(loaded.model_for("anthropic").as_deref(), Some("claude-opus-5-5"));
         assert_eq!(loaded.model_for("openai").as_deref(), Some("gpt-x"));
         assert_eq!(loaded.model_for("custom"), None);
+        assert_eq!(loaded.ai_local_url, "http://localhost:11434/v1");
         fs::remove_dir_all(dir).unwrap();
     }
 
