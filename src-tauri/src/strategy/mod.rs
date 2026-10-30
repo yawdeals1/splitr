@@ -28,7 +28,7 @@ pub struct DocumentText {
     pub page_count: u32,
     /// Text of each page, index 0 is page 1.
     pub pages: Vec<String>,
-    /// Top-level bookmarks.
+    /// The bookmarks to split at: the top-level ones, or the chapters under a single one (#73).
     pub outline: Vec<OutlineEntry>,
 }
 
