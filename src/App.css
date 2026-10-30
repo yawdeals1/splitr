@@ -608,3 +608,8 @@ button.link {
 .blank-sensitivity input {
   width: 6em;
 }
+
+/* FR-21: the Fixed mode choice is smaller than the range mode switch above it. */
+.modes.fixed-by {
+  font-size: 13px;
+}
