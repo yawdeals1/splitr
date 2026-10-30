@@ -115,6 +115,8 @@ export interface Settings {
   aiModels: Record<string, string>;
   /** The address of the custom OpenAI-compatible platform (#30). */
   aiCustomUrl: string;
+  /** The address of the model server on this computer (#25), Ollama's by default. */
+  aiLocalUrl: string;
 }
 
 /** Mirrors chatgpt::Status: all the interface learns about a connected ChatGPT account (#31, NFR-05). */

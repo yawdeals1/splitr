@@ -23,6 +23,14 @@ test("aiBlock checks the switch, then the account or key, then consent", () => {
   assert.equal(aiBlock({ aiPlatform: "chatgpt", aiEnabled: true, aiConsent: true }, true), null);
 });
 
+test("a local model needs no key and no notice, but still the AI switch", () => {
+  assert.equal(aiBlock({ aiPlatform: "local", aiEnabled: true, aiConsent: false }, false), null);
+  assert.equal(aiBlock({ aiPlatform: "local", aiEnabled: false, aiConsent: false }, false), "off");
+  assert.equal(usesKey(aiService("local")), false);
+  assert.equal(aiService("local").listsModels, true);
+  assert.ok(!keyChoices({ kind: "ambiguous", options: [] }).options.includes("local"));
+});
+
 test("aiBlockMessage says what to do", () => {
   const openai = aiService("openai");
   assert.match(aiBlockMessage("off", openai), /Use AI/);

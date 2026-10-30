@@ -149,12 +149,19 @@ pub async fn ai_split(app: AppHandle, chunks: Vec<AiRequest>, page_count: u32, a
     app.state::<AiCalls>().run(response::split(&provider, &chunks, page_count, allow_gaps)).await
 }
 
-/// The AI provider the user chose. Only when AI is on and the user accepted the notice (FR-61,
-/// FR-62). The key is read from the credential store for this call only (NFR-05).
+/// The AI provider the user chose. Only when AI is on and, for a service off this computer, the
+/// user accepted the notice (FR-61, FR-62). A local model needs no notice: nothing leaves the
+/// computer (FR-81). The key is read from the credential store for this call only (NFR-05).
 async fn ai_provider(app: &AppHandle) -> Result<ai::Chosen> {
     let settings = get_settings(app.clone()).await?;
     if !settings.ai_enabled {
         return Err(SplitError::Ai("AI is turned off. Turn it on in Settings to use Smart mode with AI".into()));
+    }
+    if settings.ai_platform == ai::local::LOCAL {
+        let model = settings
+            .model_for(ai::local::LOCAL)
+            .ok_or_else(|| SplitError::Ai("Choose the local model to use under AI in Settings".into()))?;
+        return Ok(ai::Chosen::Compatible(ai::local::client(&settings.ai_local_url, model)?));
     }
     if !settings.ai_consent {
         return Err(SplitError::Ai("Accept the AI notice before Splitr sends page excerpts to an AI service".into()));
@@ -275,14 +282,19 @@ async fn chatgpt_token() -> Result<String> {
     Ok(session.access_token)
 }
 
-/// The models an OpenAI-compatible platform (#30) or OpenCode Go (#32) offers, for the settings screen. Runs only when
-/// the user asks, and sends the platform's saved key to that platform only (NFR-05).
+/// The models an OpenAI-compatible platform (#30), OpenCode Go (#32) or the local model server (#25)
+/// offers, for the settings screen. Runs only when the user asks, and sends the platform's saved key
+/// to that platform only (NFR-05). The local server gets no key.
 #[tauri::command]
 pub async fn list_ai_models(app: AppHandle, platform: String) -> Result<Vec<String>> {
-    if !ai::compatible::is_compatible(&platform) && platform != "opencode-go" {
+    let local = platform == ai::local::LOCAL;
+    if !ai::compatible::is_compatible(&platform) && platform != "opencode-go" && !local {
         return Err(SplitError::Ai("Splitr can't list the models of this AI service. Type the model name".into()));
     }
     let settings = get_settings(app.clone()).await?;
+    if local {
+        return app.state::<AiCalls>().run(ai::local::models(&settings.ai_local_url)).await;
+    }
     let key = {
         let platform = platform.clone();
         key_store(move || keystore::key_for(&OsStore, &platform)).await?
