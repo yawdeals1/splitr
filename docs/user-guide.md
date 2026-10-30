@@ -116,7 +116,7 @@ If an export fails part way, for example because the disk is full, Splitr leaves
 ## Settings
 
 - **Theme:** Light, Dark, or System to follow your computer. It's at the bottom of the split options on the right.
-- **AI:** turn Smart mode's AI on or off, and add or remove API keys. Only the last 4 characters of a saved key are shown. **AI service** picks what Smart mode uses: your ChatGPT account (the default), a Claude, OpenAI or Gemini API key (Gemini keys come from Google AI Studio). **Model** sets the model for that service; leave it blank for the default (GPT-6.1 Sol for ChatGPT and OpenAI, Claude Opus 5.5 for Claude, Gemini 4 Argon for Gemini).
+- **AI:** turn Smart mode's AI on or off, and add or remove API keys. Only the last 4 characters of a saved key are shown. **AI service** picks what Smart mode uses: your ChatGPT account (the default), a Claude, OpenAI or Gemini API key (Gemini keys come from Google AI Studio), an API key for a platform that works like OpenAI's (OpenRouter, NVIDIA, Groq, xAI, DeepSeek, Mistral or Together AI), or **Other OpenAI-compatible platform**, where you also enter its address. Addresses must start with `https://`, except for a model running on your own computer (`http://localhost`). **Model** sets the model for that service; leave it blank for the default (GPT-6.1 Sol for ChatGPT and OpenAI, Claude Opus 5.5 for Claude, Gemini 4 Argon for Gemini, DeepSeek Flash for DeepSeek). For the OpenAI-compatible platforms, click **Show available models** to pick from the platform's list.
 - **Blank page sensitivity:** how much may be on a page (such as a page number) for it to still count as blank.
 
 Splitr checks for new versions and offers to install them.

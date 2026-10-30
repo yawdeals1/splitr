@@ -19,15 +19,21 @@ pub const TIMEOUT: Duration = Duration::from_secs(180);
 pub struct Api {
     http: reqwest::Client,
     /// The platform's name, as the user knows it ("OpenAI").
-    name: &'static str,
+    name: String,
     timeout: Duration,
 }
 
 impl Api {
-    pub fn new(name: &'static str, timeout: Duration) -> Result<Self> {
+    pub fn new(name: &str, timeout: Duration) -> Result<Self> {
+        Self::build(name.into(), timeout, false)
+    }
+
+    /// Like [`Api::new`]; `local` allows plain HTTP, for an address on this computer that the
+    /// caller has checked (a custom platform or local model, #30, #25).
+    pub fn build(name: String, timeout: Duration, local: bool) -> Result<Self> {
         let http = reqwest::Client::builder()
-            // Tests talk to a local server over plain HTTP; the app only ever uses HTTPS.
-            .https_only(cfg!(not(test)))
+            // Tests talk to a local server over plain HTTP; the app uses HTTPS except on this computer.
+            .https_only(cfg!(not(test)) && !local)
             .connect_timeout(CONNECT_TIMEOUT)
             .timeout(timeout)
             .build()
@@ -38,7 +44,15 @@ impl Api {
     /// POSTs `body` as JSON to `url` with `headers`, and returns the reply body of a successful
     /// call. `model` names the model in a "not found" message.
     pub async fn post(&self, url: &str, headers: &[(&str, &str)], body: &Value, model: &str) -> Result<String> {
-        let mut call = self.http.post(url).json(body);
+        self.send(self.http.post(url).json(body), headers, model).await
+    }
+
+    /// GETs `url` with `headers`, and returns the reply body of a successful call.
+    pub async fn get(&self, url: &str, headers: &[(&str, &str)]) -> Result<String> {
+        self.send(self.http.get(url), headers, "").await
+    }
+
+    async fn send(&self, mut call: reqwest::RequestBuilder, headers: &[(&str, &str)], model: &str) -> Result<String> {
         for (name, value) in headers {
             call = call.header(*name, *value);
         }
@@ -57,7 +71,7 @@ impl Api {
     }
 
     fn network_error(&self, e: &reqwest::Error) -> SplitError {
-        let name = self.name;
+        let name = &self.name;
         if e.is_timeout() {
             SplitError::Ai(format!(
                 "{name} didn't answer within {} seconds. Try again, or split a smaller part of the file",
@@ -71,7 +85,7 @@ impl Api {
     }
 
     fn status_error(&self, status: StatusCode, body: &str, retry_after: Option<u64>, model: &str) -> SplitError {
-        let name = self.name;
+        let name = &self.name;
         let error = ApiError::read(body);
         let detail = error.message.as_ref().map(|m| format!(" ({m})")).unwrap_or_default();
         let message = match status.as_u16() {
@@ -89,6 +103,8 @@ impl Api {
             },
             400 => format!("{name} couldn't accept this request{detail}"),
             403 => format!("Your {name} API key isn't allowed to make this request{detail}"),
+            // A GET names no model: it is a model list or key check at a wrong address.
+            404 if model.is_empty() => format!("{name} has nothing at this address (error 404). Check the address in Settings"),
             404 => format!("{name} doesn't offer the model \"{model}\" to your account. Check the model name in Settings"),
             413 => format!("This request is too large for {name}. Split a smaller part of the file"),
             500..=599 => format!("{name} had a problem on its side (error {}). Try again in a minute", status.as_u16()),
@@ -255,6 +271,14 @@ mod tests {
             assert!(err.contains(expected), "{status} {body}: {err}");
             assert!(!err.contains("secret-key"), "{err}");
         }
+    }
+
+    #[test]
+    fn a_missing_address_on_a_get_names_no_model() {
+        let (url, _got) = serve("/v1/models", "404 Not Found", "", "{}");
+        let api = Api::new("Example", Duration::from_secs(5)).unwrap();
+        let err = tauri::async_runtime::block_on(api.get(&url, &[])).unwrap_err().to_string();
+        assert!(err.contains("nothing at this address") && !err.contains("model"), "{err}");
     }
 
     #[test]

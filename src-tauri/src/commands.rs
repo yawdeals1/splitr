@@ -149,7 +149,23 @@ async fn ai_provider(app: &AppHandle) -> Result<ai::Chosen> {
         let platform = platform.to_string();
         key_store(move || keystore::key_for(&OsStore, &platform)).await?
     };
-    ai::provider(platform, key, model)
+    ai::provider(platform, &settings.ai_custom_url, key, model)
+}
+
+/// The models an OpenAI-compatible platform offers (#30), for the settings screen. Runs only when
+/// the user asks, and sends the platform's saved key to that platform only (NFR-05).
+#[tauri::command]
+pub async fn list_ai_models(app: AppHandle, platform: String) -> Result<Vec<String>> {
+    if !ai::compatible::is_compatible(&platform) {
+        return Err(SplitError::Ai("Splitr can't list the models of this AI service. Type the model name".into()));
+    }
+    let settings = get_settings(app.clone()).await?;
+    let key = {
+        let platform = platform.clone();
+        key_store(move || keystore::key_for(&OsStore, &platform)).await?
+    };
+    let client = ai::compatible::ChatCompletions::new(&platform, &settings.ai_custom_url, key, String::new())?;
+    app.state::<AiCalls>().run(client.models()).await
 }
 
 /// The model each AI service uses when the user hasn't chosen one, for the settings screen.

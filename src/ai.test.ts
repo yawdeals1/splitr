@@ -1,6 +1,7 @@
 // Unit tests for ai.ts. Run with `npm test` (Node's built-in test runner).
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { aiBlock, aiBlockMessage, aiService, usesAi, usesKey } from "./ai.ts";
 
 test("usesAi covers AI presets, AI fallbacks and the custom prompt", () => {
@@ -35,4 +36,18 @@ test("aiService finds a service, and falls back to the ChatGPT account", () => {
   assert.equal(aiService(undefined).id, "chatgpt");
   assert.equal(usesKey(aiService("openai")), true);
   assert.equal(usesKey(aiService("chatgpt")), false);
+  assert.equal(usesKey(aiService("mistral")), true);
+});
+
+test("the OpenAI-compatible services match the backend's data file", () => {
+  const file = new URL("../src-tauri/src/ai/compatible.json", import.meta.url);
+  const platforms: { id: string; name: string; company: string; keyHint: string }[] = JSON.parse(readFileSync(file, "utf8"));
+  assert.ok(platforms.length > 0);
+  for (const p of platforms) {
+    const service = aiService(p.id);
+    assert.equal(service.id, p.id, `${p.id} is missing from AI_SERVICES`);
+    assert.deepEqual([service.name, service.company, service.keyHint], [p.name, p.company, p.keyHint]);
+    assert.equal(service.listsModels, true);
+  }
+  assert.equal(aiService("custom").listsModels, true);
 });

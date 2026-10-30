@@ -29,7 +29,7 @@ export function AiConsent({ service, onAgree, onCancel }: Props) {
         files are sent in several parts. Splitting by rules, Custom and Fixed modes never send anything.
       </p>
       <p className="muted">
-        {service.company} handles this text under its API terms. You can turn AI off at any time in the AI section of
+        {service.company.charAt(0).toUpperCase() + service.company.slice(1)} handles this text under its API terms. You can turn AI off at any time in the AI section of
         the panel.
       </p>
       <div className="row">

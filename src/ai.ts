@@ -10,16 +10,38 @@ export interface AiService {
   name: string;
   /** The company that receives the key and page excerpts (FR-61). */
   company: string;
-  /** How a key starts, as a hint in the key field; "" for a sign-in. */
+  /** How a key starts, as a hint in the key field; "" if keys have no known start. */
   keyHint: string;
+  /** True for the ChatGPT account, which signs in instead of using a key. */
+  signIn?: boolean;
+  /** True for OpenAI-compatible platforms, whose model list Splitr can fetch (#30). */
+  listsModels?: boolean;
 }
 
 /** The services Smart mode can be set to. ChatGPT is the default; #27 adds key management. */
 export const AI_SERVICES: AiService[] = [
-  { id: "chatgpt", label: "ChatGPT account", name: "ChatGPT", company: "OpenAI", keyHint: "" },
+  { id: "chatgpt", label: "ChatGPT account", name: "ChatGPT", company: "OpenAI", keyHint: "", signIn: true },
   { id: "anthropic", label: "Claude API key", name: "Claude", company: "Anthropic", keyHint: "sk-ant-…" },
   { id: "openai", label: "OpenAI API key", name: "OpenAI", company: "OpenAI", keyHint: "sk-proj-…" },
   { id: "gemini", label: "Gemini API key", name: "Gemini", company: "Google", keyHint: "AIza…" },
+  // OpenAI-compatible platforms (#30). Names, companies and hints match src-tauri/src/ai/compatible.json.
+  ...[
+    { id: "openrouter", name: "OpenRouter", company: "OpenRouter", keyHint: "sk-or-v1-…" },
+    { id: "nvidia", name: "NVIDIA", company: "NVIDIA", keyHint: "nvapi-…" },
+    { id: "groq", name: "Groq", company: "Groq", keyHint: "gsk_…" },
+    { id: "xai", name: "xAI", company: "xAI", keyHint: "xai-…" },
+    { id: "deepseek", name: "DeepSeek", company: "DeepSeek", keyHint: "sk-…" },
+    { id: "mistral", name: "Mistral", company: "Mistral AI", keyHint: "" },
+    { id: "together", name: "Together AI", company: "Together AI", keyHint: "" },
+  ].map((p) => ({ ...p, label: `${p.name} API key`, listsModels: true })),
+  {
+    id: "custom",
+    label: "Other OpenAI-compatible platform",
+    name: "Custom platform",
+    company: "the platform at the address you entered",
+    keyHint: "",
+    listsModels: true,
+  },
 ];
 
 /** The service with this id, or the ChatGPT account for an id this version doesn't know. */
@@ -29,7 +51,7 @@ export function aiService(id: string | undefined): AiService {
 
 /** True for services that use an API key rather than a sign-in. */
 export function usesKey(service: AiService): boolean {
-  return service.keyHint !== "";
+  return !service.signIn;
 }
 
 /**
