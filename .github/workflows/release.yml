@@ -4,6 +4,9 @@
 # latest.json, the manifest the app checks. Installed apps see the update once the draft is
 # published, because the app reads releases/latest. The key and its password live only in the
 # repository's encrypted secrets; the public key is in src-tauri/tauri.conf.json.
+# Checks (#21): every installer must be 25 MB or less (NFR-13), and each is installed, started
+# and removed on a fresh machine (SRS 9.3). Running the workflow by hand on a branch does all of
+# this without creating a release.
 name: Release
 
 on:
@@ -19,13 +22,17 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - platform: macos-latest
+          - name: macos-arm64
+            platform: macos-latest
             args: --target aarch64-apple-darwin
-          - platform: macos-latest
+          - name: macos-x64
+            platform: macos-latest
             args: --target x86_64-apple-darwin
-          - platform: ubuntu-22.04
+          - name: linux
+            platform: ubuntu-22.04
             args: ""
-          - platform: windows-latest
+          - name: windows
+            platform: windows-latest
             args: ""
     runs-on: ${{ matrix.platform }}
     steps:
@@ -59,16 +66,117 @@ jobs:
         run: node scripts/fetch-pdfium.mjs ${{ matrix.args }}
 
       - uses: tauri-apps/tauri-action@v0
+        id: tauri
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
-          tagName: ${{ github.ref_name }}
-          releaseName: Splitr ${{ github.ref_name }}
+          # Only a tag makes a release. A run on a branch builds and checks, and uploads nothing.
+          tagName: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
+          releaseName: ${{ github.ref_type == 'tag' && format('Splitr {0}', github.ref_name) || '' }}
           releaseBody: See the assets below to download and install this version.
           releaseDraft: true
           prerelease: false
           args: ${{ matrix.args }}
           # Upload latest.json with the platform entries of every build in the matrix.
           uploadUpdaterJson: true
+
+      # NFR-13: fail the release if an installer is over 25 MB.
+      - name: Check installer sizes
+        shell: bash
+        env:
+          ARTIFACTS: ${{ steps.tauri.outputs.artifactPaths }}
+        run: node scripts/check-installer-size.mjs "$ARTIFACTS"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: installers-${{ matrix.name }}
+          path: |
+            src-tauri/target/**/bundle/msi/*.msi
+            src-tauri/target/**/bundle/nsis/*.exe
+            src-tauri/target/**/bundle/dmg/*.dmg
+            src-tauri/target/**/bundle/deb/*.deb
+            src-tauri/target/**/bundle/appimage/*.AppImage
+          if-no-files-found: error
+          retention-days: 7
+
+  # SRS 9.3: install, start and remove each installer on a machine that has never built the app.
+  install-linux:
+    needs: build
+    runs-on: ubuntu-22.04
+    # A bare Ubuntu image, so the .deb must bring its own WebKitGTK and GTK (SRS 8).
+    container: ubuntu:22.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: installers-linux
+          path: installers
+      - name: Check the package declares WebKitGTK
+        run: |
+          deb=$(find installers -name '*.deb' | head -n 1)
+          dpkg-deb -f "$deb" Package > package.txt
+          dpkg-deb -f "$deb" Depends | tee depends.txt
+          grep -q 'libwebkit2gtk-4.1' depends.txt
+          grep -q 'libgtk-3' depends.txt
+      - name: Install
+        run: |
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install -y xvfb xauth dbus-x11 "./$(find installers -name '*.deb' | head -n 1)"
+      - name: Start
+        run: |
+          bin=$(dpkg -L "$(cat package.txt)" | grep '^/usr/bin/' | head -n 1)
+          echo "Starting $bin"
+          xvfb-run -a "$bin" & pid=$!
+          sleep 20
+          kill -0 "$pid" || { echo "Splitr exited within 20 seconds"; exit 1; }
+          kill "$pid"
+      - name: Remove
+        run: |
+          apt-get remove -y "$(cat package.txt)"
+          ! dpkg -s "$(cat package.txt)" 2>/dev/null | grep -q '^Status: install ok installed'
+
+  install-windows:
+    needs: build
+    runs-on: windows-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: installers-windows
+          path: installers
+      - name: Install, start and remove
+        shell: pwsh
+        run: |
+          $msi = (Get-ChildItem installers -Recurse -Filter *.msi | Select-Object -First 1).FullName
+          $install = Start-Process msiexec.exe -ArgumentList "/i `"$msi`" /qn /l*v install.log" -Wait -PassThru
+          if ($install.ExitCode -ne 0) { Get-Content install.log -Tail 50; throw "Install failed: $($install.ExitCode)" }
+          $exe = (Get-ChildItem "$env:ProgramFiles\Splitr" -Filter *.exe | Where-Object Name -NotMatch '^uninstall' | Select-Object -First 1).FullName
+          if (-not $exe) { throw "Splitr was not installed in $env:ProgramFiles\Splitr" }
+          $app = Start-Process $exe -PassThru
+          Start-Sleep -Seconds 20
+          if ($app.HasExited) { throw "Splitr exited within 20 seconds (code $($app.ExitCode))" }
+          Stop-Process -Id $app.Id -Force
+          $remove = Start-Process msiexec.exe -ArgumentList "/x `"$msi`" /qn" -Wait -PassThru
+          if ($remove.ExitCode -ne 0) { throw "Uninstall failed: $($remove.ExitCode)" }
+          if (Test-Path $exe) { throw "$exe is still there after uninstall" }
+
+  install-macos:
+    needs: build
+    runs-on: macos-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: installers-macos-arm64
+          path: installers
+      - name: Install, start and remove
+        run: |
+          dmg=$(find installers -name '*.dmg' | head -n 1)
+          mount=$(hdiutil attach "$dmg" -nobrowse | tail -n 1 | cut -f 3)
+          cp -R "$mount/Splitr.app" /Applications/
+          hdiutil detach "$mount"
+          "$(find /Applications/Splitr.app/Contents/MacOS -type f -perm -u+x | head -n 1)" & pid=$!
+          sleep 20
+          kill -0 "$pid" || { echo "Splitr exited within 20 seconds"; exit 1; }
+          kill "$pid"
+          rm -rf /Applications/Splitr.app
+          test ! -e /Applications/Splitr.app
