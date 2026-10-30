@@ -29,11 +29,23 @@ interface Props {
   onExport: () => void;
   /** True while the parts are being saved (FR-50). */
   exporting?: boolean;
+  /** Why the AI's answer couldn't be used, so the user sets the parts by hand (FR-36). */
+  problem?: string;
   /** Export options, shown above the Export button (FR-51 to FR-53). */
   children?: ReactNode;
 }
 
-export function ReviewScreen({ totalPages, ranges, allowGaps, onChange, onBack, onExport, exporting = false, children }: Props) {
+export function ReviewScreen({
+  totalPages,
+  ranges,
+  allowGaps,
+  onChange,
+  onBack,
+  onExport,
+  exporting = false,
+  problem: aiProblem = "",
+  children,
+}: Props) {
   // Pages of parts the user deleted. Only these may be missing when the mode must cover every page.
   const [leftOut, setLeftOut] = useState<Span[]>([]);
   // Page fields whose text isn't a valid page yet, by field. Their parts keep the last valid page.
@@ -134,6 +146,11 @@ export function ReviewScreen({ totalPages, ranges, allowGaps, onChange, onBack, 
           </span>
         )}
       </header>
+      {aiProblem && (
+        <p className="error" role="alert">
+          {aiProblem}
+        </p>
+      )}
 
       <table className="parts-table">
         <thead>

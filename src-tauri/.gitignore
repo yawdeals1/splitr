@@ -8,3 +8,6 @@
 
 # PDFium library, downloaded by scripts/fetch-pdfium.mjs (never commit binaries)
 /pdfium/
+
+# OCR models, downloaded by scripts/fetch-ocr-models.mjs (never commit them)
+/ocr/

@@ -37,3 +37,6 @@ secrets/
 
 # Rust build output
 src-tauri/target/
+
+# Large sample PDFs, made by npm run fixtures (#12)
+tests/fixtures/generated/

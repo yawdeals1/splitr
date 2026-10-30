@@ -1,0 +1,60 @@
+[
+  {
+    "id": "openrouter",
+    "name": "OpenRouter",
+    "company": "OpenRouter",
+    "baseUrl": "https://openrouter.ai/api/v1",
+    "defaultModel": null,
+    "checkPath": "/key",
+    "keyHint": "sk-or-v1-…"
+  },
+  {
+    "id": "nvidia",
+    "name": "NVIDIA",
+    "company": "NVIDIA",
+    "baseUrl": "https://integrate.api.nvidia.com/v1",
+    "defaultModel": null,
+    "noKeyCheck": true,
+    "keyHint": "nvapi-…"
+  },
+  {
+    "id": "groq",
+    "name": "Groq",
+    "company": "Groq",
+    "baseUrl": "https://api.groq.com/openai/v1",
+    "defaultModel": null,
+    "keyHint": "gsk_…"
+  },
+  {
+    "id": "xai",
+    "name": "xAI",
+    "company": "xAI",
+    "baseUrl": "https://api.x.ai/v1",
+    "defaultModel": null,
+    "keyHint": "xai-…"
+  },
+  {
+    "id": "deepseek",
+    "name": "DeepSeek",
+    "company": "DeepSeek",
+    "baseUrl": "https://api.deepseek.com",
+    "defaultModel": "deepseek-flash",
+    "keyHint": "sk-…"
+  },
+  {
+    "id": "mistral",
+    "name": "Mistral",
+    "company": "Mistral AI",
+    "baseUrl": "https://api.mistral.ai/v1",
+    "defaultModel": null,
+    "keyHint": ""
+  },
+  {
+    "id": "together",
+    "name": "Together AI",
+    "company": "Together AI",
+    "baseUrl": "https://api.together.ai/v1",
+    "defaultModel": null,
+    "keyHint": ""
+  }
+]

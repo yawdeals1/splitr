@@ -17,6 +17,7 @@ Splitr (working name) is Smart PDF Splitter: a local-first desktop app for Windo
 | --- | --- |
 | Install dependencies | `npm install` |
 | Download the PDFium library (once; `tauri dev` and `tauri build` also run it) | `npm run fetch-pdfium` |
+| Download the OCR models (once; `tauri dev` and `tauri build` also run it) | `npm run fetch-ocr` |
 | Run the app | `npm run tauri dev` |
 | Frontend type-check and build | `npm run build` |
 | Rust tests | `cargo test --manifest-path src-tauri/Cargo.toml` |
@@ -30,6 +31,7 @@ Splitr (working name) is Smart PDF Splitter: a local-first desktop app for Windo
 - `src-tauri/src/ranges.rs`: range parsing and validation (FR-20, FR-35). Every proposed range list goes through `validate`.
 - `src-tauri/src/naming.rs`: output file names (FR-51, FR-52).
 - `src-tauri/src/pdf.rs`: the only place that touches PDF libraries. PDFium loads at startup from the `pdfium/` resource folder, which `scripts/fetch-pdfium.mjs` fills (never commit the binaries).
+- `src-tauri/src/ocr.rs`: OCR of pages without a text layer (FR-80), with the `ocrs` engine. Its models load on first use from the `ocr/` resource folder, which `scripts/fetch-ocr-models.mjs` fills (never commit them).
 - `presets/presets.json`: presets are data, not code (FR-72). The `bundled_presets_are_valid` test checks the file.
 - `src/types.ts`: TypeScript mirrors of the Rust types. Update it whenever a serialized Rust type changes.
 
@@ -83,47 +85,48 @@ Status key: [x] done, [ ] to do. Each phase ends when its exit criterion is met 
 
 ### Phase 1: Rule engine and review screen
 - [x] Fixed, outline, pattern and blank page strategy logic, with tests
-- [ ] Extract page text and the outline from PDFium into `DocumentText` (#7)
-- [ ] `run_preset` command: run the preset's strategy, then its `fallback` on `NoOutline`/`NothingFound` (FR-30) (#8)
+- [x] Extract page text and the outline from PDFium into `DocumentText` (#7)
+- [x] `run_preset` command: run the preset's strategy, then its `fallback` on `NoOutline`/`NothingFound` (FR-30) (#8)
 - [x] Review screen: list of parts, editing boundaries, adding, removing, renaming and deleting parts (FR-40 to FR-42) (#9)
 - [x] Split marks on thumbnails (FR-12) (#48)
 - [x] Naming template UI, optional ZIP, an "Open folder" button (FR-51 to FR-55) (#10)
 - [x] Settings file: theme, last folder, template, blank threshold (SRS 6.4) (#11)
-- [ ] Build a test set of 10 or more varied PDFs in `tests/fixtures/`, using only public or generated files with no personal data (#12)
+- [x] Build a test set of 10 or more varied PDFs in `tests/fixtures/`, using only public or generated files with no personal data (#12)
 - **Exit:** 10 varied test PDFs split correctly with rules only.
 
 ### Phase 2: AI engine (Smart mode)
 - [x] API key settings stored with `keyring`, an AI on/off switch and a consent dialog (FR-60 to FR-62) (#13)
-- [ ] Build excerpts (first and last lines of each page), in overlapping chunks for large files (FR-33, FR-34, NFR-04) (#14)
+- [x] Build excerpts (first and last lines of each page), in overlapping chunks for large files (FR-33, FR-34, NFR-04) (#14)
 - [x] Claude API client in Rust (`reqwest`, HTTPS), using the Appendix A prompt; the model is configurable in settings (#15)
 - [x] Strict JSON parsing, merging chunk results, `validate`, retrying once and then manual fixing (FR-35, FR-36) (#16)
 - [x] Save a custom prompt as a user preset (FR-71) (#17)
-- [ ] Smart mode runs AI presets end to end: excerpts, `ai_split`, and the review screen showing any reply problem for manual fixing (FR-30, FR-33 to FR-36) (#64)
+- [x] Smart mode runs AI presets end to end: excerpts, `ai_split`, and the review screen showing any reply problem for manual fixing (FR-30, FR-33 to FR-36) (#64)
 - [ ] Integration tests with a mocked AI provider (#18)
-- [ ] Multiple API keys with automatic platform detection from the key prefix, verified with one call to that platform only (#27)
+- [x] Multiple API keys with automatic platform detection from the key prefix, verified with one call to that platform only (#27)
 - [x] OpenAI (GPT) provider (#28)
 - [x] Google Gemini provider (#29)
-- [ ] OpenAI-compatible platforms from a data file: OpenRouter, NVIDIA, Groq, xAI, DeepSeek, Mistral, Together AI, plus a custom base URL (#30)
-- [ ] Connect a ChatGPT account instead of an API key (Sign in with ChatGPT); confirm OpenAI's developer terms first (#31)
-- [ ] OpenCode Go provider, routing each model to its API style (#32)
+- [x] OpenAI-compatible platforms from a data file: OpenRouter, NVIDIA, Groq, xAI, DeepSeek, Mistral, Together AI, plus a custom base URL (#30)
+- [x] Connect a ChatGPT account instead of an API key (Sign in with ChatGPT); confirm OpenAI's developer terms first (#31)
+- [x] OpenCode Go provider, routing each model to its API style (#32)
 - [x] Update this plan for multiple AI platforms (#33)
 - **Exit:** 80% of AI test files are correct after at most 2 range edits.
 
 ### Phase 3: Packaging and updates
-- [ ] Tauri updater plugin; updater signing key in GitHub secrets only (FR-64) (#19)
-- [ ] Release workflow publishes the update manifest (#19)
+- [x] Tauri updater plugin; updater signing key in GitHub secrets only (FR-64) (#19)
+- [x] Release workflow publishes the update manifest (#19)
 - [x] Light and dark themes with a manual toggle, plus a keyboard navigation pass (FR-63, NFR-11) (#20)
-- [ ] Check that installers are under 25 MB (NFR-13) (#21)
+- [x] Check that installers are under 25 MB (NFR-13) (#21)
 - **Exit:** installers run on clean Windows, macOS and Linux machines.
 
 ### Phase 4: v1.0 release
 - [ ] Fix bugs against the SRS 9.3 acceptance criteria, and check docs/user-guide.md against the finished app (#22)
 - [x] Download page with SmartScreen and Gatekeeper instructions, and a user guide (#23)
+- [ ] After #24 and #25: review and merge the open contributor PRs, publish the first release and check that an installed copy updates (FR-64) (#83)
 - **Exit:** no open critical bugs.
 
 ### Phase 5: v1.1
-- [ ] OCR for pages without a text layer (FR-80) (#24)
-- [ ] Local AI model option (FR-81) (#25)
+- [x] OCR for pages without a text layer (FR-80) (#24)
+- [x] Local AI model option (FR-81) (#25)
 - **Exit:** scanned test PDFs split correctly.
 
 ## Open questions (from PRD 14)

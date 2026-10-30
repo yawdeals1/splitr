@@ -93,9 +93,23 @@ pub async fn split<P: Provider>(
     page_count: u32,
     allow_gaps: bool,
 ) -> Result<Vec<Range>> {
+    split_with_progress(provider, chunks, page_count, allow_gaps, |_, _| {}).await
+}
+
+/// `split`, calling `progress(done, total)` with the chunks answered so far: once before the first
+/// request and after each chunk, for a progress bar (NFR-02).
+pub async fn split_with_progress<P: Provider>(
+    provider: &P,
+    chunks: &[AiRequest],
+    page_count: u32,
+    allow_gaps: bool,
+    mut progress: impl FnMut(u32, u32),
+) -> Result<Vec<Range>> {
     if chunks.is_empty() {
         return Err(SplitError::Ai("There are no pages to send to the AI".into()));
     }
+    let total = u32::try_from(chunks.len()).unwrap_or(u32::MAX);
+    progress(0, total);
     let mut replies = Vec::with_capacity(chunks.len());
     for chunk in chunks {
         let first = chunk.pages.iter().map(|p| p.page).min();
@@ -105,6 +119,7 @@ pub async fn split<P: Provider>(
         };
         let ranges = ask(provider, chunk, first, last, allow_gaps).await?;
         replies.push(ChunkReply { first, last, ranges });
+        progress(u32::try_from(replies.len()).unwrap_or(u32::MAX), total);
     }
     replies.sort_by_key(|c| c.first);
     let ranges = merge(&replies);
@@ -290,6 +305,19 @@ mod tests {
         ]);
         let ranges = run(&provider, &[request(1, 12), request(9, 20)], 20, false).unwrap();
         assert_eq!(ranges, vec![range(1, 14, "One"), range(15, 20, "Two")]);
+    }
+
+    #[test]
+    fn split_reports_each_answered_chunk() {
+        let provider = Canned::new(vec![
+            Ok(r#"[{"start":1,"end":12,"title":"One"}]"#),
+            Ok(r#"[{"start":9,"end":20,"title":"One"}]"#),
+        ]);
+        let mut seen = Vec::new();
+        let chunks = [request(1, 12), request(9, 20)];
+        let split = split_with_progress(&provider, &chunks, 20, false, |done, total| seen.push((done, total)));
+        tauri::async_runtime::block_on(split).unwrap();
+        assert_eq!(seen, [(0, 2), (1, 2), (2, 2)]);
     }
 
     #[test]

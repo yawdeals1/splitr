@@ -1,6 +1,6 @@
 // Blank page sensitivity (FR-32): how many visible characters, such as a page number, a page may
 // have and still count as a blank separator for "Split at blank pages". Saved in settings (SRS 6.4).
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { MAX_BLANK_THRESHOLD, parseThreshold } from "./blank";
 
 interface Props {
@@ -13,13 +13,22 @@ interface Props {
 export function BlankSensitivity({ saved, onSave }: Props) {
   const [draft, setDraft] = useState(String(saved ?? 0));
   const [problem, setProblem] = useState("");
-  useEffect(() => setDraft(String(saved ?? 0)), [saved]);
+  // The last value sent to onSave, so the blur that follows Enter doesn't save it again.
+  const committed = useRef(saved);
+  useEffect(() => {
+    committed.current = saved;
+    setDraft(String(saved ?? 0));
+  }, [saved]);
 
   async function commit() {
     const value = parseThreshold(draft);
     if (value === null) return setProblem(`Enter a whole number from 0 to ${MAX_BLANK_THRESHOLD}.`);
     setProblem("");
-    if (value !== saved) setProblem((await onSave(value)) ?? "");
+    if (value === committed.current) return;
+    committed.current = value;
+    const failed = await onSave(value);
+    if (failed) committed.current = saved;
+    setProblem(failed ?? "");
   }
 
   return (

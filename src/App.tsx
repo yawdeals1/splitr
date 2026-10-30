@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open } from "@tauri-apps/plugin-dialog";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
-import { aiBlock, aiBlockMessage, aiService, usesAi } from "./ai";
+import { aiBlock, aiBlockMessage, aiService } from "./ai";
 import { AiConsent } from "./AiConsent";
-import { AiSettings, useApiKey } from "./AiSettings";
+import { AiSettings, useApiKeys, useChatGpt } from "./AiSettings";
 import { ExportOptions } from "./ExportOptions";
 import { BlankSensitivity } from "./BlankSensitivity";
 import { baseName, formatSize, rejectReason } from "./file";
@@ -17,16 +18,22 @@ import { PasswordPrompt } from "./PasswordPrompt";
 import { PresetEditor } from "./PresetEditor";
 import { ReviewScreen } from "./ReviewScreen";
 import { useSettings } from "./settings";
+import { aiReview, aiStatus, readingStatus, smartResult, usesBlank, usesText, type AiReview } from "./smart";
 import { showTheme } from "./theme";
+import { UpdateNotice } from "./UpdateNotice";
 import {
   PASSWORD_REQUIRED,
+  READING_CANCELLED,
   WRONG_PASSWORD,
+  type AiRun,
   type ExportNames,
   type ExportRequest,
+  type ExtractProgress,
   type PdfInfo,
   type Preset,
   type PresetInput,
   type PresetList,
+  type PresetRun,
   type Range,
   type RangeMode,
   type SavedParts,
@@ -59,8 +66,17 @@ function App({ initialSettings }: { initialSettings: Settings | null }) {
   const [customPrompt, setCustomPrompt] = useState("");
   const [customRanges, setCustomRanges] = useState("");
   const [fixedEvery, setFixedEvery] = useState(10);
+  // FR-32: leave blank separator pages out of the parts.
+  const [dropSeparators, setDropSeparators] = useState(false);
+  // #8: pages read so far while Smart mode reads the PDF's text, or null when it isn't reading.
+  const [reading, setReading] = useState<ExtractProgress | null>(null);
+  // #64: the AI step in progress: reading the text, then chunks answered. Null when it isn't running.
+  const [aiStep, setAiStep] = useState<(ExtractProgress & { reading: boolean }) | null>(null);
+  // FR-36: why the AI's answer couldn't be used, shown on the review screen; "" otherwise.
+  const [reviewProblem, setReviewProblem] = useState("");
   const [ranges, setRanges] = useState<Range[]>([]);
-  // Custom mode may leave pages out (FR-20); other modes must cover every page (FR-35).
+  // Custom mode may leave pages out (FR-20), and so may dropped blank pages (FR-32); otherwise
+  // every page must be in a part (FR-35).
   const [allowGaps, setAllowGaps] = useState(false);
   // Bumped on every split so the review screen starts fresh.
   const [reviewId, setReviewId] = useState(0);
@@ -91,7 +107,8 @@ function App({ initialSettings }: { initialSettings: Settings | null }) {
   // Set when Escape cancels "Confirm delete", so the "Delete preset" button that replaces it takes focus.
   const refocusDelete = useRef(false);
   const { settings, loadError, update: updateSettings } = useSettings(initialSettings);
-  const apiKey = useApiKey(settings?.aiPlatform);
+  const apiKeys = useApiKeys();
+  const chatGpt = useChatGpt();
   const theme = settings?.theme;
   const typedTemplate = template ?? settings?.nameTemplate ?? DEFAULT_TEMPLATE;
   // A blank field names files with the default, and the default is what gets saved.
@@ -291,31 +308,103 @@ function App({ initialSettings }: { initialSettings: Settings | null }) {
     setNotice("");
     setSavedFile(null);
     if (!pdf) return setError("Open a PDF first.");
-    let next: Range[];
+    let next: Range[] | null = null;
+    let gaps = mode === "custom";
+    let fellBack = "";
+    let problem = "";
     try {
       if (mode === "custom") {
         next = await invoke<Range[]>("parse_custom_ranges", { input: customRanges, pageCount: pdf.pageCount });
       } else if (mode === "fixed") {
         next = await invoke<Range[]>("fixed_ranges", { pageCount: pdf.pageCount, every: fixedEvery });
       } else {
+        if (!settings) throw "Settings are still loading.";
+        if (reading || aiStep) return;
+        if (presetId !== CUSTOM_PROMPT) {
+          // FR-30: the preset's rules run first; the AI is needed only if they or the preset ask for it.
+          setReading({ done: 0, total: pdf.pageCount, ocr: false });
+          const stop = listen<ExtractProgress>("extract-progress", ({ payload }) => setReading(payload));
+          let run: PresetRun;
+          try {
+            const options = { blankThreshold: settings.blankThreshold, dropSeparators };
+            run = await invoke<PresetRun>("run_preset", { path: pdf.path, presetId, options });
+          } finally {
+            (await stop)();
+            setReading(null);
+          }
+          const result = smartResult(run);
+          if (result.kind === "parts") {
+            next = result.ranges;
+            gaps = result.allowGaps;
+          }
+          fellBack = result.notice;
+        } else if (!customPrompt.trim()) throw "Type an instruction for the AI first.";
         // FR-60 to FR-62: AI runs only when it is on, a key is saved and the user agreed to the notice.
-        if (usesAi(presetId === CUSTOM_PROMPT ? null : selectedPreset ?? null)) {
-          if (!settings) throw "Settings are still loading.";
-          const block = aiBlock({ ...settings, aiConsent: settings.aiConsent || consented }, apiKey.hasKey);
+        if (!next) {
+          const ready = aiService(settings.aiPlatform).signIn ? chatGpt.connected : apiKeys.has(settings.aiPlatform);
+          const block = aiBlock({ ...settings, aiConsent: settings.aiConsent || consented }, ready);
           if (block === "consent") return setAskConsent(true);
           if (block) throw aiBlockMessage(block, aiService(settings.aiPlatform));
+          const review = await runAi(pdf);
+          if (!review) {
+            // Cancel returns to the options. The Cancel button is gone, so focus goes to Split (NFR-11).
+            flushSync(() => setRanges([]));
+            splitButton.current?.focus();
+            return setNotice("The AI split was cancelled.");
+          }
+          next = review.ranges;
+          problem = review.problem;
         }
-        throw "Smart split is not implemented yet.";
+        // FR-80: with OCR off, say which pages had no text to read.
+        if (presetId === CUSTOM_PROMPT || usesText(selectedPreset ?? null)) {
+          const note = await invoke<string | null>("text_note", { path: pdf.path });
+          if (note) fellBack = [fellBack, `${note}.`].filter(Boolean).join(" ");
+        }
       }
     } catch (e) {
       // The parts of an earlier split no longer match the options, so they aren't kept.
       setRanges([]);
+      // Cancel while the text is read returns to the options (NFR-02).
+      if (String(e) === READING_CANCELLED) {
+        splitButton.current?.focus();
+        return setNotice("Reading the text was cancelled.");
+      }
       return setError(String(e));
     }
     // The gap rule and a fresh review screen only change once the new parts have arrived.
-    setAllowGaps(mode === "custom");
+    setAllowGaps(gaps);
+    setNotice(fellBack);
+    setReviewProblem(problem);
     setReviewId((n) => n + 1);
     setRanges(next);
+  }
+
+  // #64: the AI step, with progress and Cancel (NFR-02). Called only after the checks in `split`
+  // passed; the backend checks again before it sends anything (FR-61, FR-62).
+  async function runAi(file: PdfInfo): Promise<AiReview | null> {
+    setAiStep({ reading: true, done: 0, total: file.pageCount, ocr: false });
+    const stops = [
+      listen<ExtractProgress>("extract-progress", ({ payload }) => setAiStep({ reading: true, ...payload })),
+      listen<ExtractProgress>("ai-progress", ({ payload }) => setAiStep({ reading: false, ...payload })),
+    ];
+    try {
+      const custom = presetId === CUSTOM_PROMPT;
+      const run = await invoke<AiRun>("run_ai", {
+        path: file.path,
+        presetId: custom ? null : presetId,
+        prompt: custom ? customPrompt : null,
+      });
+      return aiReview(run, file.pageCount);
+    } finally {
+      for (const stop of stops) (await stop)();
+      setAiStep(null);
+    }
+  }
+
+  // Stops the AI step: the text read and the requests. `run_ai` then returns "cancelled".
+  function cancelAi() {
+    invoke("cancel_extract").catch(() => {});
+    invoke("cancel_ai").catch(() => {});
   }
 
   async function consentGiven() {
@@ -439,6 +528,7 @@ function App({ initialSettings }: { initialSettings: Settings | null }) {
             key={reviewId}
             totalPages={pdf.pageCount}
             ranges={ranges}
+            problem={reviewProblem}
             allowGaps={allowGaps}
             onChange={setRanges}
             onBack={() => {
@@ -600,13 +690,53 @@ function App({ initialSettings }: { initialSettings: Settings | null }) {
                 </div>
               )
             )}
-            <AiSettings settings={settings} apiKey={apiKey} onChange={updateSettings} />
+            {presetId !== CUSTOM_PROMPT && usesBlank(selectedPreset) && (
+              <>
+                <label className="check">
+                  <input type="checkbox" checked={dropSeparators} onChange={(e) => setDropSeparators(e.target.checked)} />
+                  Leave blank pages out of the parts
+                </label>
+                <BlankSensitivity
+                  saved={settings?.blankThreshold}
+                  onSave={(blankThreshold) => updateSettings({ blankThreshold })}
+                />
+              </>
+            )}
+            <label className="check">
+              <input
+                type="checkbox"
+                checked={settings?.ocrEnabled ?? true}
+                disabled={!settings}
+                onChange={async (e) => {
+                  const problem = await updateSettings({ ocrEnabled: e.target.checked });
+                  if (problem) setError(problem);
+                }}
+              />
+              Read scanned pages (OCR)
+            </label>
+            <AiSettings settings={settings} apiKeys={apiKeys} chatGpt={chatGpt} onChange={updateSettings} />
           </>
         )}
 
-        <button type="button" className="primary" onClick={() => split()} ref={splitButton}>
+        <button type="button" className="primary" onClick={() => split()} ref={splitButton} disabled={reading !== null || aiStep !== null}>
           Split
         </button>
+        {reading && (
+          <div className="row" role="status">
+            <p>{readingStatus(reading)}</p>
+            <button type="button" onClick={() => invoke("cancel_extract").catch(() => {})}>
+              Cancel
+            </button>
+          </div>
+        )}
+        {aiStep && (
+          <div className="row" role="status">
+            <p>{aiStatus(aiStep)}</p>
+            <button type="button" onClick={cancelAi}>
+              Cancel
+            </button>
+          </div>
+        )}
         {error && <p className="error" role="alert">{error}</p>}
         {notice && (
           <div className="notice" role="status">
@@ -618,9 +748,8 @@ function App({ initialSettings }: { initialSettings: Settings | null }) {
             )}
           </div>
         )}
+        <UpdateNotice />
         {askConsent && <AiConsent service={aiService(settings?.aiPlatform)} onAgree={consentGiven} onCancel={() => setAskConsent(false)} />}
-
-        <BlankSensitivity saved={settings?.blankThreshold} onSave={(blankThreshold) => updateSettings({ blankThreshold })} />
 
         <fieldset className="modes theme">
           <legend>Theme</legend>

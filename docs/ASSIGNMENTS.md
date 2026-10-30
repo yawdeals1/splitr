@@ -18,21 +18,23 @@ Status: ✅ means merged; "In review" means a PR is open.
 | ✅ Done (#37) | #2 | PDF engine: bundle and load PDFium | `phase-0/2-bundle-pdfium` |
 | ✅ Done (#41) | #3 | Open PDF: file info, password prompt and clear errors | `phase-0/3-open-pdf` |
 | ✅ Done (#49) | #6 | Export parts with lopdf | `phase-0/6-export-parts` |
-|  | #7 | Extract page text and outline into DocumentText | `phase-1/7-extract-text` |
-|  | #8 | run_preset command with fallback strategies | `phase-1/8-run-preset` |
-|  | #12 | Test fixture set of 10+ PDFs | `phase-1/12-test-fixtures` |
+| ✅ Done (#66) | #7 | Extract page text and outline into DocumentText | `phase-1/7-extract-text` |
+| ✅ Done (#76) | #8 | run_preset command with fallback strategies | `phase-1/8-run-preset` |
+| ✅ Done (#75) | #73 | Use the chapters under a single top-level bookmark as the outline | `phase-1/73-single-root-outline` |
+| ✅ Done (#78) | #12 | Test fixture set of 10+ PDFs | `phase-1/12-test-fixtures` |
 | ✅ Done (#53) | #13 | API key storage, AI toggle and consent notice | `phase-2/13-api-key-storage` |
-|  | #14 | Page excerpts and overlapping chunks | `phase-2/14-excerpts-chunks` |
+| ✅ Done (#77) | #14 | Page excerpts and overlapping chunks | `phase-2/14-excerpts-chunks` |
 | ✅ Done (#58) | #15 | Claude API client | `phase-2/15-claude-client` |
 | ✅ Done (#63) | #16 | AI response parsing, merging and validation | `phase-2/16-ai-response-parsing` |
-|  | #64 | Smart mode: run AI presets and show the result on the review screen | `phase-2/64-smart-ai-flow` |
-|  | #31 | Connect a ChatGPT account (Sign in with ChatGPT) | `phase-2/31-chatgpt-signin` |
-|  | #19 | Auto-update with signed update manifest | `phase-3/19-auto-update` |
-|  | #21 | Installer size check and clean-machine install test | `phase-3/21-installer-size` |
-|  | #24 | OCR for pages without a text layer | `phase-5/24-ocr` |
-|  | #25 | Local AI model option | `phase-5/25-local-model` |
+| ✅ Done (#79) | #64 | Smart mode: run AI presets and show the result on the review screen | `phase-2/64-smart-ai-flow` |
+| ✅ Done (#81) | #31 | Connect a ChatGPT account (Sign in with ChatGPT) | `phase-2/31-chatgpt-signin` |
+| ✅ Done (#80) | #19 | Auto-update with signed update manifest | `phase-3/19-auto-update` |
+| ✅ Done (#82) | #21 | Installer size check and clean-machine install test | `phase-3/21-installer-size` |
+| ✅ Done (#86) | #24 | OCR for pages without a text layer | `phase-5/24-ocr` |
+| ✅ Done (#85) | #25 | Local AI model option | `phase-5/25-local-model` |
+|  | #83 | Merge open PRs and release the installers (after #24 and #25) | `phase-4/83-release` |
 
-#19 needs the updater signing key in GitHub secrets, and #31 needs the owner to confirm OpenAI's developer terms, so both stay with the owner.
+The updater signing key for #19 is in the repository's encrypted secrets, and its public key is in `src-tauri/tauri.conf.json`. #31 uses OpenAI's self-serve Sign in with ChatGPT route for open-source and locally hosted apps; if Splitr is ever sold, it needs OpenAI's interest form instead (see the findings on #31).
 
 ## @iamromelalvin7
 
@@ -44,14 +46,14 @@ Status: ✅ means merged; "In review" means a PR is open.
 | ✅ Done (#50) | #10 | Naming template, ZIP and open folder | `phase-1/10-naming-zip-open-folder` |
 | ✅ Done (#39) | #11 | Settings file | `phase-1/11-settings-file` |
 | ✅ Done (#40) | #17 | Save a custom prompt as a reusable preset | `phase-2/17-custom-prompt-preset` |
-|  | #18 | Integration tests with a mocked AI provider | `phase-2/18-mock-ai-tests` |
-| In review (#44) | #27 | Bring your own key: multiple AI platforms with automatic key detection | `phase-2/27-multi-key-detection` |
-| In review (#59) | #28 | OpenAI (GPT) provider | `phase-2/28-openai-provider` |
-| In review (#60) | #29 | Google Gemini provider | `phase-2/29-gemini-provider` |
-| In review (#61) | #30 | OpenAI-compatible platforms: OpenRouter, NVIDIA and others | `phase-2/30-openai-compatible` |
-| In review (#62) | #32 | OpenCode Go provider | `phase-2/32-opencode-go` |
+| In review (#67) | #18 | Integration tests with a mocked AI provider | `phase-2/18-mock-ai-tests` |
+| ✅ Done (#44) | #27 | Bring your own key: multiple AI platforms with automatic key detection | `phase-2/27-multi-key-detection` |
+| ✅ Done (#59) | #28 | OpenAI (GPT) provider | `phase-2/28-openai-provider` |
+| ✅ Done (#60) | #29 | Google Gemini provider | `phase-2/29-gemini-provider` |
+| ✅ Done (#61) | #30 | OpenAI-compatible platforms: OpenRouter, NVIDIA and others | `phase-2/30-openai-compatible` |
+| ✅ Done (#62) | #32 | OpenCode Go provider | `phase-2/32-opencode-go` |
 | ✅ Done (#47) | #20 | Theme toggle and keyboard navigation pass | `phase-3/20-theme-keyboard` |
-|  | #22 | v1.0 acceptance pass | `phase-4/22-acceptance-pass` |
+| In review (#72, draft) | #22 | v1.0 acceptance pass | `phase-4/22-acceptance-pass` |
 | ✅ Done (#43) | #23 | Download page and user guide | `phase-4/23-download-page` |
 
 ## Other finished issues
@@ -73,10 +75,10 @@ Some issues wait on other work. Start with work that has no blockers, and rebase
 
 | Waiting issue | Needs first |
 | --- | --- |
-| #64 Smart mode AI flow (@yawdeals1) | #7 page text, #8 run_preset, #14 excerpts (@yawdeals1) |
 | #22 acceptance pass (@iamromelalvin7) | everything in phases 0 to 3 |
+| #83 release (Caleb) | #24 and #25 done (✅), then @iamromelalvin7's open PRs (#67, #69, #71, #72) reviewed and merged |
 
-Unblocked starting points: Caleb on #7, #12 and #14, then #8 once #7 lands. @iamromelalvin7 on finishing the open provider PRs (#44, #59 to #62), and #18, which is now unblocked. #18 can build its mock on `ai::Provider` and test `ai::response::split`, which takes a provider.
+Open work: Caleb on #83, now that #24 (OCR) and #25 (local model) have merged: check and merge @iamromelalvin7's open PRs and release the installers. @iamromelalvin7 on finishing #18 (#67), now that the Smart flow (#64) has landed, and the v1.0 acceptance pass #22 (#72), which can start now that the phase 3 work has merged.
 
 ## Working on your branch
 

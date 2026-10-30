@@ -41,8 +41,46 @@ chrono = { version = "0.4", default-features = false, features = ["clock"] }
 keyring = { version = "3.6", features = ["apple-native", "windows-native", "sync-secret-service", "crypto-rust"] }
 # HTTPS calls to the AI provider (SRS 5.4), see src/ai/. rustls, so Linux needs no OpenSSL.
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
-# Cancelling an AI call (#15). Tauri already runs on tokio, so this adds no new runtime.
-tokio = { version = "1", features = ["macros", "sync"] }
+# Cancelling an AI call (#15) and the ChatGPT sign-in's loopback callback (#31). Tauri already
+# runs on tokio, so this adds no new runtime.
+tokio = { version = "1", features = ["io-util", "macros", "net", "sync", "time"] }
+# Update checks against the GitHub release manifest, signed with the updater key (FR-64, #19),
+# and the restart after an update installs.
+tauri-plugin-updater = "2"
+tauri-plugin-process = "2"
+# Signing in with ChatGPT (#31): PKCE, random values and the ID token's RS256 signature. ring
+# and base64 are already built for rustls and reqwest, so they add nothing to the app's size.
+ring = "0.17"
+base64 = "0.23"
+# OCR for pages without a text layer (FR-80, #24), see src/ocr.rs. Pure Rust, so it builds the
+# same on every platform. The models are a resource fetched by scripts/fetch-ocr-models.mjs.
+# rten must be the version ocrs uses; only the ONNX model format is built.
+ocrs = { version = "0.13.1", default-features = false, features = ["onnx"] }
+rten = { version = "0.26", default-features = false, features = ["onnx_format"] }
+
+# OCR is unusably slow without optimization, so its crates are optimized in dev and test builds too.
+[profile.dev.package.ocrs]
+opt-level = 3
+[profile.dev.package.rten]
+opt-level = 3
+[profile.dev.package.rten-tensor]
+opt-level = 3
+[profile.dev.package.rten-imageproc]
+opt-level = 3
+[profile.dev.package.rten-gemm]
+opt-level = 3
+[profile.dev.package.rten-vecmath]
+opt-level = 3
+[profile.dev.package.rten-simd]
+opt-level = 3
+[profile.dev.package.rten-base]
+opt-level = 3
+[profile.dev.package.rten-parallel]
+opt-level = 3
+[profile.dev.package.rten-onnx]
+opt-level = 3
+[profile.dev.package.rten-shape-inference]
+opt-level = 3
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration
 [profile.release]

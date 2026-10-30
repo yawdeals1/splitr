@@ -4,9 +4,9 @@
   "version": "0.1.0",
   "identifier": "com.splitr.app",
   "build": {
-    "beforeDevCommand": "npm run fetch-pdfium && npm run dev",
+    "beforeDevCommand": "npm run fetch-pdfium && npm run fetch-ocr && npm run dev",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "npm run fetch-pdfium && npm run build",
+    "beforeBuildCommand": "npm run fetch-pdfium && npm run fetch-ocr && npm run build",
     "frontendDist": "../dist"
   },
   "app": {
@@ -25,6 +25,7 @@
   },
   "bundle": {
     "active": true,
+    "createUpdaterArtifacts": true,
     "targets": [
       "msi",
       "nsis",
@@ -40,10 +41,32 @@
       "icons/icon.ico"
     ],
     "resources": [
-      "pdfium/*"
+      "pdfium/*",
+      "ocr/*"
     ],
+    "windows": {
+      "webviewInstallMode": {
+        "type": "downloadBootstrapper"
+      }
+    },
+    "linux": {
+      "deb": {
+        "depends": ["libwebkit2gtk-4.1-0", "libgtk-3-0"]
+      }
+    },
     "macOS": {
       "minimumSystemVersion": "11.0"
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEQxOUY0QjZFOUQ5ODdFMkUKUldRdWZwaWRia3VmMFIvSWRmdVc1c0xPT0ErVjYzall2L1l5QnZaRjZjbkpwQ1BjamY2SUcwencK",
+      "endpoints": [
+        "https://github.com/yawdeals1/splitr/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
     }
   }
 }

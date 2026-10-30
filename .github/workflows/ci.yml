@@ -34,4 +34,6 @@ jobs:
       - run: mkdir -p dist
       # tauri-build needs the PDFium resource, and the pdf tests load it.
       - run: node scripts/fetch-pdfium.mjs
+      # tauri-build needs the OCR models resource too, and the OCR tests load them.
+      - run: node scripts/fetch-ocr-models.mjs
       - run: cargo test --manifest-path src-tauri/Cargo.toml

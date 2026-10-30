@@ -62,6 +62,8 @@ Some presets use a fast method that works offline:
 - **Text pattern:** a new part wherever a page matches, for example "Invoice No. 1042" for *Split by invoice number*.
 - **Blank pages:** a new part at each blank separator page, for *Split at blank pages*.
 
+**Scanned pages.** Pages that are pictures, such as scans, have no text for Text pattern, Blank pages or the AI to read. With **Read scanned pages (OCR)** on (the default), Splitr reads the text on those pages first, on your computer; nothing is sent anywhere. This takes a second or so a page, and the status line shows *Reading scanned pages (OCR)* with a **Cancel** button. Pages that already have text aren't read again. OCR can misread a letter, so check part titles on the review screen. It reads printed text in Latin script (English and similar languages), not handwriting. With OCR off, Splitr tells you which pages had no text.
+
 If the PDF has no bookmarks, or nothing on its pages matches, and you've turned on AI, the preset asks the AI instead. If AI is off, Splitr says it found no split points. When the offline method does find split points, the AI isn't used, so check the parts on the review screen.
 
 Other presets need the AI from the start, because the split depends on what the pages mean, for example *Split by vendor*, *Split exams by student* or *Split by patient*. These only work when AI is turned on.
@@ -72,8 +74,10 @@ Other presets need the AI from the start, because the split depends on what the 
 
 AI is optional and off until you set it up. To use it:
 
-1. Open **Settings** and add an API key for an AI service you have an account with, such as Claude, OpenAI or Gemini. Splitr detects which service a key belongs to, and sends the key only to that service.
-2. The first time you run an AI split, Splitr explains what it sends and asks for your consent.
+1. Under **AI** in the panel, paste an API key for an AI service you have an account with, such as Claude, OpenAI or Gemini, into **Add an API key** and click **Next**. Splitr works out which service the key belongs to from how it starts, without sending it anywhere. If it can't tell, or got it wrong, pick the service yourself, then click **Save key**. Splitr then checks the key with one call to that service only, and shows **Connected** or the exact error. You can save keys for several services and switch between them with **AI service**.
+   Or use your ChatGPT plan instead of a key: choose **ChatGPT account** as the **AI service** and click **Connect ChatGPT**. ChatGPT's sign-in page opens in your browser; sign in there and allow Splitr to use your plan. Splitr never sees your password. The panel then shows the connected account and its plan. Each split counts against your plan's usage, which you can limit in ChatGPT under **Settings > Usage**. **Disconnect** ends the connection at OpenAI and removes it from your computer.
+   Or run the AI on your own computer, with no account and no internet: install a model server such as [Ollama](https://ollama.com) or [LM Studio](https://lmstudio.ai), download a model in it and start its server. Then choose **Local model (offline)** as the **AI service**. **Address** is Ollama's (`http://localhost:11434/v1`) unless you change it; for LM Studio enter `http://localhost:1234/v1`. Click **Show available models** and pick one for **Model**. The address must be on your computer, so page text never leaves it; for the same reason Splitr doesn't use Ollama's cloud models (names ending in `-cloud`). A local model is slower than an online service, and small models get split points wrong more often.
+2. The first time you run an AI split with an online service, Splitr explains what it sends and asks for your consent. A local model sends nothing off your computer, so it doesn't ask.
 
 What is sent: the first and last lines of each page and the page numbers, along with your instruction. The whole file is never sent. Rule-based splits (Custom, Fixed, bookmarks, patterns and blank pages) never use the internet. You can turn AI off at any time in **Settings**.
 
@@ -116,10 +120,12 @@ If an export fails part way, for example because the disk is full, Splitr leaves
 ## Settings
 
 - **Theme:** Light, Dark, or System to follow your computer. It's at the bottom of the split options on the right.
-- **AI:** turn Smart mode's AI on or off, and add or remove API keys. Only the last 4 characters of a saved key are shown. **AI service** picks what Smart mode uses: your ChatGPT account (the default), a Claude, OpenAI or Gemini API key (Gemini keys come from Google AI Studio). **Model** sets the model for that service; leave it blank for the default (GPT-6.1 Sol for ChatGPT and OpenAI, Claude Opus 5.5 for Claude, Gemini 4 Argon for Gemini).
-- **Blank page sensitivity:** above the theme switch. How many characters, not counting spaces, a page may have (such as a page number) and still count as blank for *Split at blank pages*. It starts at 0, and goes up to 200.
+- **AI:** turn Smart mode's AI on or off, and add or remove API keys. Only the last 4 characters of a saved key are shown. **AI service** picks what Smart mode uses: your ChatGPT account (the default), a Claude, OpenAI or Gemini API key (Gemini keys come from Google AI Studio), an API key for a platform that works like OpenAI's (OpenRouter, NVIDIA, Groq, xAI, DeepSeek, Mistral or Together AI), an **OpenCode Go subscription** key (from the OpenCode console), a **Local model (offline)** on your own computer (see [Smart mode and AI](#smart-mode-and-ai)), or **Other OpenAI-compatible platform**, where you also enter its address. Addresses must start with `https://`, except for a model running on your own computer (`http://localhost`). **Model** sets the model for that service; leave it blank for the default (GPT-6.1 Sol for ChatGPT and OpenAI, Claude Opus 5.5 for Claude, Gemini 4 Argon for Gemini, DeepSeek Flash for DeepSeek). For OpenCode Go and the OpenAI-compatible platforms, click **Show available models** to pick from the platform's list. OpenCode Go limits use per 5 hours, week and month; when a limit is reached, Splitr says when it resets.
+- **Blank page sensitivity:** under **Leave blank pages out of the parts**, shown in Smart mode when the preset splits at blank pages. How many characters, not counting spaces, a page may have (such as a page number) and still count as blank. It starts at 0 and goes up to 200.
 
-Splitr checks for new versions and offers to install them.
+## Updates
+
+Each time it starts, Splitr checks GitHub for a newer version. This check is the only time Splitr goes online without an AI split. If a newer version exists, a notice under the split options names it. Click **Install and restart** to download it and restart, or **Later** to keep working. Splitr checks each update's signature before installing it, so only updates published by Splitr's developer install.
 
 ## Troubleshooting
 
@@ -128,5 +134,7 @@ Splitr checks for new versions and offers to install them.
 | "This PDF is password protected" | Enter the file's password when asked |
 | "This PDF has no bookmarks" | Try a Text pattern or Custom prompt preset, or use Custom or Fixed mode |
 | "No split points were found" | The preset found nothing to split on. If AI is off, turn it on so the preset can ask the AI. Otherwise try another preset, a custom prompt, or Custom mode |
-| No text found on scanned pages | Scanned pages are images with no text, so Smart mode can't read them yet, and *Split at blank pages* would treat every page as blank. Use Custom or Fixed mode. Text recognition (OCR) is planned |
+| "No text found on pages …, try turning on “Read scanned pages (OCR)”" | Those pages are images with no text, such as scans. Turn on **Read scanned pages (OCR)** in Smart mode and split again |
+| "Splitr couldn't find any text on this PDF's pages, even with OCR" | The pages have no readable text, for example blurry or handwritten scans. Use Custom or Fixed mode |
+| "Splitr couldn't reach Local model on this computer" | Start your model server (open Ollama or LM Studio and start its server), and check that **Address** under **AI** matches it |
 | A warning when installing or first opening Splitr | See [Why your computer warns you](download.md#why-your-computer-warns-you) |

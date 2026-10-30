@@ -40,6 +40,8 @@ pub struct Settings {
     pub name_template: String,
     /// A page with at most this many visible characters counts as blank (FR-32).
     pub blank_threshold: u32,
+    /// Read pages without a text layer with OCR before the text strategies run (FR-80).
+    pub ocr_enabled: bool,
     /// AI features are on (FR-62). Off hides Smart mode's AI options and blocks every AI call.
     pub ai_enabled: bool,
     /// Whether the user accepted the AI notice (FR-61).
@@ -48,6 +50,11 @@ pub struct Settings {
     pub ai_platform: String,
     /// Models the user chose, by service. A service that isn't here uses its default.
     pub ai_models: BTreeMap<String, String>,
+    /// The address of the custom OpenAI-compatible platform (#30), such as
+    /// "https://llm.example.com/v1". Checked when it is used.
+    pub ai_custom_url: String,
+    /// The address of the model server on this computer (#25). Blank means Ollama's.
+    pub ai_local_url: String,
 }
 
 impl Default for Settings {
@@ -57,10 +64,13 @@ impl Default for Settings {
             last_output_folder: None,
             name_template: "{original} - {index} - {title}".into(),
             blank_threshold: 0,
+            ocr_enabled: true,
             ai_enabled: true,
             ai_consent: false,
             ai_platform: ai::DEFAULT_PLATFORM.into(),
             ai_models: BTreeMap::new(),
+            ai_custom_url: String::new(),
+            ai_local_url: ai::local::DEFAULT_URL.into(),
         }
     }
 }
@@ -89,6 +99,11 @@ impl Settings {
             .filter(|(platform, model)| ai::is_platform(platform) && !model.is_empty())
             .collect();
         self.blank_threshold = self.blank_threshold.min(MAX_BLANK_THRESHOLD);
+        self.ai_custom_url = self.ai_custom_url.trim().to_string();
+        self.ai_local_url = self.ai_local_url.trim().to_string();
+        if self.ai_local_url.is_empty() {
+            self.ai_local_url = Self::default().ai_local_url;
+        }
         if self.last_output_folder.as_deref().is_some_and(|f| f.trim().is_empty()) {
             self.last_output_folder = None;
         }
@@ -117,10 +132,13 @@ pub fn load(path: &Path) -> Result<Settings> {
         last_output_folder: field(&fields, "lastOutputFolder", defaults.last_output_folder),
         name_template: field(&fields, "nameTemplate", defaults.name_template),
         blank_threshold: field(&fields, "blankThreshold", defaults.blank_threshold),
+        ocr_enabled: field(&fields, "ocrEnabled", defaults.ocr_enabled),
         ai_enabled: field(&fields, "aiEnabled", defaults.ai_enabled),
         ai_consent: field(&fields, "aiConsent", defaults.ai_consent),
         ai_platform: field(&fields, "aiPlatform", defaults.ai_platform),
         ai_models: field(&fields, "aiModels", defaults.ai_models),
+        ai_custom_url: field(&fields, "aiCustomUrl", defaults.ai_custom_url),
+        ai_local_url: field(&fields, "aiLocalUrl", defaults.ai_local_url),
     }
     .normalized())
 }
@@ -192,10 +210,13 @@ mod tests {
             last_output_folder: Some("out".into()),
             name_template: "{index} - {title}".into(),
             blank_threshold: 5,
+            ocr_enabled: false,
             ai_enabled: false,
             ai_consent: true,
             ai_platform: "anthropic".into(),
             ai_models: BTreeMap::from([("anthropic".into(), "claude-haiku-5-5".into())]),
+            ai_custom_url: "https://llm.example.com/v1".into(),
+            ai_local_url: "http://127.0.0.1:1234/v1".into(),
         };
         save(&path, &settings).unwrap();
         assert_eq!(load(&path).unwrap(), settings);
@@ -235,6 +256,7 @@ mod tests {
         assert_eq!(loaded.last_output_folder.as_deref(), Some("D:/x"));
         assert!(loaded.ai_consent);
         assert!(loaded.ai_enabled);
+        assert!(loaded.ocr_enabled, "OCR is on unless turned off");
         fs::remove_dir_all(dir).unwrap();
     }
 
@@ -256,7 +278,7 @@ mod tests {
         fs::create_dir_all(&dir).unwrap();
         fs::write(
             &path,
-            r#"{"theme": "light", "nameTemplate": "  ", "aiPlatform": "nope",
+            r#"{"theme": "light", "nameTemplate": "  ", "aiPlatform": "nope", "aiLocalUrl": " ",
                 "aiModels": {"anthropic": " ", "openai": " gpt-x ", "nope": "m"}}"#,
         )
         .unwrap();
@@ -268,6 +290,7 @@ mod tests {
         assert_eq!(loaded.model_for("anthropic").as_deref(), Some("claude-opus-5-5"));
         assert_eq!(loaded.model_for("openai").as_deref(), Some("gpt-x"));
         assert_eq!(loaded.model_for("custom"), None);
+        assert_eq!(loaded.ai_local_url, "http://localhost:11434/v1");
         fs::remove_dir_all(dir).unwrap();
     }
 
