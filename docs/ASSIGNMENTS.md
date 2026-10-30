@@ -46,14 +46,14 @@ The updater signing key for #19 is in the repository's encrypted secrets, and it
 | ✅ Done (#50) | #10 | Naming template, ZIP and open folder | `phase-1/10-naming-zip-open-folder` |
 | ✅ Done (#39) | #11 | Settings file | `phase-1/11-settings-file` |
 | ✅ Done (#40) | #17 | Save a custom prompt as a reusable preset | `phase-2/17-custom-prompt-preset` |
-| In review (#67) | #18 | Integration tests with a mocked AI provider | `phase-2/18-mock-ai-tests` |
+| ✅ Done (#67) | #18 | Integration tests with a mocked AI provider | `phase-2/18-mock-ai-tests` |
 | ✅ Done (#44) | #27 | Bring your own key: multiple AI platforms with automatic key detection | `phase-2/27-multi-key-detection` |
 | ✅ Done (#59) | #28 | OpenAI (GPT) provider | `phase-2/28-openai-provider` |
 | ✅ Done (#60) | #29 | Google Gemini provider | `phase-2/29-gemini-provider` |
 | ✅ Done (#61) | #30 | OpenAI-compatible platforms: OpenRouter, NVIDIA and others | `phase-2/30-openai-compatible` |
 | ✅ Done (#62) | #32 | OpenCode Go provider | `phase-2/32-opencode-go` |
 | ✅ Done (#47) | #20 | Theme toggle and keyboard navigation pass | `phase-3/20-theme-keyboard` |
-| In review (#72, draft) | #22 | v1.0 acceptance pass | `phase-4/22-acceptance-pass` |
+| Checklist merged (#72); manual pass to do | #22 | v1.0 acceptance pass | `phase-4/22-acceptance-pass` |
 | ✅ Done (#43) | #23 | Download page and user guide | `phase-4/23-download-page` |
 
 ## Other finished issues
@@ -75,10 +75,10 @@ Some issues wait on other work. Start with work that has no blockers, and rebase
 
 | Waiting issue | Needs first |
 | --- | --- |
-| #22 acceptance pass (@iamromelalvin7) | everything in phases 0 to 3 |
-| #83 release (Caleb) | #24 and #25 done (✅), then @iamromelalvin7's open PRs (#67, #69, #71, #72) reviewed and merged |
+| #22 acceptance pass (@iamromelalvin7) | phases 0 to 3 done (✅); the manual and cross-OS rows in `docs/acceptance.md` need release builds |
+| #83 release (Caleb) | #24 and #25 done (✅); @iamromelalvin7's PRs #67, #69, #71 and #72 merged (✅) |
 
-Open work: Caleb on #83, now that #24 (OCR) and #25 (local model) have merged: check and merge @iamromelalvin7's open PRs and release the installers. @iamromelalvin7 on finishing #18 (#67), now that the Smart flow (#64) has landed, and the v1.0 acceptance pass #22 (#72), which can start now that the phase 3 work has merged.
+Open work: Caleb on #83: every open PR has merged, so publish the first release and check that an installed copy updates (FR-64). @iamromelalvin7 on the v1.0 acceptance pass #22: work through the manual and cross-OS rows of `docs/acceptance.md` (#72) on the release builds, file any critical bugs, and close #22 in a follow-up PR.
 
 ## Working on your branch
 
