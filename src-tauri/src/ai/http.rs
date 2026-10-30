@@ -19,26 +19,65 @@ pub const TIMEOUT: Duration = Duration::from_secs(180);
 pub struct Api {
     http: reqwest::Client,
     /// The platform's name, as the user knows it ("OpenAI").
-    name: &'static str,
+    name: String,
     timeout: Duration,
+    /// Headers sent with every call, such as OpenCode's session id (#32). Never the key.
+    extra: Vec<(String, String)>,
+    /// True for subscription plans with usage limits, so a 429 says when the limit resets (#32).
+    usage_limits: bool,
+    /// True for an address on this computer, such as a local model (#25).
+    local: bool,
 }
 
 impl Api {
-    pub fn new(name: &'static str, timeout: Duration) -> Result<Self> {
-        let http = reqwest::Client::builder()
-            // Tests talk to a local server over plain HTTP; the app only ever uses HTTPS.
-            .https_only(cfg!(not(test)))
+    pub fn new(name: &str, timeout: Duration) -> Result<Self> {
+        Self::build(name.into(), timeout, false)
+    }
+
+    /// Like [`Api::new`]; `local` allows plain HTTP, for an address on this computer that the
+    /// caller has checked (a custom platform or local model, #30, #25).
+    pub fn build(name: String, timeout: Duration, local: bool) -> Result<Self> {
+        let mut builder = reqwest::Client::builder();
+        if local {
+            // A call to this computer must stay on it (FR-81): no system proxy, and no redirect
+            // that a local server could send to another host.
+            builder = builder.no_proxy().redirect(reqwest::redirect::Policy::none());
+        }
+        let http = builder
+            // Tests talk to a local server over plain HTTP; the app uses HTTPS except on this computer.
+            .https_only(cfg!(not(test)) && !local)
             .connect_timeout(CONNECT_TIMEOUT)
             .timeout(timeout)
             .build()
             .map_err(|e| SplitError::Ai(format!("Splitr couldn't set up its connection to {name} ({e})")))?;
-        Ok(Self { http, name, timeout })
+        Ok(Self { http, name, timeout, extra: Vec::new(), usage_limits: false, local })
+    }
+
+    /// Sends `name: value` with every call.
+    pub fn add_header(&mut self, name: &str, value: String) {
+        self.extra.push((name.into(), value));
+    }
+
+    /// Reports a 429 as a plan's usage limit rather than a rate limit.
+    pub fn with_usage_limits(&mut self) {
+        self.usage_limits = true;
     }
 
     /// POSTs `body` as JSON to `url` with `headers`, and returns the reply body of a successful
     /// call. `model` names the model in a "not found" message.
     pub async fn post(&self, url: &str, headers: &[(&str, &str)], body: &Value, model: &str) -> Result<String> {
-        let mut call = self.http.post(url).json(body);
+        self.send(self.http.post(url).json(body), headers, model).await
+    }
+
+    /// GETs `url` with `headers`, and returns the reply body of a successful call.
+    pub async fn get(&self, url: &str, headers: &[(&str, &str)]) -> Result<String> {
+        self.send(self.http.get(url), headers, "").await
+    }
+
+    async fn send(&self, mut call: reqwest::RequestBuilder, headers: &[(&str, &str)], model: &str) -> Result<String> {
+        for (name, value) in &self.extra {
+            call = call.header(name, value);
+        }
         for (name, value) in headers {
             call = call.header(*name, *value);
         }
@@ -57,11 +96,15 @@ impl Api {
     }
 
     fn network_error(&self, e: &reqwest::Error) -> SplitError {
-        let name = self.name;
+        let name = &self.name;
         if e.is_timeout() {
             SplitError::Ai(format!(
                 "{name} didn't answer within {} seconds. Try again, or split a smaller part of the file",
                 self.timeout.as_secs()
+            ))
+        } else if e.is_connect() && self.local {
+            SplitError::Ai(format!(
+                "Splitr couldn't reach {name} on this computer. Check that the model server (such as Ollama or LM                  Studio) is running and the address in Settings is right"
             ))
         } else if e.is_connect() {
             SplitError::Ai(format!("Splitr couldn't reach {name}. Check your internet connection and try again"))
@@ -71,7 +114,7 @@ impl Api {
     }
 
     fn status_error(&self, status: StatusCode, body: &str, retry_after: Option<u64>, model: &str) -> SplitError {
-        let name = self.name;
+        let name = &self.name;
         let error = ApiError::read(body);
         let detail = error.message.as_ref().map(|m| format!(" ({m})")).unwrap_or_default();
         let message = match status.as_u16() {
@@ -79,6 +122,13 @@ impl Api {
             _ if error.is_bad_key() => format!("{name} didn't accept your API key. Check it in Settings"),
             401 => format!("{name} didn't accept your API key. Check it in Settings"),
             402 => format!("Your {name} account has no credit left for this request. Check billing on {name}'s site{detail}"),
+            429 if self.usage_limits => match retry_after {
+                Some(secs) => format!("You've reached your {name} usage limit. It resets {}", in_about(secs)),
+                None => format!(
+                    "You've reached your {name} usage limit. Limits reset every 5 hours, week and month; check your \
+                     usage on {name}'s site, or choose another model"
+                ),
+            },
             // Running out of quota is a 429 too, but waiting won't help.
             429 if error.is_quota() => {
                 format!("You've used up your {name} quota or credit. Check your plan and billing on {name}'s site{detail}")
@@ -89,6 +139,8 @@ impl Api {
             },
             400 => format!("{name} couldn't accept this request{detail}"),
             403 => format!("Your {name} API key isn't allowed to make this request{detail}"),
+            // A GET names no model: it is a model list or key check at a wrong address.
+            404 if model.is_empty() => format!("{name} has nothing at this address (error 404). Check the address in Settings"),
             404 => format!("{name} doesn't offer the model \"{model}\" to your account. Check the model name in Settings"),
             413 => format!("This request is too large for {name}. Split a smaller part of the file"),
             500..=599 => format!("{name} had a problem on its side (error {}). Try again in a minute", status.as_u16()),
@@ -96,6 +148,17 @@ impl Api {
         };
         SplitError::Ai(message)
     }
+}
+
+/// "in about 2 hours" for a wait of `secs` seconds.
+fn in_about(secs: u64) -> String {
+    let (amount, unit) = match secs {
+        0..120 => (secs, "seconds"),
+        120..7200 => (secs.div_ceil(60), "minutes"),
+        7200..172_800 => (secs.div_ceil(3600), "hours"),
+        _ => (secs.div_ceil(86_400), "days"),
+    };
+    format!("in about {amount} {unit}")
 }
 
 /// The parts of an error body that platforms share, in the OpenAI style
@@ -255,6 +318,22 @@ mod tests {
             assert!(err.contains(expected), "{status} {body}: {err}");
             assert!(!err.contains("secret-key"), "{err}");
         }
+    }
+
+    #[test]
+    fn a_missing_address_on_a_get_names_no_model() {
+        let (url, _got) = serve("/v1/models", "404 Not Found", "", "{}");
+        let api = Api::new("Example", Duration::from_secs(5)).unwrap();
+        let err = tauri::async_runtime::block_on(api.get(&url, &[])).unwrap_err().to_string();
+        assert!(err.contains("nothing at this address") && !err.contains("model"), "{err}");
+    }
+
+    #[test]
+    fn waits_read_naturally() {
+        assert_eq!(in_about(30), "in about 30 seconds");
+        assert_eq!(in_about(300), "in about 5 minutes");
+        assert_eq!(in_about(7200), "in about 2 hours");
+        assert_eq!(in_about(3 * 86_400), "in about 3 days");
     }
 
     #[test]

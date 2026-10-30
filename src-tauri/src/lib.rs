@@ -1,13 +1,21 @@
 mod ai;
+mod chatgpt;
 mod commands;
 mod error;
 mod export;
+#[cfg(test)]
+mod fixtures;
+mod key_detect;
 mod keystore;
 mod naming;
+mod ocr;
 mod pdf;
+mod preset_run;
 mod presets;
 mod ranges;
 mod settings;
+#[cfg(test)]
+mod smart_flow_tests;
 mod strategy;
 mod user_presets;
 mod viewer;
@@ -21,6 +29,9 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        // FR-64: update checks, verified with the public key in tauri.conf.json, and the restart after.
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .setup(|app| {
             // Page images are cached in the user's own cache folder (NFR-07). Folders left by a
             // crashed session are deleted first.
@@ -41,6 +52,8 @@ pub fn run() {
                     if let Err(e) = pdf::init(&dir.join("pdfium")) {
                         eprintln!("{e}");
                     }
+                    // The OCR models load the first time a scanned page is read (FR-80).
+                    ocr::init(&dir.join("ocr"));
                 }
                 Err(e) => eprintln!("Could not find the resource folder: {e}"),
             }
@@ -53,6 +66,10 @@ pub fn run() {
             commands::validate_ranges,
             commands::open_pdf,
             commands::render_page,
+            commands::extract_text,
+            commands::run_preset,
+            commands::cancel_extract,
+            commands::text_note,
             commands::export_parts,
             commands::export_zip,
             commands::export_names,
@@ -63,10 +80,18 @@ pub fn run() {
             commands::save_api_key,
             commands::api_key_status,
             commands::delete_api_key,
+            commands::saved_api_keys,
+            commands::verify_api_key,
             commands::ask_ai,
             commands::ai_split,
+            commands::run_ai,
             commands::cancel_ai,
             commands::default_ai_models,
+            commands::list_ai_models,
+            commands::detect_api_key,
+            commands::chatgpt_status,
+            commands::chatgpt_connect,
+            commands::chatgpt_disconnect,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

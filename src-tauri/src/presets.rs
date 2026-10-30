@@ -25,6 +25,9 @@ pub struct Preset {
     pub prompt: String,
     #[serde(default)]
     pub pattern: Option<String>,
+    /// Pages in each part, for the fixed strategy (FR-21).
+    #[serde(default)]
+    pub every: Option<u32>,
     /// True for presets the user saved (FR-71), which they can edit and delete.
     #[serde(default)]
     pub user: bool,
@@ -51,6 +54,10 @@ mod tests {
                 let pattern = p.pattern.as_deref().unwrap_or_else(|| panic!("{} has no pattern", p.id));
                 regex::Regex::new(pattern).unwrap_or_else(|e| panic!("{} has a bad pattern: {e}", p.id));
             }
+            if p.strategy == StrategyKind::Fixed {
+                assert!(p.every.is_some_and(|n| n > 0), "{} needs every > 0", p.id);
+            }
+            assert_ne!(p.fallback, Some(p.strategy), "{} falls back to its own strategy", p.id);
         }
     }
 }

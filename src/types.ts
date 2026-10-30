@@ -10,6 +10,8 @@ export interface Preset {
   fallback?: StrategyKind | null;
   prompt: string;
   pattern?: string | null;
+  /** Pages in each part, for the fixed strategy (FR-21). */
+  every?: number | null;
   /** True for presets the user saved (FR-71). */
   user?: boolean;
 }
@@ -41,6 +43,61 @@ export interface PdfInfo {
   sizeBytes: number;
 }
 
+/** Mirrors strategy::OutlineEntry: a top-level bookmark and the page it opens. */
+export interface OutlineEntry {
+  title: string;
+  page: number;
+}
+
+/** Mirrors commands::TextSummary, returned by extract_text (#7). */
+export interface TextSummary {
+  pageCount: number;
+  /** Pages with any visible text. Scanned pages have none. */
+  pagesWithText: number;
+  outline: OutlineEntry[];
+}
+
+/** Mirrors preset_run::RunOptions: what the user set for a Smart split (FR-32). */
+export interface RunOptions {
+  blankThreshold: number;
+  dropSeparators: boolean;
+}
+
+/** Mirrors preset_run::PresetRun, returned by run_preset (#8). */
+export type PresetRun =
+  | {
+      kind: "parts";
+      ranges: Range[];
+      /** The strategy that found the parts: the preset's own, or its fallback. */
+      strategy: StrategyKind;
+      /** True when dropped blank pages leave gaps. */
+      allowGaps: boolean;
+      /** Why the preset's own strategy found nothing, when its fallback found the parts. */
+      fallbackReason: string | null;
+    }
+  /** The preset splits with the AI, or falls back to it; `reason` says why the rules found nothing. */
+  | { kind: "needsAi"; reason: string | null };
+
+/** Mirrors strategy::AiRun, returned by run_ai (#64). */
+export type AiRun =
+  | { kind: "parts"; ranges: Range[] }
+  /** The AI's answer still failed after the retry: the user sets the parts by hand (FR-36). */
+  | { kind: "unusable"; problem: string }
+  /** The user pressed Cancel. */
+  | { kind: "cancelled" };
+
+/** The payload of the "extract-progress" event that extract_text sends, and of "ai-progress" (chunks answered). */
+export interface ExtractProgress {
+  done: number;
+  total: number;
+  /** True while OCR reads the pages without text (FR-80); `total` is then those pages. */
+  ocr: boolean;
+}
+
+// The error run_preset ends with when Cancel stops the text read or OCR (FR-80, NFR-02). Must match
+// SplitError::ExtractCancelled in error.rs.
+export const READING_CANCELLED = "Reading the PDF's text was cancelled";
+
 // open_pdf errors that mean "ask for the password" (FR-03). Must match SplitError in error.rs.
 export const PASSWORD_REQUIRED = "This PDF is password protected. Enter its password to open it.";
 export const WRONG_PASSWORD = "The password is incorrect. Try again.";
@@ -55,6 +112,8 @@ export interface Settings {
   lastOutputFolder: string | null;
   nameTemplate: string;
   blankThreshold: number;
+  /** Read pages without a text layer with OCR before the text strategies run (FR-80). */
+  ocrEnabled: boolean;
   /** AI features are on (FR-62). */
   aiEnabled: boolean;
   aiConsent: boolean;
@@ -62,6 +121,21 @@ export interface Settings {
   aiPlatform: string;
   /** Models the user chose, by service. A service that isn't listed uses its default. */
   aiModels: Record<string, string>;
+  /** The address of the custom OpenAI-compatible platform (#30). */
+  aiCustomUrl: string;
+  /** The address of the model server on this computer (#25), Ollama's by default. */
+  aiLocalUrl: string;
+}
+
+/** Mirrors chatgpt::Status: all the interface learns about a connected ChatGPT account (#31, NFR-05). */
+export interface ChatGptStatus {
+  connected: boolean;
+  email: string | null;
+  name: string | null;
+  /** The ChatGPT plan, such as "plus", when OpenAI names it. */
+  plan: string | null;
+  /** False when the user signed in but didn't allow Splitr to use their plan. */
+  planUsage: boolean;
 }
 
 /** Mirrors keystore::KeyStatus: all the interface learns about a saved API key (NFR-05). */
@@ -91,3 +165,27 @@ export interface SavedParts {
   paths: string[];
   renamed: number;
 }
+
+/** Mirrors key_detect::Platform. */
+export type Platform =
+  | "anthropic"
+  | "openai"
+  | "gemini"
+  | "openrouter"
+  | "nvidia"
+  | "groq"
+  | "xai"
+  | "deepseek"
+  | "mistral"
+  | "together"
+  | "opencode-go"
+  | "custom";
+
+/** Mirrors ai::verify::KeyCheck: what checking a saved key found (#27). */
+export type KeyCheck = { status: "connected" } | { status: "unchecked"; reason: string };
+
+/** Mirrors key_detect::Detection: what a key's prefix says about it. */
+export type KeyDetection =
+  | { kind: "platform"; platform: Platform }
+  | { kind: "ambiguous"; options: Platform[] }
+  | { kind: "rejected"; reason: string };

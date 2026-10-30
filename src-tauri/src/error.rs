@@ -11,8 +11,13 @@ pub enum SplitError {
     NoOutline,
     #[error("No split points were found")]
     NothingFound,
-    #[error("{0} is not implemented yet")]
-    NotImplemented(&'static str),
+    #[error("No text found on any page (the PDF may be scanned), try turning on “Read scanned pages (OCR)”")]
+    NoTextLayer,
+    #[error("Splitr couldn't find any text on this PDF's pages, even with OCR, so it can't split it by its text")]
+    NoTextEvenWithOcr,
+    // Reading scanned pages (FR-80).
+    #[error("OCR couldn't run: {0}")]
+    Ocr(String),
     #[error("The PDF engine could not start: {0}")]
     PdfEngine(String),
     #[error("{0}")]
@@ -57,6 +62,13 @@ pub enum SplitError {
     PageOutOfRange(u32, u32),
     #[error("Page {0} could not be shown: {1}")]
     RenderFailed(u32, String),
+    // Reading page text and bookmarks for the rule strategies (#7, NFR-02).
+    #[error("The text of page {0} could not be read: {1}")]
+    TextFailed(u32, String),
+    #[error("Splitr could not read the PDF's text: {0}")]
+    ExtractFailed(String),
+    #[error("Reading the PDF's text was cancelled")]
+    ExtractCancelled,
     // Saving parts (FR-50, NFR-09). A failed export removes everything it wrote.
     #[error("Splitr can't write parts of {0}: {1}")]
     CantSplit(String, String),

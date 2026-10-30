@@ -7,15 +7,13 @@ mod fixed;
 mod outline;
 mod pattern;
 
-#[allow(unused_imports)]
-pub use ai::AiStrategy;
-#[allow(unused_imports)]
+pub use ai::{AiRun, AiStrategy, cancelled_is_ok};
 pub use blank::BlankPageStrategy;
 pub use fixed::FixedStrategy;
-#[allow(unused_imports)]
 pub use outline::OutlineStrategy;
-#[allow(unused_imports)]
 pub use pattern::PatternStrategy;
+
+use serde::Serialize;
 
 use crate::error::Result;
 use crate::ranges::Range;
@@ -26,11 +24,11 @@ pub struct DocumentText {
     pub page_count: u32,
     /// Text of each page, index 0 is page 1.
     pub pages: Vec<String>,
-    /// Top-level bookmarks.
+    /// The bookmarks to split at: the top-level ones, or the chapters under a single one (#73).
     pub outline: Vec<OutlineEntry>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct OutlineEntry {
     pub title: String,
     pub page: u32,
