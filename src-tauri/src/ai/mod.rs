@@ -3,6 +3,7 @@
 
 pub mod claude;
 pub mod compatible;
+pub mod excerpts;
 pub mod gemini;
 pub mod http;
 pub mod openai;
@@ -65,7 +66,7 @@ pub fn is_platform(platform: &str) -> bool {
     platform == "chatgpt" || crate::keystore::is_platform(platform)
 }
 
-/// One page in a request: short excerpts, never the whole page (FR-33, FR-61). Built by #14.
+/// One page in a request: short excerpts, never the whole page (FR-33, FR-61). See `excerpts`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PageExcerpt {
     pub page: u32,
