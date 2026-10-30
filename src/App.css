@@ -584,3 +584,8 @@ button.link {
 .ai-consent .primary {
   margin-top: 0;
 }
+
+/* FR-21: the Fixed mode choice is smaller than the range mode switch above it. */
+.modes.fixed-by {
+  font-size: 13px;
+}

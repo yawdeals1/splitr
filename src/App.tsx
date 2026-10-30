@@ -57,7 +57,9 @@ function App({ initialSettings }: { initialSettings: Settings | null }) {
   const [presetId, setPresetId] = useState("");
   const [customPrompt, setCustomPrompt] = useState("");
   const [customRanges, setCustomRanges] = useState("");
-  const [fixedEvery, setFixedEvery] = useState(10);
+  // FR-21: every N pages, or N equal parts.
+  const [fixedBy, setFixedBy] = useState<"every" | "parts">("every");
+  const [fixedCount, setFixedCount] = useState(10);
   const [ranges, setRanges] = useState<Range[]>([]);
   // Custom mode may leave pages out (FR-20); other modes must cover every page (FR-35).
   const [allowGaps, setAllowGaps] = useState(false);
@@ -295,7 +297,7 @@ function App({ initialSettings }: { initialSettings: Settings | null }) {
       if (mode === "custom") {
         next = await invoke<Range[]>("parse_custom_ranges", { input: customRanges, pageCount: pdf.pageCount });
       } else if (mode === "fixed") {
-        next = await invoke<Range[]>("fixed_ranges", { pageCount: pdf.pageCount, every: fixedEvery });
+        next = await invoke<Range[]>("fixed_ranges", { pageCount: pdf.pageCount, [fixedBy]: fixedCount });
       } else {
         // FR-60 to FR-62: AI runs only when it is on, a key is saved and the user agreed to the notice.
         if (usesAi(presetId === CUSTOM_PROMPT ? null : selectedPreset ?? null)) {
@@ -484,16 +486,39 @@ function App({ initialSettings }: { initialSettings: Settings | null }) {
         )}
 
         {mode === "fixed" && (
-          <label>
-            Split every N pages
-            <input
-              type="number"
-              min={1}
-              value={fixedEvery}
-              onChange={(e) => setFixedEvery(Number(e.target.value))}
-              onKeyDown={splitOnEnter}
-            />
-          </label>
+          <>
+            <fieldset className="modes fixed-by">
+              <legend>Split</legend>
+              {(
+                [
+                  ["every", "Every N pages"],
+                  ["parts", "Into N equal parts"],
+                ] as const
+              ).map(([value, label]) => (
+                <label key={value} className={fixedBy === value ? "active" : ""}>
+                  <input
+                    type="radio"
+                    name="fixed-by"
+                    value={value}
+                    checked={fixedBy === value}
+                    onChange={() => setFixedBy(value)}
+                  />
+                  {label}
+                </label>
+              ))}
+            </fieldset>
+            <label>
+              {fixedBy === "every" ? "Pages per part" : "Number of parts"}
+              <input
+                type="number"
+                min={1}
+                max={fixedBy === "parts" ? pdf?.pageCount : undefined}
+                value={fixedCount}
+                onChange={(e) => setFixedCount(Number(e.target.value))}
+                onKeyDown={splitOnEnter}
+              />
+            </label>
+          </>
         )}
 
         {mode === "smart" && (
