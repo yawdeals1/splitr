@@ -1,6 +1,7 @@
 //! AI providers for Smart mode (SRS 3, 6.2, Appendix A). Every platform sits behind `Provider`, so
 //! the rest of the app doesn't know which one answers. Only the AI strategy calls these (NFR-06).
 
+pub mod chatgpt;
 pub mod claude;
 pub mod compatible;
 pub mod excerpts;
@@ -17,6 +18,7 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::watch;
 
 use crate::error::{Result, SplitError};
+use chatgpt::ChatGpt;
 use claude::Claude;
 use compatible::ChatCompletions;
 use gemini::Gemini;
@@ -90,6 +92,7 @@ pub trait Provider {
 /// The provider for the platform the user chose. It holds that platform's key, which goes only
 /// there (NFR-05).
 pub enum Chosen {
+    ChatGpt(ChatGpt),
     Claude(Claude),
     OpenAi(OpenAi),
     Gemini(Gemini),
@@ -100,6 +103,7 @@ pub enum Chosen {
 impl Provider for Chosen {
     async fn complete(&self, request: &AiRequest) -> Result<String> {
         match self {
+            Chosen::ChatGpt(p) => p.complete(request).await,
             Chosen::Claude(p) => p.complete(request).await,
             Chosen::OpenAi(p) => p.complete(request).await,
             Chosen::Gemini(p) => p.complete(request).await,
@@ -124,19 +128,15 @@ pub fn provider(platform: &str, custom_url: &str, key: String, model: String) ->
     }
 }
 
-/// Whether Smart mode can send requests to `platform` yet.
+/// Whether Smart mode can send requests to `platform` yet. The ChatGPT account (#31) signs in
+/// instead of using a key, so `provider` doesn't build it.
 pub fn is_supported(platform: &str) -> bool {
-    matches!(platform, "anthropic" | "openai" | "gemini" | "opencode-go") || compatible::is_compatible(platform)
+    matches!(platform, "chatgpt" | "anthropic" | "openai" | "gemini" | "opencode-go") || compatible::is_compatible(platform)
 }
 
 /// Why Smart mode can't use `platform` yet.
-pub fn unsupported(platform: &str) -> SplitError {
-    SplitError::Ai(match platform {
-        "chatgpt" => "Signing in with ChatGPT isn't available yet. Choose a service that uses an API key under AI in \
-                      Settings for now"
-            .into(),
-        _ => "Smart mode can't use this AI service yet. Choose another one under AI in Settings".into(),
-    })
+pub fn unsupported(_platform: &str) -> SplitError {
+    SplitError::Ai("Smart mode can't use this AI service yet. Choose another one under AI in Settings".into())
 }
 
 /// Lets the user stop the AI calls in progress (#15). Dropping a call's future also drops its
@@ -224,9 +224,8 @@ mod tests {
     fn only_finished_providers_are_offered() {
         assert!(is_supported("anthropic") && is_supported("openai") && is_supported("gemini"));
         assert!(is_supported("openrouter") && is_supported("custom"));
-        assert!(is_supported("opencode-go"));
-        assert!(!is_supported("chatgpt") && !is_supported("../evil"));
-        assert!(unsupported("chatgpt").to_string().contains("ChatGPT isn't available yet"));
+        assert!(is_supported("opencode-go") && is_supported("chatgpt"));
+        assert!(!is_supported("../evil"));
         let err = provider("someday", "", "k".into(), "m".into()).err().unwrap();
         assert!(err.to_string().contains("can't use this AI service yet"), "{err}");
         assert!(matches!(provider("openai", "", "k".into(), "m".into()), Ok(Chosen::OpenAi(_))));

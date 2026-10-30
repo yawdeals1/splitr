@@ -1,4 +1,5 @@
 mod ai;
+mod chatgpt;
 mod commands;
 mod error;
 mod export;
@@ -82,6 +83,9 @@ pub fn run() {
             commands::default_ai_models,
             commands::list_ai_models,
             commands::detect_api_key,
+            commands::chatgpt_status,
+            commands::chatgpt_connect,
+            commands::chatgpt_disconnect,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
