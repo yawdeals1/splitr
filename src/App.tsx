@@ -8,6 +8,7 @@ import { aiBlock, aiBlockMessage, aiService, usesAi } from "./ai";
 import { AiConsent } from "./AiConsent";
 import { AiSettings, useApiKey } from "./AiSettings";
 import { ExportOptions } from "./ExportOptions";
+import { BlankSensitivity } from "./BlankSensitivity";
 import { baseName, formatSize, rejectReason } from "./file";
 import { DEFAULT_TEMPLATE, savedMessage, usableTemplate } from "./naming";
 import { PageGrid } from "./PageGrid";
@@ -618,6 +619,8 @@ function App({ initialSettings }: { initialSettings: Settings | null }) {
           </div>
         )}
         {askConsent && <AiConsent service={aiService(settings?.aiPlatform)} onAgree={consentGiven} onCancel={() => setAskConsent(false)} />}
+
+        <BlankSensitivity saved={settings?.blankThreshold} onSave={(blankThreshold) => updateSettings({ blankThreshold })} />
 
         <fieldset className="modes theme">
           <legend>Theme</legend>

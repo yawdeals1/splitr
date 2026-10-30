@@ -17,6 +17,10 @@ use crate::error::{Result, SplitError};
 
 pub const FILE_NAME: &str = "settings.json";
 
+/// The most visible characters a blank page may have (FR-32). Enough for a page number or a short
+/// note; more would count real pages as separators. `src/blank.ts` uses the same limit.
+pub const MAX_BLANK_THRESHOLD: u32 = 200;
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Theme {
@@ -84,6 +88,7 @@ impl Settings {
             .map(|(platform, model)| (platform, model.trim().to_string()))
             .filter(|(platform, model)| ai::is_platform(platform) && !model.is_empty())
             .collect();
+        self.blank_threshold = self.blank_threshold.min(MAX_BLANK_THRESHOLD);
         if self.last_output_folder.as_deref().is_some_and(|f| f.trim().is_empty()) {
             self.last_output_folder = None;
         }
@@ -270,5 +275,17 @@ mod tests {
     fn has_no_key_fields() {
         let json = serde_json::to_string(&Settings::default()).unwrap().to_lowercase();
         assert!(!json.contains("key") && !json.contains("token"));
+    }
+
+    #[test]
+    fn blank_threshold_is_capped() {
+        let dir = temp_dir("blank-cap");
+        let path = dir.join(FILE_NAME);
+        let saved = save(&path, &Settings { blank_threshold: 5000, ..Settings::default() }).unwrap();
+        assert_eq!(saved.blank_threshold, MAX_BLANK_THRESHOLD);
+        assert_eq!(load(&path).unwrap().blank_threshold, MAX_BLANK_THRESHOLD);
+        let kept = save(&path, &Settings { blank_threshold: 12, ..Settings::default() }).unwrap();
+        assert_eq!(kept.blank_threshold, 12);
+        fs::remove_dir_all(dir).unwrap();
     }
 }

@@ -117,7 +117,7 @@ If an export fails part way, for example because the disk is full, Splitr leaves
 
 - **Theme:** Light, Dark, or System to follow your computer. It's at the bottom of the split options on the right.
 - **AI:** turn Smart mode's AI on or off, and add or remove API keys. Only the last 4 characters of a saved key are shown. **AI service** picks what Smart mode uses: your ChatGPT account (the default), a Claude, OpenAI or Gemini API key (Gemini keys come from Google AI Studio). **Model** sets the model for that service; leave it blank for the default (GPT-6.1 Sol for ChatGPT and OpenAI, Claude Opus 5.5 for Claude, Gemini 4 Argon for Gemini).
-- **Blank page sensitivity:** how much may be on a page (such as a page number) for it to still count as blank.
+- **Blank page sensitivity:** above the theme switch. How many characters, not counting spaces, a page may have (such as a page number) and still count as blank for *Split at blank pages*. It starts at 0, and goes up to 200.
 
 Splitr checks for new versions and offers to install them.
 
