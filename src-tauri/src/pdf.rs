@@ -6,15 +6,17 @@
 
 use std::collections::{HashMap, HashSet};
 use std::io::{Cursor, ErrorKind};
+use std::ops::ControlFlow;
 use std::path::Path;
 use std::sync::OnceLock;
 
 use image::ImageFormat;
 use lopdf::{Dictionary, Document, Object, ObjectId};
-use pdfium_render::prelude::{PdfDocument, PdfRenderConfig, Pdfium, PdfiumError, PdfiumInternalError};
+use pdfium_render::prelude::{PdfBookmark, PdfDocument, PdfRenderConfig, Pdfium, PdfiumError, PdfiumInternalError};
 use serde::Serialize;
 
 use crate::error::{Result, SplitError};
+use crate::strategy::{DocumentText, OutlineEntry};
 
 /// The PDFium instance loaded at startup, or why it failed to load.
 static ENGINE: OnceLock<std::result::Result<Pdfium, String>> = OnceLock::new();
@@ -118,6 +120,101 @@ pub fn render_page(document: &PdfDocument, page: u32, width: u32) -> Result<Vec<
         .write_to(&mut Cursor::new(&mut jpeg), ImageFormat::Jpeg)
         .map_err(|e| failed(e.to_string()))?;
     Ok(jpeg)
+}
+
+/// OCR reads pages rendered at about this many dots per inch (FR-80). The ocrs models read
+/// ordinary print best around here; 200 and 300 were slower and misread more in the tests.
+const OCR_DPI: f32 = 150.0;
+/// The widest page image OCR reads, so a poster-sized page can't need a huge bitmap.
+const OCR_MAX_WIDTH: f32 = 3000.0;
+
+/// Renders page `page` (1-based) of `document` for OCR, at about `OCR_DPI` (FR-80).
+pub fn render_for_ocr(document: &PdfDocument, page: u32) -> Result<image::RgbImage> {
+    let failed = |e: String| SplitError::RenderFailed(page, e);
+    let page_count = u32::try_from(document.pages().len()).unwrap_or(0);
+    if page == 0 || page > page_count {
+        return Err(SplitError::PageOutOfRange(page, page_count));
+    }
+    let index = i32::try_from(page - 1).map_err(|e| failed(e.to_string()))?;
+    let pdf_page = document.pages().get(index).map_err(|e| failed(e.to_string()))?;
+    // Page sizes are in points, 72 to the inch.
+    let width = (pdf_page.width().value * OCR_DPI / 72.0).round().clamp(100.0, OCR_MAX_WIDTH) as i32;
+    let max_height = i32::try_from(MAX_RENDER_HEIGHT).map_err(|e| failed(e.to_string()))?;
+    let config = PdfRenderConfig::new().set_target_width(width).set_maximum_height(max_height);
+    pdf_page
+        .render_with_config(&config)
+        .and_then(|bitmap| bitmap.as_image())
+        .map(|image| image.to_rgb8())
+        .map_err(|e| failed(e.to_string()))
+}
+
+/// A damaged outline could link back to itself, so reading stops after this many bookmarks.
+const MAX_BOOKMARKS: usize = 10_000;
+
+/// Reads the text of every page and the top-level bookmarks of `document`, for the rule
+/// strategies (FR-30 to FR-32). `progress` is called after each page with the pages done and the
+/// total; returning `ControlFlow::Break` stops with `SplitError::ExtractCancelled` (NFR-02).
+pub fn extract_text(
+    document: &PdfDocument,
+    mut progress: impl FnMut(u32, u32) -> ControlFlow<()>,
+) -> Result<DocumentText> {
+    let page_count = u32::try_from(document.pages().len()).unwrap_or(0);
+    let mut pages = Vec::with_capacity(page_count as usize);
+    for (index, page) in document.pages().iter().enumerate() {
+        let number = index as u32 + 1;
+        let text = page.text().map_err(|e| SplitError::TextFailed(number, e.to_string()))?;
+        pages.push(text.all());
+        if progress(number, page_count).is_break() {
+            return Err(SplitError::ExtractCancelled);
+        }
+    }
+    Ok(DocumentText { page_count, pages, outline: outline_entries(document) })
+}
+
+/// The bookmarks the outline strategy splits at (FR-30): the top-level ones, or, while the outline
+/// has a single top-level bookmark with bookmarks under it (often the document title), the level
+/// below it, so a book splits by chapter (#73).
+fn outline_entries(document: &PdfDocument) -> Vec<OutlineEntry> {
+    let mut first = document.bookmarks().root();
+    let mut entries = bookmarks_from(first.clone());
+    for _ in 0..MAX_DEPTH {
+        let Some(only) = first.filter(|b| b.next_sibling().is_none()) else { break };
+        first = only.first_child();
+        let children = bookmarks_from(first.clone());
+        if children.is_empty() {
+            break;
+        }
+        entries = children;
+    }
+    entries
+}
+
+/// A damaged outline could nest without end, so `outline_entries` goes at most this many levels down.
+const MAX_DEPTH: usize = 32;
+
+/// `first` and its later siblings that open a page of this document, in outline order. Bookmarks
+/// that open a web address or another file are left out.
+fn bookmarks_from(first: Option<PdfBookmark>) -> Vec<OutlineEntry> {
+    let mut entries = Vec::new();
+    let mut next = first;
+    let mut read = 0;
+    while let Some(bookmark) = next.filter(|_| read < MAX_BOOKMARKS) {
+        read += 1;
+        // A bookmark opens its page through `/Dest`, or through a GoTo action.
+        let index = match bookmark.destination() {
+            Some(dest) => dest.page_index().ok(),
+            None => bookmark.action().and_then(|action| {
+                action.as_local_destination_action()?.destination().ok()?.page_index().ok()
+            }),
+        };
+        let page = index.and_then(|index| u32::try_from(index).ok()).map(|index| index + 1);
+        if let Some(page) = page {
+            let title = bookmark.title().unwrap_or_default().trim().to_string();
+            entries.push(OutlineEntry { title, page });
+        }
+        next = bookmark.next_sibling();
+    }
+    entries
 }
 
 fn io_error(e: &std::io::Error, file_name: &str) -> SplitError {
@@ -729,7 +826,7 @@ pub(crate) mod tests {
     #[test]
     fn password_messages_match_the_frontend() {
         let types = include_str!("../../src/types.ts");
-        for err in [SplitError::PasswordRequired, SplitError::WrongPassword] {
+        for err in [SplitError::PasswordRequired, SplitError::WrongPassword, SplitError::ExtractCancelled] {
             assert!(types.contains(&format!("\"{err}\"")), "src/types.ts is missing \"{err}\"");
         }
     }
@@ -944,5 +1041,158 @@ pub(crate) mod tests {
         let junk = write(&dir, "junk.pdf", b"not a pdf");
         let err = load_source(&junk, None).err().unwrap();
         assert!(matches!(err, SplitError::CantSplit(..)), "{err}");
+    }
+
+    fn extract(doc: Document) -> DocumentText {
+        start_engine();
+        let dir = tempfile::tempdir().unwrap();
+        let (_, doc) = open_document(&save(&dir, "a.pdf", doc), None).unwrap();
+        extract_text(&doc, |_, _| ControlFlow::Continue(())).unwrap()
+    }
+
+    fn entry(title: &str, page: u32) -> OutlineEntry {
+        OutlineEntry { title: title.into(), page }
+    }
+
+    #[test]
+    fn extracts_the_text_of_every_page() {
+        let text = extract(document(3));
+        assert_eq!(text.page_count, 3);
+        let pages: Vec<&str> = text.pages.iter().map(|p| p.trim()).collect();
+        assert_eq!(pages, ["Page 1", "Page 2", "Page 3"]);
+        assert!(text.outline.is_empty());
+    }
+
+    #[test]
+    fn extracts_only_the_top_level_bookmarks() {
+        assert_eq!(extract(outlined()).outline, [entry("Chapter 1", 1), entry("Chapter 2", 3)]);
+    }
+
+    #[test]
+    fn bookmarks_with_actions_and_named_destinations_find_their_page() {
+        let mut doc = outlined();
+        let pages = doc.get_pages();
+        let outlines = doc.get_dictionary(doc.catalog().unwrap().get(b"Outlines").unwrap().as_reference().unwrap()).unwrap();
+        let (chapter1, chapter2) = (
+            outlines.get(b"First").unwrap().as_reference().unwrap(),
+            outlines.get(b"Last").unwrap().as_reference().unwrap(),
+        );
+        let item = doc.get_dictionary_mut(chapter1).unwrap();
+        item.remove(b"Dest");
+        item.set("A", dictionary! { "S" => "GoTo", "D" => vec![Object::Reference(pages[&2]), "Fit".into()] });
+        doc.get_dictionary_mut(chapter2).unwrap().set("Dest", Object::string_literal("sec-2.1"));
+
+        assert_eq!(extract(doc).outline, [entry("Chapter 1", 2), entry("Chapter 2", 4)]);
+    }
+
+    #[test]
+    fn bookmarks_that_open_no_page_are_left_out() {
+        let mut doc = outlined();
+        let outlines = doc.get_dictionary(doc.catalog().unwrap().get(b"Outlines").unwrap().as_reference().unwrap()).unwrap();
+        let chapter1 = outlines.get(b"First").unwrap().as_reference().unwrap();
+        let item = doc.get_dictionary_mut(chapter1).unwrap();
+        item.remove(b"Dest");
+        item.set("A", dictionary! { "S" => "URI", "URI" => Object::string_literal("https://example.com") });
+
+        assert_eq!(extract(doc).outline, [entry("Chapter 2", 3)]);
+    }
+
+    /// `doc` with its top-level bookmarks moved under one new top-level bookmark `title`, which
+    /// opens page 1.
+    fn wrapped(mut doc: Document, title: &str) -> Document {
+        let page1 = doc.get_pages()[&1];
+        let outlines_id = doc.catalog().unwrap().get(b"Outlines").unwrap().as_reference().unwrap();
+        let outlines = doc.get_dictionary(outlines_id).unwrap().clone();
+        let (first, last) = (outlines.get(b"First").unwrap().as_reference().unwrap(), outlines.get(b"Last").unwrap().as_reference().unwrap());
+        let root = doc.add_object(dictionary! {
+            "Title" => Object::string_literal(title), "Parent" => outlines_id,
+            "Dest" => vec![Object::Reference(page1), "Fit".into()],
+            "First" => first, "Last" => last, "Count" => outlines.get(b"Count").unwrap().clone(),
+        });
+        let mut next = Some(first);
+        while let Some(id) = next {
+            let item = doc.get_dictionary_mut(id).unwrap();
+            item.set("Parent", root);
+            next = item.get(b"Next").and_then(Object::as_reference).ok();
+        }
+        let outlines = doc.get_dictionary_mut(outlines_id).unwrap();
+        outlines.set("First", root);
+        outlines.set("Last", root);
+        doc
+    }
+
+    #[test]
+    fn a_single_top_level_bookmark_gives_way_to_the_chapters_under_it() {
+        let book = extract(wrapped(outlined(), "The Book"));
+        assert_eq!(book.outline, [entry("Chapter 1", 1), entry("Chapter 2", 3)]);
+        // Repeated while the outline still has one bookmark with others under it.
+        let series = extract(wrapped(wrapped(outlined(), "The Book"), "The Series"));
+        assert_eq!(series.outline, [entry("Chapter 1", 1), entry("Chapter 2", 3)]);
+
+        use crate::strategy::{OutlineStrategy, Strategy};
+        let parts = OutlineStrategy.propose(&book).unwrap();
+        let parts: Vec<_> = parts.iter().map(|r| (r.start, r.end, r.title.as_str())).collect();
+        assert_eq!(parts, [(1, 2, "Chapter 1"), (3, 4, "Chapter 2")]);
+    }
+
+    #[test]
+    fn a_single_bookmark_is_kept_when_nothing_under_it_opens_a_page() {
+        let mut doc = wrapped(outlined(), "The Book");
+        let outlines = doc.get_dictionary(doc.catalog().unwrap().get(b"Outlines").unwrap().as_reference().unwrap()).unwrap();
+        let root = outlines.get(b"First").unwrap().as_reference().unwrap();
+        let root = doc.get_dictionary(root).unwrap();
+        let chapters = [root.get(b"First").unwrap().as_reference().unwrap(), root.get(b"Last").unwrap().as_reference().unwrap()];
+        for id in chapters {
+            let item = doc.get_dictionary_mut(id).unwrap();
+            item.remove(b"Dest");
+            item.set("A", dictionary! { "S" => "URI", "URI" => Object::string_literal("https://example.com") });
+        }
+        assert_eq!(extract(doc).outline, [entry("The Book", 1)]);
+
+        // A single bookmark with nothing under it stays too.
+        let mut doc = document(2);
+        let page1 = doc.get_pages()[&1];
+        let outlines_id = doc.new_object_id();
+        let only = doc.add_object(dictionary! {
+            "Title" => Object::string_literal("Only"), "Parent" => outlines_id,
+            "Dest" => vec![Object::Reference(page1), "Fit".into()],
+        });
+        doc.objects.insert(outlines_id, Object::Dictionary(dictionary! { "Type" => "Outlines", "First" => only, "Last" => only, "Count" => 1 }));
+        doc.catalog_mut().unwrap().set("Outlines", outlines_id);
+        assert_eq!(extract(doc).outline, [entry("Only", 1)]);
+    }
+
+    #[test]
+    fn extraction_reports_progress_and_can_be_cancelled() {
+        start_engine();
+        let dir = tempfile::tempdir().unwrap();
+        let (_, doc) = open_document(&save(&dir, "a.pdf", document(5)), None).unwrap();
+
+        let mut seen = Vec::new();
+        let result = extract_text(&doc, |done, total| {
+            seen.push((done, total));
+            if done == 2 { ControlFlow::Break(()) } else { ControlFlow::Continue(()) }
+        });
+        assert!(matches!(result, Err(SplitError::ExtractCancelled)));
+        assert_eq!(seen, [(1, 5), (2, 5)]);
+    }
+
+    /// NFR-01: a 300-page file extracts well inside the 15 s budget.
+    #[test]
+    fn a_300_page_file_extracts_well_inside_the_budget() {
+        let mut doc = document(300);
+        // Fill each page with 50 lines, like a page of a report.
+        for (n, page_id) in doc.get_pages() {
+            let lines: String = (0..50).map(|l| format!("0 -14 Td (Line {l} of page {n}, some ordinary report text.) Tj ")).collect();
+            let content = format!("BT /F1 10 Tf 50 750 Td {lines}ET");
+            let contents_id = doc.add_object(Stream::new(dictionary! {}, content.into_bytes()));
+            doc.get_dictionary_mut(page_id).unwrap().set("Contents", contents_id);
+        }
+        let started = std::time::Instant::now();
+        let text = extract(doc);
+        let took = started.elapsed();
+        assert_eq!(text.pages.len(), 300);
+        assert!(text.pages[299].contains("Line 49 of page 300"), "{}", text.pages[299]);
+        assert!(took < std::time::Duration::from_secs(5), "took {took:?}");
     }
 }

@@ -1,6 +1,6 @@
 # Manual check: real AI splits
 
-The mocked tests (`cargo test`, see `src-tauri/src/smart_flow_tests.rs`) check the Smart flow without a network: that excerpts go out in chunks, that answers are checked, retried once, merged and exported. They can't say whether a real model finds the right parts. This checklist covers that part (SRS 9.2, "Manual"), and measures the Phase 2 exit criterion: **AI splits are correct after at most 2 range edits on at least 80% of the sample files** (PRD 12, SRS 9.3).
+The mocked tests (`cargo test`, see `src-tauri/src/smart_flow_tests.rs` and `ai_presets_split_and_export_with_a_mocked_provider` in `src-tauri/src/fixtures.rs`) check the Smart flow without a network: that only short excerpts go out, in overlapping chunks, and that answers are checked, retried once, merged and exported. They can't say whether a real model finds the right parts. This checklist covers that part (SRS 9.2, "Manual"), and measures the Phase 2 exit criterion: **AI splits are correct after at most 2 range edits on at least 80% of the sample files** (PRD 12, SRS 9.3).
 
 ## Before you start
 

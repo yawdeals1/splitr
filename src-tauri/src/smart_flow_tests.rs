@@ -1,180 +1,105 @@
-//! The Smart flow end to end with a scripted AI provider (#18, SRS 9.2): open a PDF, send page
-//! excerpts in chunks, check and merge the answers (retrying a bad one once), and export the parts.
-//! No network and no key: the provider is `ai::mock::Scripted`.
+//! Smart mode across several chunks with a scripted AI provider (#18, SRS 9.2): the real excerpt
+//! builder (#14) chunks a long document, `ai::mock::Scripted` answers each chunk from its excerpts
+//! alone, and the answers are retried, merged and validated (#16). No network and no key.
 //!
-//! Page text extraction (#7) and excerpt building (#14) aren't in yet, so the excerpts here are
-//! built from the text the test PDF is known to have on each page ("Page n").
+//! `fixtures::ai_presets_split_and_export_with_a_mocked_provider` covers a sample PDF from opening
+//! to export in one chunk; these tests cover what only shows with several chunks.
 
-use std::fs;
-
+use crate::ai::excerpts::{CHUNK_PAGES, HEAD_CHARS, OVERLAP, TAIL_CHARS};
 use crate::ai::mock::Scripted;
-use crate::ai::{AiRequest, PageExcerpt, response};
-use crate::error::SplitError;
-use crate::export::{self, ExportRequest};
-use crate::naming;
-use crate::pdf::tests::{document, save, start_engine};
-use crate::pdf::{self};
+use crate::ai::AiRequest;
+use crate::error::Result;
 use crate::ranges::Range;
+use crate::strategy::{AiRun, AiStrategy, DocumentText};
 
-const TASK: &str = "Split so that each chapter is one part";
+const PAGES: u32 = 300;
+/// Where each chapter starts. 115 and 225 fall where two chunks overlap; 100 is just before one.
+const CHAPTERS: [u32; 5] = [1, 100, 115, 225, 260];
 
-/// Excerpts for pages `first` to `last`, as #14 will send them: the page number and short text.
-fn chunk(first: u32, last: u32) -> AiRequest {
-    let pages = (first..=last)
-        .map(|page| PageExcerpt { page, head: format!("Page {page}"), tail: String::new() })
+/// A 300-page book with long pages. The middle of each page holds a marker that must never be sent.
+fn book() -> DocumentText {
+    let body = "Lorem ipsum dolor sit amet, consectetur adipiscing elit. ".repeat(20);
+    let pages = (1..=PAGES)
+        .map(|page| {
+            let heading = if CHAPTERS.contains(&page) { format!("Chapter {page}") } else { format!("Text {page}") };
+            format!("{heading}\n{body}\nPrivate middle of page {page}\n{body}\n{body}\nFooter {page}")
+        })
         .collect();
-    AiRequest { instruction: TASK.into(), pages }
+    DocumentText { page_count: PAGES, pages, outline: Vec::new() }
 }
 
-/// A reply in the SRS 6.3 shape.
-fn reply(parts: &[(u32, u32, &str)]) -> String {
-    let items: Vec<String> = parts
-        .iter()
-        .map(|(start, end, title)| format!(r#"{{"start":{start},"end":{end},"title":"{title}"}}"#))
-        .collect();
-    format!("[{}]", items.join(","))
+/// Answers like a model reading only the excerpts: a part starts at each "Chapter" heading. Pages
+/// before the first heading in a chunk continue the part from the chunk before.
+fn reads_chapters(request: &AiRequest) -> String {
+    let mut parts: Vec<serde_json::Value> = Vec::new();
+    for page in &request.pages {
+        if page.head.starts_with("Chapter") || parts.is_empty() {
+            let title = page.head.split(" / ").next().unwrap_or("");
+            parts.push(serde_json::json!({ "start": page.page, "end": page.page, "title": title }));
+        } else {
+            parts.last_mut().unwrap()["end"] = page.page.into();
+        }
+    }
+    serde_json::Value::from(parts).to_string()
 }
 
-/// The parts a careful model finds in pages `first` to `last` of a 10-page book whose chapters
-/// start on pages 1, 4 and 8.
-fn chapters_in(first: u32, last: u32) -> String {
-    let chapters = [(1, 3, "Chapter 1"), (4, 7, "Chapter 2"), (8, 10, "Chapter 3")];
-    let parts: Vec<(u32, u32, &str)> = chapters
-        .iter()
-        .filter(|(start, end, _)| *end >= first && *start <= last)
-        .map(|(start, end, title)| ((*start).max(first), (*end).min(last), *title))
-        .collect();
-    reply(&parts)
+fn run(provider: &Scripted<impl Fn(&AiRequest, usize) -> Result<String>>) -> AiRun {
+    let strategy = AiStrategy { instruction: "Split so that each chapter is one part".into() };
+    tauri::async_runtime::block_on(strategy.propose(provider, &book(), |_, _| {})).unwrap()
 }
 
-fn first_and_last(request: &AiRequest) -> (u32, u32) {
-    let pages: Vec<u32> = request.pages.iter().map(|p| p.page).collect();
-    (*pages.iter().min().unwrap(), *pages.iter().max().unwrap())
+fn chapters() -> Vec<Range> {
+    let ends = CHAPTERS.iter().skip(1).map(|start| start - 1).chain([PAGES]);
+    CHAPTERS.iter().zip(ends).map(|(&start, end)| Range { start, end, title: format!("Chapter {start}") }).collect()
+}
+
+fn span(request: &AiRequest) -> (u32, u32) {
+    (request.pages.first().unwrap().page, request.pages.last().unwrap().page)
 }
 
 #[test]
-fn a_smart_split_with_overlapping_chunks_exports_one_file_per_part() {
-    start_engine();
-    let dir = tempfile::tempdir().unwrap();
-    let source = save(&dir, "book.pdf", document(10));
-    let before = fs::read(&source).unwrap();
+fn a_long_book_is_sent_in_overlapping_chunks_and_merged_into_chapters() {
+    let provider = Scripted::new(|request: &AiRequest, _| Ok(reads_chapters(request)));
+    assert_eq!(run(&provider), AiRun::Parts { ranges: chapters() });
 
-    // Open (FR-01, FR-02).
-    let (info, _doc) = pdf::open_document(&source, None).unwrap();
-    assert_eq!(info.page_count, 10);
-
-    // AI split in two overlapping chunks (FR-33, FR-34), each answered for its own pages.
-    let mock = Scripted::new(|request: &AiRequest, _| {
-        let (first, last) = first_and_last(request);
-        Ok(chapters_in(first, last))
-    });
-    let chunks = [chunk(1, 6), chunk(5, 10)];
-    let ranges = tauri::async_runtime::block_on(response::split(&mock, &chunks, info.page_count, false)).unwrap();
-    assert_eq!(
-        ranges,
-        [
-            Range { start: 1, end: 3, title: "Chapter 1".into() },
-            Range { start: 4, end: 7, title: "Chapter 2".into() },
-            Range { start: 8, end: 10, title: "Chapter 3".into() },
-        ]
-    );
-
-    // Only short excerpts and the instruction were sent, each page in its chunk (FR-33, FR-61).
-    let sent = mock.requests();
-    assert_eq!(sent.len(), 2);
+    // FR-34, NFR-04: three requests that overlap by OVERLAP pages and cover every page once each.
+    let sent = provider.requests();
+    let spans: Vec<(u32, u32)> = sent.iter().map(span).collect();
+    assert_eq!(spans, [(1, CHUNK_PAGES), (CHUNK_PAGES - OVERLAP + 1, 2 * CHUNK_PAGES - OVERLAP), (221, PAGES)]);
     for request in &sent {
-        assert_eq!(request.instruction, TASK);
-        assert!(request.pages.iter().all(|p| p.head.len() < 200 && p.tail.len() < 200));
+        let pages: Vec<u32> = request.pages.iter().map(|p| p.page).collect();
+        assert_eq!(pages, (span(request).0..=span(request).1).collect::<Vec<_>>());
     }
 
-    // Export (FR-50 to FR-52), named from the default template.
-    let out = tempfile::tempdir().unwrap();
-    let titles: Vec<String> = ranges.iter().map(|r| r.title.clone()).collect();
-    let names = naming::export_names("{original} - {index} - {title}", &info.file_name, &titles);
-    let saved = export::export(&ExportRequest {
-        path: source.clone(),
-        password: None,
-        ranges: ranges.clone(),
-        folder: out.path().to_string_lossy().into_owned(),
-        names: names.parts,
-    })
-    .unwrap();
-    assert_eq!(saved.renamed, 0);
-    let files: Vec<String> = saved
-        .paths
-        .iter()
-        .map(|p| std::path::Path::new(p).file_name().unwrap().to_string_lossy().into_owned())
-        .collect();
-    assert_eq!(files, ["book - 01 - Chapter 1.pdf", "book - 02 - Chapter 2.pdf", "book - 03 - Chapter 3.pdf"]);
-    let pages: Vec<u32> = saved.paths.iter().map(|p| pdf::open_document(p, None).unwrap().0.page_count).collect();
-    assert_eq!(pages, [3, 4, 3]);
-
-    // The original is never changed (FR-04).
-    assert_eq!(fs::read(&source).unwrap(), before);
+    // FR-33, FR-61: only short excerpts leave the machine, never the middle of a page.
+    for page in sent.iter().flat_map(|r| &r.pages) {
+        assert!(page.head.chars().count() <= HEAD_CHARS, "page {}: {}", page.page, page.head);
+        assert!(page.tail.chars().count() <= TAIL_CHARS, "page {}: {}", page.page, page.tail);
+        assert!(page.tail.ends_with(&format!("Footer {}", page.page)), "page {}: {}", page.page, page.tail);
+        assert!(!page.head.contains("Private") && !page.tail.contains("Private"), "page {}", page.page);
+    }
 }
 
 #[test]
-fn a_bad_answer_is_asked_for_again_once() {
-    // The first answer is not JSON; the second is right (FR-36).
-    let mock = Scripted::new(|request: &AiRequest, n| {
-        let (first, last) = first_and_last(request);
-        Ok(if n == 0 { "Sure! Here are the chapters:".into() } else { chapters_in(first, last) })
+fn only_the_chunk_with_a_bad_answer_is_asked_again() {
+    // FR-36: the second chunk's first answer isn't JSON. It alone is sent again, once.
+    let provider = Scripted::new(|request: &AiRequest, n| {
+        Ok(if n == 1 { "Sure! Here are the chapters:".into() } else { reads_chapters(request) })
     });
-    let ranges = tauri::async_runtime::block_on(response::split(&mock, &[chunk(1, 10)], 10, false)).unwrap();
-    assert_eq!(ranges.len(), 3);
-    assert_eq!(mock.requests().len(), 2, "one retry, no more");
+    assert_eq!(run(&provider), AiRun::Parts { ranges: chapters() });
+    let spans: Vec<(u32, u32)> = provider.requests().iter().map(span).collect();
+    assert_eq!(spans.len(), 4);
+    assert_eq!(spans[1], spans[2], "the retry repeats the same chunk");
 }
 
 #[test]
-fn answers_that_break_the_rules_are_retried_then_reported() {
-    // Overlapping parts, then pages past the chunk: both fail validation (FR-35), so the user is
-    // told what was wrong and can set the parts by hand (FR-36).
-    let mock = Scripted::new(|_: &AiRequest, n| {
-        Ok(if n == 0 { reply(&[(1, 6, "A"), (5, 10, "B")]) } else { reply(&[(1, 12, "Everything")]) })
+fn a_chunk_that_fails_twice_leaves_the_parts_to_the_user() {
+    // FR-36: the third chunk claims pages outside itself twice, so the review screen opens with
+    // the problem instead of parts.
+    let provider = Scripted::new(|request: &AiRequest, _| {
+        Ok(if span(request).0 == 221 { r#"[{"start":1,"end":300,"title":"All"}]"#.into() } else { reads_chapters(request) })
     });
-    let err = tauri::async_runtime::block_on(response::split(&mock, &[chunk(1, 10)], 10, false)).unwrap_err();
-    assert!(matches!(err, SplitError::AiReply(1, 10, _)), "{err}");
-    assert_eq!(mock.requests().len(), 2);
-}
-
-#[test]
-fn a_provider_error_stops_the_split_at_once() {
-    // A bad key or a rate limit isn't retried: asking again wouldn't help.
-    let mock = Scripted::new(|_: &AiRequest, _| Err(SplitError::Ai("Claude didn't accept your API key".into())));
-    let err = tauri::async_runtime::block_on(response::split(&mock, &[chunk(1, 5), chunk(6, 10)], 10, false)).unwrap_err();
-    assert!(err.to_string().contains("didn't accept your API key"), "{err}");
-    assert_eq!(mock.requests().len(), 1);
-}
-
-#[test]
-fn a_failed_split_exports_nothing() {
-    start_engine();
-    let dir = tempfile::tempdir().unwrap();
-    let source = save(&dir, "book.pdf", document(10));
-    let out = tempfile::tempdir().unwrap();
-
-    let mock = Scripted::new(|_: &AiRequest, _| Ok("[]".into()));
-    let result = tauri::async_runtime::block_on(response::split(&mock, &[chunk(1, 10)], 10, false));
-    assert!(result.is_err());
-
-    // The interface only offers export once it has parts; without them there is nothing to write,
-    // and an empty export is refused before any file is created (NFR-09).
-    let err = export::export(&ExportRequest {
-        path: source,
-        password: None,
-        ranges: Vec::new(),
-        folder: out.path().to_string_lossy().into_owned(),
-        names: Vec::new(),
-    })
-    .unwrap_err();
-    assert!(matches!(err, SplitError::InvalidRanges(_)), "{err}");
-    assert_eq!(fs::read_dir(out.path()).unwrap().count(), 0);
-}
-
-#[test]
-fn custom_mode_may_leave_pages_out() {
-    // With gaps allowed (Custom mode, FR-20), the AI may skip pages, such as a cover.
-    let mock = Scripted::new(|_: &AiRequest, _| Ok(reply(&[(2, 5, "Body"), (7, 10, "Appendix")])));
-    let ranges = tauri::async_runtime::block_on(response::split(&mock, &[chunk(1, 10)], 10, true)).unwrap();
-    assert_eq!(ranges.iter().map(|r| (r.start, r.end)).collect::<Vec<_>>(), [(2, 5), (7, 10)]);
+    let AiRun::Unusable { problem } = run(&provider) else { panic!("expected the answer to be unusable") };
+    assert!(problem.contains("pages 221 to 300"), "{problem}");
+    assert_eq!(provider.requests().len(), 4);
 }
