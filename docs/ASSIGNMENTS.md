@@ -30,8 +30,8 @@ Status: ✅ means merged; "In review" means a PR is open.
 | ✅ Done (#81) | #31 | Connect a ChatGPT account (Sign in with ChatGPT) | `phase-2/31-chatgpt-signin` |
 | ✅ Done (#80) | #19 | Auto-update with signed update manifest | `phase-3/19-auto-update` |
 | ✅ Done (#82) | #21 | Installer size check and clean-machine install test | `phase-3/21-installer-size` |
-|  | #24 | OCR for pages without a text layer | `phase-5/24-ocr` |
-|  | #25 | Local AI model option | `phase-5/25-local-model` |
+| ✅ Done (#86) | #24 | OCR for pages without a text layer | `phase-5/24-ocr` |
+| ✅ Done (#85) | #25 | Local AI model option | `phase-5/25-local-model` |
 |  | #83 | Merge open PRs and release the installers (after #24 and #25) | `phase-4/83-release` |
 
 The updater signing key for #19 is in the repository's encrypted secrets, and its public key is in `src-tauri/tauri.conf.json`. #31 uses OpenAI's self-serve Sign in with ChatGPT route for open-source and locally hosted apps; if Splitr is ever sold, it needs OpenAI's interest form instead (see the findings on #31).
@@ -76,9 +76,9 @@ Some issues wait on other work. Start with work that has no blockers, and rebase
 | Waiting issue | Needs first |
 | --- | --- |
 | #22 acceptance pass (@iamromelalvin7) | everything in phases 0 to 3 |
-| #83 release (Caleb) | #24 and #25 done, then @iamromelalvin7's open PRs (#67, #69, #71, #72) reviewed and merged |
+| #83 release (Caleb) | #24 and #25 done (✅), then @iamromelalvin7's open PRs (#67, #69, #71, #72) reviewed and merged |
 
-Open work: Caleb on #24 (OCR) and #25 (local model), then #83: check and merge @iamromelalvin7's open PRs and release the installers. @iamromelalvin7 on finishing #18 (#67), now that the Smart flow (#64) has landed, and the v1.0 acceptance pass #22 (#72), which can start now that the phase 3 work has merged.
+Open work: Caleb on #83, now that #24 (OCR) and #25 (local model) have merged: check and merge @iamromelalvin7's open PRs and release the installers. @iamromelalvin7 on finishing #18 (#67), now that the Smart flow (#64) has landed, and the v1.0 acceptance pass #22 (#72), which can start now that the phase 3 work has merged.
 
 ## Working on your branch
 
