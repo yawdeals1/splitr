@@ -13,8 +13,6 @@ pub enum SplitError {
     NothingFound,
     #[error("This PDF has no text layer (it may be scanned), so Splitr can't split it by its text yet")]
     NoTextLayer,
-    #[error("{0} is not implemented yet")]
-    NotImplemented(&'static str),
     #[error("The PDF engine could not start: {0}")]
     PdfEngine(String),
     #[error("{0}")]

@@ -19,7 +19,7 @@ use crate::preset_run::{self, PresetRun, RunOptions};
 use crate::presets::{self, Preset};
 use crate::ranges::{self, Range};
 use crate::settings::{self, Settings};
-use crate::strategy::{DocumentText, FixedStrategy, OutlineEntry, Strategy};
+use crate::strategy::{AiRun, AiStrategy, DocumentText, FixedStrategy, OutlineEntry, Strategy, cancelled_is_ok};
 use crate::user_presets::{self, PresetInput, PresetList};
 use crate::viewer::Viewer;
 
@@ -293,6 +293,44 @@ pub async fn run_preset(app: AppHandle, path: String, preset_id: String, options
     })
     .await
     .map_err(|e| SplitError::ExtractFailed(e.to_string()))?
+}
+
+/// The event `run_ai` sends as chunks are answered: `{ done, total }`.
+pub const AI_PROGRESS: &str = "ai-progress";
+
+/// Splits the open PDF at `path` with the AI (FR-30, FR-33 to FR-36): with the prompt of the
+/// preset `preset_id`, or with the user's custom `prompt`. Nothing is read or sent unless AI is on
+/// and the user accepted the notice (FR-61, FR-62). Sends `extract-progress` events while it reads
+/// the text, then `ai-progress` events (NFR-02). `cancel_ai` and `cancel_extract` end it with
+/// `AiRun::Cancelled`.
+#[tauri::command]
+pub async fn run_ai(app: AppHandle, path: String, preset_id: Option<String>, prompt: Option<String>) -> Result<AiRun> {
+    let instruction = match preset_id {
+        Some(id) => list_presets(app.clone())
+            .await
+            .presets
+            .into_iter()
+            .find(|p| p.id == id)
+            .ok_or_else(|| SplitError::Presets("This preset is no longer available. Choose another one".into()))?
+            .prompt,
+        None => prompt.unwrap_or_default(),
+    };
+    let provider = ai_provider(&app).await?;
+    let result = async {
+        let text = {
+            let app = app.clone();
+            tauri::async_runtime::spawn_blocking(move || extract_with_progress(&app, &path))
+                .await
+                .map_err(|e| SplitError::ExtractFailed(e.to_string()))??
+        };
+        let strategy = AiStrategy { instruction };
+        let progress = |done, total| {
+            let _ = app.emit(AI_PROGRESS, ExtractProgress { done, total });
+        };
+        app.state::<AiCalls>().run(strategy.propose(&provider, &text, progress)).await
+    }
+    .await;
+    cancelled_is_ok(result)
 }
 
 /// Stops the text extraction in progress. It ends with `SplitError::ExtractCancelled`.

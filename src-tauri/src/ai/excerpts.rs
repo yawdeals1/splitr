@@ -2,9 +2,6 @@
 //! (FR-33, FR-61), in overlapping chunks so a large file needs only a few requests (FR-34, NFR-04).
 //! `response::merge` joins the chunk answers where the chunks overlap.
 
-// Smart mode calls this when it runs the AI step (#64).
-#![allow(dead_code)]
-
 use super::{AiRequest, PageExcerpt};
 use crate::strategy::DocumentText;
 

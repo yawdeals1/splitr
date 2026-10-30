@@ -17,11 +17,12 @@ import { PasswordPrompt } from "./PasswordPrompt";
 import { PresetEditor } from "./PresetEditor";
 import { ReviewScreen } from "./ReviewScreen";
 import { useSettings } from "./settings";
-import { aiNotYet, smartResult, usesBlank } from "./smart";
+import { aiReview, aiStatus, smartResult, usesBlank, type AiReview } from "./smart";
 import { showTheme } from "./theme";
 import {
   PASSWORD_REQUIRED,
   WRONG_PASSWORD,
+  type AiRun,
   type ExportNames,
   type ExportRequest,
   type ExtractProgress,
@@ -66,6 +67,10 @@ function App({ initialSettings }: { initialSettings: Settings | null }) {
   const [dropSeparators, setDropSeparators] = useState(false);
   // #8: pages read so far while Smart mode reads the PDF's text, or null when it isn't reading.
   const [reading, setReading] = useState<ExtractProgress | null>(null);
+  // #64: the AI step in progress: reading the text, then chunks answered. Null when it isn't running.
+  const [aiStep, setAiStep] = useState<(ExtractProgress & { reading: boolean }) | null>(null);
+  // FR-36: why the AI's answer couldn't be used, shown on the review screen; "" otherwise.
+  const [reviewProblem, setReviewProblem] = useState("");
   const [ranges, setRanges] = useState<Range[]>([]);
   // Custom mode may leave pages out (FR-20), and so may dropped blank pages (FR-32); otherwise
   // every page must be in a part (FR-35).
@@ -302,6 +307,7 @@ function App({ initialSettings }: { initialSettings: Settings | null }) {
     let next: Range[] | null = null;
     let gaps = mode === "custom";
     let fellBack = "";
+    let problem = "";
     try {
       if (mode === "custom") {
         next = await invoke<Range[]>("parse_custom_ranges", { input: customRanges, pageCount: pdf.pageCount });
@@ -309,10 +315,9 @@ function App({ initialSettings }: { initialSettings: Settings | null }) {
         next = await invoke<Range[]>("fixed_ranges", { pageCount: pdf.pageCount, every: fixedEvery });
       } else {
         if (!settings) throw "Settings are still loading.";
-        let needsAi = aiNotYet(null);
+        if (reading || aiStep) return;
         if (presetId !== CUSTOM_PROMPT) {
           // FR-30: the preset's rules run first; the AI is needed only if they or the preset ask for it.
-          if (reading) return;
           setReading({ done: 0, total: pdf.pageCount });
           const stop = listen<ExtractProgress>("extract-progress", ({ payload }) => setReading(payload));
           let run: PresetRun;
@@ -327,15 +332,23 @@ function App({ initialSettings }: { initialSettings: Settings | null }) {
           if (result.kind === "parts") {
             next = result.ranges;
             gaps = result.allowGaps;
-            fellBack = result.notice;
-          } else needsAi = result.message;
-        }
+          }
+          fellBack = result.notice;
+        } else if (!customPrompt.trim()) throw "Type an instruction for the AI first.";
         // FR-60 to FR-62: AI runs only when it is on, a key is saved and the user agreed to the notice.
         if (!next) {
           const block = aiBlock({ ...settings, aiConsent: settings.aiConsent || consented }, apiKeys.has(settings.aiPlatform));
           if (block === "consent") return setAskConsent(true);
           if (block) throw aiBlockMessage(block, aiService(settings.aiPlatform));
-          throw needsAi;
+          const review = await runAi(pdf);
+          if (!review) {
+            // Cancel returns to the options. The Cancel button is gone, so focus goes to Split (NFR-11).
+            flushSync(() => setRanges([]));
+            splitButton.current?.focus();
+            return setNotice("The AI split was cancelled.");
+          }
+          next = review.ranges;
+          problem = review.problem;
         }
       }
     } catch (e) {
@@ -346,8 +359,37 @@ function App({ initialSettings }: { initialSettings: Settings | null }) {
     // The gap rule and a fresh review screen only change once the new parts have arrived.
     setAllowGaps(gaps);
     setNotice(fellBack);
+    setReviewProblem(problem);
     setReviewId((n) => n + 1);
     setRanges(next);
+  }
+
+  // #64: the AI step, with progress and Cancel (NFR-02). Called only after the checks in `split`
+  // passed; the backend checks again before it sends anything (FR-61, FR-62).
+  async function runAi(file: PdfInfo): Promise<AiReview | null> {
+    setAiStep({ reading: true, done: 0, total: file.pageCount });
+    const stops = [
+      listen<ExtractProgress>("extract-progress", ({ payload }) => setAiStep({ reading: true, ...payload })),
+      listen<ExtractProgress>("ai-progress", ({ payload }) => setAiStep({ reading: false, ...payload })),
+    ];
+    try {
+      const custom = presetId === CUSTOM_PROMPT;
+      const run = await invoke<AiRun>("run_ai", {
+        path: file.path,
+        presetId: custom ? null : presetId,
+        prompt: custom ? customPrompt : null,
+      });
+      return aiReview(run, file.pageCount);
+    } finally {
+      for (const stop of stops) (await stop)();
+      setAiStep(null);
+    }
+  }
+
+  // Stops the AI step: the text read and the requests. `run_ai` then returns "cancelled".
+  function cancelAi() {
+    invoke("cancel_extract").catch(() => {});
+    invoke("cancel_ai").catch(() => {});
   }
 
   async function consentGiven() {
@@ -471,6 +513,7 @@ function App({ initialSettings }: { initialSettings: Settings | null }) {
             key={reviewId}
             totalPages={pdf.pageCount}
             ranges={ranges}
+            problem={reviewProblem}
             allowGaps={allowGaps}
             onChange={setRanges}
             onBack={() => {
@@ -642,13 +685,21 @@ function App({ initialSettings }: { initialSettings: Settings | null }) {
           </>
         )}
 
-        <button type="button" className="primary" onClick={() => split()} ref={splitButton} disabled={reading !== null}>
+        <button type="button" className="primary" onClick={() => split()} ref={splitButton} disabled={reading !== null || aiStep !== null}>
           Split
         </button>
         {reading && (
           <p role="status">
             Reading page text: {reading.done} of {reading.total}
           </p>
+        )}
+        {aiStep && (
+          <div className="row" role="status">
+            <p>{aiStatus(aiStep)}</p>
+            <button type="button" onClick={cancelAi}>
+              Cancel
+            </button>
+          </div>
         )}
         {error && <p className="error" role="alert">{error}</p>}
         {notice && (

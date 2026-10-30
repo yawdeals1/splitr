@@ -74,6 +74,7 @@ pub fn run() {
             commands::verify_api_key,
             commands::ask_ai,
             commands::ai_split,
+            commands::run_ai,
             commands::cancel_ai,
             commands::default_ai_models,
             commands::list_ai_models,
