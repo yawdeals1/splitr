@@ -19,7 +19,10 @@ export function AiConsent({ service, onAgree, onCancel }: Props) {
   return (
     <dialog ref={dialog} className="ai-consent" aria-labelledby="ai-consent-title" onCancel={onCancel}>
       <h2 id="ai-consent-title">Before Splitr uses AI</h2>
-      <p>To find where each part starts, Splitr sends {service.name} ({service.company}), using your API key:</p>
+      <p>
+        To find where each part starts, Splitr sends {service.name} ({service.company}), using your{" "}
+        {service.signIn ? `${service.name} account` : "API key"}:
+      </p>
       <ul>
         <li>the first and last few lines of text on each page, with its page number</li>
         <li>the preset or custom instruction you chose</li>
@@ -29,7 +32,8 @@ export function AiConsent({ service, onAgree, onCancel }: Props) {
         files are sent in several parts. Splitting by rules, Custom and Fixed modes never send anything.
       </p>
       <p className="muted">
-        {service.company.charAt(0).toUpperCase() + service.company.slice(1)} handles this text under its API terms. You can turn AI off at any time in the AI section of
+        {service.company.charAt(0).toUpperCase() + service.company.slice(1)} handles this text under its{" "}
+        {service.signIn ? "terms for your account" : "API terms"}.{service.signIn && " Each split counts against your plan's usage."} You can turn AI off at any time in the AI section of
         the panel.
       </p>
       <div className="row">

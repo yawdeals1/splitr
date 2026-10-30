@@ -9,6 +9,7 @@ use tauri::ipc::Response;
 use tauri::{AppHandle, Emitter, Manager};
 
 use crate::ai::{self, response, AiCalls, AiRequest, Provider};
+use crate::chatgpt;
 use crate::error::{Result, SplitError};
 use crate::export::{self, ExportRequest, SavedParts};
 use crate::key_detect::{self, Detection};
@@ -165,11 +166,113 @@ async fn ai_provider(app: &AppHandle) -> Result<ai::Chosen> {
     let model = settings
         .model_for(platform)
         .ok_or_else(|| SplitError::Ai("Enter a model name under AI in Settings".into()))?;
+    if platform == "chatgpt" {
+        let token = chatgpt_token().await?;
+        return Ok(ai::Chosen::ChatGpt(ai::chatgpt::ChatGpt::new(token, model)?));
+    }
     let key = {
         let platform = platform.to_string();
         key_store(move || keystore::key_for(&OsStore, &platform)).await?
     };
     ai::provider(platform, &settings.ai_custom_url, key, model)
+}
+
+fn chatgpt_registration_path(app: &AppHandle) -> Result<PathBuf> {
+    let dir = app.path().app_config_dir().map_err(|e| {
+        SplitError::Ai(format!("Splitr could not find the folder for its ChatGPT registration ({e})"))
+    })?;
+    Ok(dir.join(chatgpt::FILE_NAME))
+}
+
+/// Whether a ChatGPT account is connected (#31), with its name, email and plan. Never a token (NFR-05).
+#[tauri::command]
+pub async fn chatgpt_status() -> Result<chatgpt::Status> {
+    key_store(|| Ok(chatgpt::Status::of(chatgpt::load_session(&OsStore)?.as_ref()))).await
+}
+
+/// Connects a ChatGPT account (#31). OpenAI's sign-in page opens in the system browser, never in
+/// Splitr, and the tokens go to the OS credential store. `cancel_ai` stops the wait.
+#[tauri::command]
+pub async fn chatgpt_connect(app: AppHandle) -> Result<chatgpt::Status> {
+    use tauri_plugin_opener::OpenerExt;
+    let path = chatgpt_registration_path(&app)?;
+    let mut registration = {
+        let path = path.clone();
+        blocking(move || chatgpt::Registration::load(&path)).await?
+    };
+    // The host id is saved before the first sign-in, so every sign-in from here on uses it.
+    {
+        let (registration, path) = (registration.clone(), path.clone());
+        blocking(move || registration.save(&path)).await?;
+    }
+    let open = |url: &str| {
+        app.opener()
+            .open_url(url, None::<&str>)
+            .map_err(|e| SplitError::Ai(format!("Splitr couldn't open your browser to sign in to ChatGPT ({e})")))
+    };
+    let result = app
+        .state::<AiCalls>()
+        .run(chatgpt::connect(&chatgpt::Endpoints::default(), &mut registration, open))
+        .await;
+    // The client id OpenAI issued is kept even if a later step failed, so the next try reuses it.
+    blocking(move || registration.save(&path)).await?;
+    let session = result?;
+    key_store(move || {
+        chatgpt::save_session(&OsStore, &session)?;
+        Ok(chatgpt::Status::of(Some(&session)))
+    })
+    .await
+}
+
+/// Ends the ChatGPT connection (#31): revokes the refresh token at OpenAI, then forgets the tokens
+/// on this computer. They are forgotten even if OpenAI can't be reached, and the error says so.
+#[tauri::command]
+pub async fn chatgpt_disconnect() -> Result<chatgpt::Status> {
+    let session = key_store(|| chatgpt::load_session(&OsStore)).await?;
+    let revoked = match session.as_ref().and_then(|s| Some((s.client_id.clone(), s.refresh_token.clone()?))) {
+        Some((client_id, token)) => {
+            let endpoints = chatgpt::Endpoints::default();
+            chatgpt::oauth::revoke(&chatgpt::oauth::client()?, &endpoints.revoke, &client_id, &token).await
+        }
+        None => Ok(()),
+    };
+    key_store(|| chatgpt::delete_session(&OsStore)).await?;
+    revoked.map(|()| chatgpt::Status::default()).map_err(|e| {
+        SplitError::Ai(format!(
+            "ChatGPT is disconnected on this computer, but Splitr couldn't end the connection at OpenAI ({e}). Remove \
+             Splitr in ChatGPT under Settings to end it there too"
+        ))
+    })
+}
+
+/// A current access token for the connected ChatGPT account, refreshed and saved again if it was
+/// about to expire. Refresh tokens rotate, so the new one must replace the old one.
+async fn chatgpt_token() -> Result<String> {
+    let session = key_store(|| chatgpt::load_session(&OsStore))
+        .await?
+        .ok_or_else(|| SplitError::Ai("Connect your ChatGPT account under AI in Settings first".into()))?;
+    if !session.plan_usage() {
+        return Err(SplitError::Ai(
+            "Splitr may not use your ChatGPT plan yet. Disconnect and connect ChatGPT again and allow plan usage, \
+             or use an API key"
+                .into(),
+        ));
+    }
+    let (session, changed) = match chatgpt::fresh(&chatgpt::Endpoints::default(), session).await {
+        Ok(fresh) => fresh,
+        Err(e) => {
+            // A refresh token that no longer works means the connection has ended.
+            if e.to_string() == chatgpt::oauth::SIGNED_OUT {
+                key_store(|| chatgpt::delete_session(&OsStore)).await?;
+            }
+            return Err(e);
+        }
+    };
+    if changed {
+        let saved = session.clone();
+        key_store(move || chatgpt::save_session(&OsStore, &saved)).await?;
+    }
+    Ok(session.access_token)
 }
 
 /// The models an OpenAI-compatible platform (#30) or OpenCode Go (#32) offers, for the settings screen. Runs only when

@@ -99,23 +99,20 @@ export function usesAi(preset: Pick<Preset, "strategy" | "fallback"> | null): bo
 /** What has to happen before the AI may run, in the order the user meets it. */
 export type AiBlock = "off" | "no-account" | "no-key" | "consent" | null;
 
+/** `ready` is true when the chosen service has a saved key, or for ChatGPT, a connected account. */
 export function aiBlock(
   settings: Pick<Settings, "aiEnabled" | "aiConsent" | "aiPlatform">,
-  hasKey: boolean,
+  ready: boolean,
 ): AiBlock {
   if (!settings.aiEnabled) return "off";
-  // Signing in with ChatGPT arrives with #31.
-  if (settings.aiPlatform === "chatgpt") return "no-account";
-  if (!hasKey) return "no-key";
+  if (!ready) return aiService(settings.aiPlatform).signIn ? "no-account" : "no-key";
   if (!settings.aiConsent) return "consent";
   return null;
 }
 
 /** The message for a block the user fixes in the AI section of the panel. */
 export function aiBlockMessage(block: "off" | "no-account" | "no-key", service: AiService): string {
-  if (block === "no-account") {
-    return "Signing in with ChatGPT isn't available yet. Choose an API key service under AI below.";
-  }
+  if (block === "no-account") return "Connect your ChatGPT account under AI below to split with this preset.";
   return block === "off"
     ? "AI features are off. Turn on “Use AI” below, or pick a preset that splits by rules."
     : `Add your ${service.name} API key below to split with this preset.`;

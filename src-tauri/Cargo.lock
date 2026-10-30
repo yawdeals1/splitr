@@ -4284,6 +4284,7 @@ dependencies = [
 name = "splitr"
 version = "0.1.0"
 dependencies = [
+ "base64 0.23.1",
  "chrono",
  "image",
  "keyring",
@@ -4291,6 +4292,7 @@ dependencies = [
  "pdfium-render",
  "regex",
  "reqwest 0.12.28",
+ "ring",
  "serde",
  "serde_json",
  "tauri",

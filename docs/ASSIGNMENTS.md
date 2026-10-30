@@ -27,7 +27,7 @@ Status: ✅ means merged; "In review" means a PR is open.
 | ✅ Done (#58) | #15 | Claude API client | `phase-2/15-claude-client` |
 | ✅ Done (#63) | #16 | AI response parsing, merging and validation | `phase-2/16-ai-response-parsing` |
 | ✅ Done (#79) | #64 | Smart mode: run AI presets and show the result on the review screen | `phase-2/64-smart-ai-flow` |
-|  | #31 | Connect a ChatGPT account (Sign in with ChatGPT) | `phase-2/31-chatgpt-signin` |
+| ✅ Done (#81) | #31 | Connect a ChatGPT account (Sign in with ChatGPT) | `phase-2/31-chatgpt-signin` |
 | ✅ Done (#80) | #19 | Auto-update with signed update manifest | `phase-3/19-auto-update` |
 |  | #21 | Installer size check and clean-machine install test | `phase-3/21-installer-size` |
 |  | #24 | OCR for pages without a text layer | `phase-5/24-ocr` |
