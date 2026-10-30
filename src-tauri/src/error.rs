@@ -57,6 +57,13 @@ pub enum SplitError {
     PageOutOfRange(u32, u32),
     #[error("Page {0} could not be shown: {1}")]
     RenderFailed(u32, String),
+    // Reading page text and bookmarks for the rule strategies (#7, NFR-02).
+    #[error("The text of page {0} could not be read: {1}")]
+    TextFailed(u32, String),
+    #[error("Splitr could not read the PDF's text: {0}")]
+    ExtractFailed(String),
+    #[error("Reading the PDF's text was cancelled")]
+    ExtractCancelled,
     // Saving parts (FR-50, NFR-09). A failed export removes everything it wrote.
     #[error("Splitr can't write parts of {0}: {1}")]
     CantSplit(String, String),

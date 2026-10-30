@@ -9,8 +9,10 @@
 
 use std::fs::{self, File, OpenOptions, TryLockError};
 use std::io::Write;
+use std::ops::ControlFlow;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 use std::time::{Duration, SystemTime};
 
 use pdfium_render::prelude::PdfDocument;
@@ -18,6 +20,7 @@ use tempfile::TempDir;
 
 use crate::error::{Result, SplitError};
 use crate::pdf::{self, PdfInfo};
+use crate::strategy::DocumentText;
 
 /// Rendered widths are clamped to this range. Heights are capped by `pdf::MAX_RENDER_HEIGHT`, so
 /// together they bound the memory one page can use.
@@ -37,6 +40,8 @@ struct OpenPdf {
     document: PdfDocument<'static>,
     /// This PDF's own cache folder. A new one is made for every open.
     cache_dir: PathBuf,
+    /// The page text and bookmarks, read once for the rule strategies (#7).
+    text: OnceLock<Arc<DocumentText>>,
 }
 
 /// The private cache folder of this app session.
@@ -54,12 +59,14 @@ pub struct Viewer {
     current: Mutex<Option<Arc<OpenPdf>>>,
     session: Mutex<Option<Session>>,
     cache_root: PathBuf,
+    /// Goes up by one on every cancel and every open. A text extraction stops when it changes.
+    extract_generation: AtomicU64,
 }
 
 impl Viewer {
     /// A viewer whose session folders live in `cache_root`. The folder is created on first use.
     pub fn new(cache_root: PathBuf) -> Self {
-        Self { current: Mutex::new(None), session: Mutex::new(None), cache_root }
+        Self { current: Mutex::new(None), session: Mutex::new(None), cache_root, extract_generation: AtomicU64::new(0) }
     }
 
     /// Opens the PDF at `path` and makes it the one whose pages are shown (FR-01 to FR-05).
@@ -67,8 +74,20 @@ impl Viewer {
     pub fn open(&self, path: &str, password: Option<&str>) -> Result<PdfInfo> {
         let (info, document) = pdf::open_document(path, password)?;
         let cache_dir = self.new_cache_dir()?;
-        let open = Arc::new(OpenPdf { path: info.path.clone(), page_count: info.page_count, document, cache_dir });
-        let previous = lock(&self.current).replace(open);
+        let open = Arc::new(OpenPdf {
+            path: info.path.clone(),
+            page_count: info.page_count,
+            document,
+            cache_dir,
+            text: OnceLock::new(),
+        });
+        let previous = {
+            let mut current = lock(&self.current);
+            // Text being read from the previous PDF is no longer needed. Cancelling under the
+            // lock means an extraction of the new PDF never sees this cancel.
+            self.cancel_extract();
+            current.replace(open)
+        };
         // Pages of the previous PDF, or of an earlier version of this file, are never read again.
         if let Some(previous) = previous {
             remove_dir(&previous.cache_dir);
@@ -91,6 +110,35 @@ impl Viewer {
         // The cache only saves time, so a failed write still shows the page.
         let _ = write_atomically(&file, &jpeg);
         Ok(jpeg)
+    }
+
+    /// The page text and top-level bookmarks of the open PDF at `path` (FR-30 to FR-32). They are
+    /// read on the first call and kept while the PDF stays open. `progress` gets the pages done
+    /// and the total. Ends with `SplitError::ExtractCancelled` when `cancel_extract` is called
+    /// or another PDF is opened.
+    pub fn extract(&self, path: &str, mut progress: impl FnMut(u32, u32)) -> Result<Arc<DocumentText>> {
+        let (open, generation) = {
+            let current = lock(&self.current);
+            let open = current.as_ref().filter(|o| o.path == path).cloned().ok_or(SplitError::NotOpen)?;
+            (open, self.extract_generation.load(Ordering::SeqCst))
+        };
+        if let Some(text) = open.text.get() {
+            return Ok(text.clone());
+        }
+        let text = pdf::extract_text(&open.document, |done, total| {
+            progress(done, total);
+            if self.extract_generation.load(Ordering::SeqCst) == generation {
+                ControlFlow::Continue(())
+            } else {
+                ControlFlow::Break(())
+            }
+        })?;
+        Ok(open.text.get_or_init(|| Arc::new(text)).clone())
+    }
+
+    /// Stops every text extraction running now. Later ones are not affected.
+    pub fn cancel_extract(&self) {
+        self.extract_generation.fetch_add(1, Ordering::SeqCst);
     }
 
     /// Closes the open PDF and deletes this session's cache folder (NFR-07). Call on exit.
@@ -202,7 +250,7 @@ fn remove_dir(dir: &Path) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::pdf::tests::{document, encrypted, save, start_engine};
+    use crate::pdf::tests::{document, encrypted, outlined, save, start_engine};
 
     fn viewer(dir: &tempfile::TempDir) -> Viewer {
         start_engine();
@@ -394,6 +442,69 @@ mod tests {
 
         Viewer::remove_stale_sessions(&root);
         assert!(starting.is_dir());
+    }
+
+    #[test]
+    fn extracts_the_text_once_and_keeps_it_while_open() {
+        let dir = tempfile::tempdir().unwrap();
+        let viewer = viewer(&dir);
+        let path = save(&dir, "a.pdf", outlined());
+        viewer.open(&path, None).unwrap();
+
+        let mut progress = Vec::new();
+        let first = viewer.extract(&path, |done, total| progress.push((done, total))).unwrap();
+        assert_eq!(progress, [(1, 4), (2, 4), (3, 4), (4, 4)]);
+        assert_eq!(first.pages[2].trim(), "Page 3");
+        assert_eq!(first.outline.len(), 2);
+
+        let mut again = 0;
+        let second = viewer.extract(&path, |_, _| again += 1).unwrap();
+        assert!(Arc::ptr_eq(&first, &second));
+        assert_eq!(again, 0, "the cached text should be reused");
+    }
+
+    #[test]
+    fn only_the_open_pdf_can_be_extracted() {
+        let dir = tempfile::tempdir().unwrap();
+        let viewer = viewer(&dir);
+        let path = save(&dir, "a.pdf", document(1));
+        assert!(matches!(viewer.extract(&path, |_, _| ()), Err(SplitError::NotOpen)));
+        viewer.open(&path, None).unwrap();
+        let other = save(&dir, "b.pdf", document(1));
+        assert!(matches!(viewer.extract(&other, |_, _| ()), Err(SplitError::NotOpen)));
+    }
+
+    #[test]
+    fn a_cancelled_extraction_stops_and_a_later_one_runs() {
+        let dir = tempfile::tempdir().unwrap();
+        let viewer = viewer(&dir);
+        let path = save(&dir, "a.pdf", document(5));
+        viewer.open(&path, None).unwrap();
+
+        let result = viewer.extract(&path, |done, _| {
+            if done == 2 {
+                viewer.cancel_extract();
+            }
+        });
+        assert!(matches!(result, Err(SplitError::ExtractCancelled)));
+        assert_eq!(viewer.extract(&path, |_, _| ()).unwrap().pages.len(), 5);
+    }
+
+    #[test]
+    fn opening_another_pdf_cancels_the_extraction() {
+        let dir = tempfile::tempdir().unwrap();
+        let viewer = viewer(&dir);
+        let first = save(&dir, "a.pdf", document(3));
+        let second = save(&dir, "b.pdf", document(2));
+        viewer.open(&first, None).unwrap();
+
+        let result = viewer.extract(&first, |done, _| {
+            if done == 1 {
+                viewer.open(&second, None).unwrap();
+            }
+        });
+        assert!(matches!(result, Err(SplitError::ExtractCancelled)));
+        assert_eq!(viewer.extract(&second, |_, _| ()).unwrap().page_count, 2);
     }
 
     #[test]

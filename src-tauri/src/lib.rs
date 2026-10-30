@@ -53,6 +53,8 @@ pub fn run() {
             commands::validate_ranges,
             commands::open_pdf,
             commands::render_page,
+            commands::extract_text,
+            commands::cancel_extract,
             commands::export_parts,
             commands::export_zip,
             commands::export_names,

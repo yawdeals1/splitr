@@ -17,6 +17,8 @@ pub use outline::OutlineStrategy;
 #[allow(unused_imports)]
 pub use pattern::PatternStrategy;
 
+use serde::Serialize;
+
 use crate::error::Result;
 use crate::ranges::Range;
 
@@ -30,7 +32,7 @@ pub struct DocumentText {
     pub outline: Vec<OutlineEntry>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct OutlineEntry {
     pub title: String,
     pub page: u32,
