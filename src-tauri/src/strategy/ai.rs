@@ -53,26 +53,12 @@ pub fn cancelled_is_ok(result: Result<AiRun>) -> Result<AiRun> {
 
 #[cfg(test)]
 mod tests {
-    use std::cell::RefCell;
-
     use super::*;
     use crate::ai::AiRequest;
+    use crate::ai::mock::Scripted;
 
-    /// Answers each request with `answer` and keeps every request it was sent.
-    struct Scripted<F: Fn(&AiRequest) -> Result<String>> {
-        answer: F,
-        sent: RefCell<Vec<AiRequest>>,
-    }
-
-    impl<F: Fn(&AiRequest) -> Result<String>> Provider for Scripted<F> {
-        async fn complete(&self, request: &AiRequest) -> Result<String> {
-            self.sent.borrow_mut().push(request.clone());
-            (self.answer)(request)
-        }
-    }
-
-    fn scripted<F: Fn(&AiRequest) -> Result<String>>(answer: F) -> Scripted<F> {
-        Scripted { answer, sent: RefCell::new(Vec::new()) }
+    fn scripted<F: Fn(&AiRequest) -> Result<String>>(answer: F) -> Scripted<impl Fn(&AiRequest, usize) -> Result<String>> {
+        Scripted::new(move |request, _| answer(request))
     }
 
     fn doc(pages: u32) -> DocumentText {
@@ -93,7 +79,7 @@ mod tests {
             Range { start: 3, end: 3, title: "B".into() },
         ];
         assert_eq!(result, AiRun::Parts { ranges });
-        let sent = provider.sent.borrow();
+        let sent = provider.requests();
         assert_eq!(sent.len(), 1);
         assert_eq!(sent[0].instruction, "Split by letter");
         assert_eq!(sent[0].pages.iter().map(|p| p.head.as_str()).collect::<Vec<_>>(), ["Page 1", "Page 2", "Page 3"]);
@@ -105,7 +91,7 @@ mod tests {
         let AiRun::Unusable { problem } = run("Split", &provider, &doc(3)).unwrap() else { panic!() };
         assert!(problem.contains("pages 1 to 3 could not be used"), "{problem}");
         assert!(problem.ends_with("Set the parts by hand instead"), "{problem}");
-        assert_eq!(provider.sent.borrow().len(), 2);
+        assert_eq!(provider.requests().len(), 2);
         // Leaving pages out counts as a bad answer too.
         let gap = scripted(|_| Ok(r#"[{"start":1,"end":2,"title":"A"}]"#.into()));
         assert!(matches!(run("Split", &gap, &doc(3)).unwrap(), AiRun::Unusable { .. }));
@@ -117,7 +103,7 @@ mod tests {
         assert_eq!(run("Split", &rejected, &doc(3)).unwrap_err().to_string(), "Your key was rejected");
         let unused = scripted(|_| unreachable!());
         assert_eq!(run(" \n", &unused, &doc(3)).unwrap_err().to_string(), "Type an instruction for the AI first");
-        assert!(unused.sent.borrow().is_empty());
+        assert!(unused.requests().is_empty());
     }
 
     #[test]

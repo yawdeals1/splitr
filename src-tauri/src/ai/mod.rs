@@ -8,6 +8,8 @@ pub mod excerpts;
 pub mod gemini;
 pub mod http;
 pub mod local;
+#[cfg(test)]
+pub mod mock;
 pub mod openai;
 pub mod opencode_go;
 pub mod response;
