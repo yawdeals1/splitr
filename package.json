@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
-    "test": "node --test \"src/**/*.test.ts\"",
+    "test": "node --test \"src/**/*.test.ts\" \"scripts/**/*.test.mjs\"",
     "fixtures": "cargo test --manifest-path src-tauri/Cargo.toml fixtures::tests::write_fixtures -- --ignored --exact",
     "preview": "vite preview",
     "fetch-pdfium": "node scripts/fetch-pdfium.mjs",
