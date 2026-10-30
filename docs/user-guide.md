@@ -17,7 +17,7 @@ This splits a PDF into parts of 10 pages each.
 
 1. **Open a PDF.** Drag it onto the window, or click **Choose file** (shortcut: **Ctrl+O**, or **Cmd+O** on a Mac). Splitr shows the file name, number of pages and size.
 2. **Pick a mode.** Under **Range mode**, choose **Fixed**.
-3. **Set the size.** In **Split every N pages**, type `10`.
+3. **Set the size.** Under **Split**, keep **Every N pages**, and type `10` in **Pages per part**.
 4. **Split.** Click **Split**. The review screen lists the parts: pages 1–10, 11–20 and so on.
 5. **Check the parts.** Give a part a title or change its pages if you need to (see [Review and fix the parts](#review-and-fix-the-parts)).
 6. **Export.** Click **Export**, choose a folder, and Splitr saves one PDF per part. Click **Open folder** to see them.
@@ -44,7 +44,10 @@ Ranges must be in order and must not overlap. Splitr tells you what's wrong if t
 
 ### Fixed: equal-sized parts
 
-Use this to cut a long file into chunks. **Split every N pages** makes parts of N pages; the last part holds whatever is left.
+Use this to cut a long file into chunks. Under **Split**, choose:
+
+- **Every N pages**, and set **Pages per part**: parts of N pages; the last part holds whatever is left.
+- **Into N equal parts**, and set **Number of parts**: exactly N parts. When the pages don't divide evenly, the first parts get one page more, so 10 pages into 4 parts gives 3, 3, 2 and 2 pages.
 
 ### Smart: split by meaning
 
