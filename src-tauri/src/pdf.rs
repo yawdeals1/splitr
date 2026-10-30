@@ -12,7 +12,7 @@ use std::sync::OnceLock;
 
 use image::ImageFormat;
 use lopdf::{Dictionary, Document, Object, ObjectId};
-use pdfium_render::prelude::{PdfDocument, PdfRenderConfig, Pdfium, PdfiumError, PdfiumInternalError};
+use pdfium_render::prelude::{PdfBookmark, PdfDocument, PdfRenderConfig, Pdfium, PdfiumError, PdfiumInternalError};
 use serde::Serialize;
 
 use crate::error::{Result, SplitError};
@@ -142,14 +142,35 @@ pub fn extract_text(
             return Err(SplitError::ExtractCancelled);
         }
     }
-    Ok(DocumentText { page_count, pages, outline: top_level_bookmarks(document) })
+    Ok(DocumentText { page_count, pages, outline: outline_entries(document) })
 }
 
-/// The top-level bookmarks that open a page of this document, in outline order. Bookmarks that
-/// open a web address or another file are left out.
-fn top_level_bookmarks(document: &PdfDocument) -> Vec<OutlineEntry> {
+/// The bookmarks the outline strategy splits at (FR-30): the top-level ones, or, while the outline
+/// has a single top-level bookmark with bookmarks under it (often the document title), the level
+/// below it, so a book splits by chapter (#73).
+fn outline_entries(document: &PdfDocument) -> Vec<OutlineEntry> {
+    let mut first = document.bookmarks().root();
+    let mut entries = bookmarks_from(first.clone());
+    for _ in 0..MAX_DEPTH {
+        let Some(only) = first.filter(|b| b.next_sibling().is_none()) else { break };
+        first = only.first_child();
+        let children = bookmarks_from(first.clone());
+        if children.is_empty() {
+            break;
+        }
+        entries = children;
+    }
+    entries
+}
+
+/// A damaged outline could nest without end, so `outline_entries` goes at most this many levels down.
+const MAX_DEPTH: usize = 32;
+
+/// `first` and its later siblings that open a page of this document, in outline order. Bookmarks
+/// that open a web address or another file are left out.
+fn bookmarks_from(first: Option<PdfBookmark>) -> Vec<OutlineEntry> {
     let mut entries = Vec::new();
-    let mut next = document.bookmarks().root();
+    let mut next = first;
     let mut read = 0;
     while let Some(bookmark) = next.filter(|_| read < MAX_BOOKMARKS) {
         read += 1;
@@ -1048,6 +1069,71 @@ pub(crate) mod tests {
         item.set("A", dictionary! { "S" => "URI", "URI" => Object::string_literal("https://example.com") });
 
         assert_eq!(extract(doc).outline, [entry("Chapter 2", 3)]);
+    }
+
+    /// `doc` with its top-level bookmarks moved under one new top-level bookmark `title`, which
+    /// opens page 1.
+    fn wrapped(mut doc: Document, title: &str) -> Document {
+        let page1 = doc.get_pages()[&1];
+        let outlines_id = doc.catalog().unwrap().get(b"Outlines").unwrap().as_reference().unwrap();
+        let outlines = doc.get_dictionary(outlines_id).unwrap().clone();
+        let (first, last) = (outlines.get(b"First").unwrap().as_reference().unwrap(), outlines.get(b"Last").unwrap().as_reference().unwrap());
+        let root = doc.add_object(dictionary! {
+            "Title" => Object::string_literal(title), "Parent" => outlines_id,
+            "Dest" => vec![Object::Reference(page1), "Fit".into()],
+            "First" => first, "Last" => last, "Count" => outlines.get(b"Count").unwrap().clone(),
+        });
+        let mut next = Some(first);
+        while let Some(id) = next {
+            let item = doc.get_dictionary_mut(id).unwrap();
+            item.set("Parent", root);
+            next = item.get(b"Next").and_then(Object::as_reference).ok();
+        }
+        let outlines = doc.get_dictionary_mut(outlines_id).unwrap();
+        outlines.set("First", root);
+        outlines.set("Last", root);
+        doc
+    }
+
+    #[test]
+    fn a_single_top_level_bookmark_gives_way_to_the_chapters_under_it() {
+        let book = extract(wrapped(outlined(), "The Book"));
+        assert_eq!(book.outline, [entry("Chapter 1", 1), entry("Chapter 2", 3)]);
+        // Repeated while the outline still has one bookmark with others under it.
+        let series = extract(wrapped(wrapped(outlined(), "The Book"), "The Series"));
+        assert_eq!(series.outline, [entry("Chapter 1", 1), entry("Chapter 2", 3)]);
+
+        use crate::strategy::{OutlineStrategy, Strategy};
+        let parts = OutlineStrategy.propose(&book).unwrap();
+        let parts: Vec<_> = parts.iter().map(|r| (r.start, r.end, r.title.as_str())).collect();
+        assert_eq!(parts, [(1, 2, "Chapter 1"), (3, 4, "Chapter 2")]);
+    }
+
+    #[test]
+    fn a_single_bookmark_is_kept_when_nothing_under_it_opens_a_page() {
+        let mut doc = wrapped(outlined(), "The Book");
+        let outlines = doc.get_dictionary(doc.catalog().unwrap().get(b"Outlines").unwrap().as_reference().unwrap()).unwrap();
+        let root = outlines.get(b"First").unwrap().as_reference().unwrap();
+        let root = doc.get_dictionary(root).unwrap();
+        let chapters = [root.get(b"First").unwrap().as_reference().unwrap(), root.get(b"Last").unwrap().as_reference().unwrap()];
+        for id in chapters {
+            let item = doc.get_dictionary_mut(id).unwrap();
+            item.remove(b"Dest");
+            item.set("A", dictionary! { "S" => "URI", "URI" => Object::string_literal("https://example.com") });
+        }
+        assert_eq!(extract(doc).outline, [entry("The Book", 1)]);
+
+        // A single bookmark with nothing under it stays too.
+        let mut doc = document(2);
+        let page1 = doc.get_pages()[&1];
+        let outlines_id = doc.new_object_id();
+        let only = doc.add_object(dictionary! {
+            "Title" => Object::string_literal("Only"), "Parent" => outlines_id,
+            "Dest" => vec![Object::Reference(page1), "Fit".into()],
+        });
+        doc.objects.insert(outlines_id, Object::Dictionary(dictionary! { "Type" => "Outlines", "First" => only, "Last" => only, "Count" => 1 }));
+        doc.catalog_mut().unwrap().set("Outlines", outlines_id);
+        assert_eq!(extract(doc).outline, [entry("Only", 1)]);
     }
 
     #[test]
