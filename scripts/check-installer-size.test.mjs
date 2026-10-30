@@ -26,6 +26,16 @@ test("the limit is 25 MB and only larger installers fail", () => {
   assert.match(lines[1], /^TOO BIG +25\.0 MB {2}Splitr\.dmg$/);
 });
 
+test("a large AppImage is reported but doesn't fail, since it bundles WebKitGTK (SRS 8)", () => {
+  const big = 83 * 1024 * 1024;
+  const { lines, tooBig } = report([
+    ["a/Splitr_0.1.0_amd64.AppImage", big],
+    ["a/Splitr_0.1.0_amd64.deb", big],
+  ]);
+  assert.deepEqual(tooBig, ["a/Splitr_0.1.0_amd64.deb"]);
+  assert.match(lines[0], /^note +83\.0 MB {2}Splitr_0\.1\.0_amd64\.AppImage {2}\(bundles WebKitGTK, SRS 8\)$/);
+});
+
 test("sizes read in megabytes", () => {
   assert.equal(megabytes(12.34 * 1024 * 1024), "12.3 MB");
 });

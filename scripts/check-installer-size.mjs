@@ -4,6 +4,8 @@
 // Usage: node scripts/check-installer-size.mjs '<JSON array of paths>'
 // The release workflow passes tauri-action's `artifactPaths` output. Update signatures and
 // latest.json are not installers and are skipped; so is anything that isn't a file.
+// The AppImage is reported but can't fail the check: SRS 8 has it bundle what it needs, WebKitGTK
+// included, which alone is larger than 25 MB. The .deb uses the system's WebKitGTK and is checked.
 
 import { statSync } from "node:fs";
 import { basename } from "node:path";
@@ -20,6 +22,11 @@ export function isInstaller(path) {
   return INSTALLERS.some((end) => name.endsWith(end));
 }
 
+/** Installers that bundle their own web engine (SRS 8), so NFR-13 can't apply to them. */
+export function bundlesWebEngine(path) {
+  return basename(path).toLowerCase().endsWith(".appimage");
+}
+
 /** "12.3 MB" */
 export function megabytes(bytes) {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
@@ -32,8 +39,11 @@ export function report(sizes) {
   for (const [path, bytes] of sizes) {
     if (!isInstaller(path)) continue;
     const over = bytes > LIMIT;
-    lines.push(`${over ? "TOO BIG" : "ok"}  ${megabytes(bytes).padStart(8)}  ${basename(path)}`);
-    if (over) tooBig.push(path);
+    const exempt = over && bundlesWebEngine(path);
+    const verdict = exempt ? "note" : over ? "TOO BIG" : "ok";
+    const why = exempt ? "  (bundles WebKitGTK, SRS 8)" : "";
+    lines.push(`${verdict.padEnd(7)}  ${megabytes(bytes).padStart(8)}  ${basename(path)}${why}`);
+    if (over && !exempt) tooBig.push(path);
   }
   return { lines, tooBig };
 }
