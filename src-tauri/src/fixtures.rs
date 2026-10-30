@@ -390,7 +390,13 @@ mod tests {
         let PresetRun::Parts { ranges, .. } = run else { panic!("{file}: expected parts, got {run:?}") };
         let got: Vec<(u32, u32, &str)> = ranges.iter().map(|r| (r.start, r.end, r.title.as_str())).collect();
         assert_eq!(got, expected, "{file}");
+        export_and_check(file, password, &ranges, &before);
+    }
 
+    /// Exports `ranges` of `file` and checks that each exported file has its part's pages and that
+    /// the original still holds `before` (FR-04).
+    fn export_and_check(file: &str, password: Option<&str>, ranges: &[crate::ranges::Range], before: &[u8]) {
+        let source = path(file);
         let out = tempfile::tempdir().unwrap();
         let names = crate::naming::export_names(
             "{original} - {index} - {title}",
@@ -400,14 +406,14 @@ mod tests {
         let request = ExportRequest {
             path: source.clone(),
             password: password.map(str::to_string),
-            ranges: ranges.clone(),
+            ranges: ranges.to_vec(),
             folder: out.path().to_string_lossy().into_owned(),
             names: names.parts,
         };
         let saved = export::export(&request).unwrap();
         assert_eq!(saved.paths.len(), ranges.len(), "{file}");
         let text = extract(&source, password);
-        for (part, range) in saved.paths.iter().zip(&ranges) {
+        for (part, range) in saved.paths.iter().zip(ranges) {
             let exported = extract(part, None);
             assert_eq!(exported.page_count, range.end - range.start + 1, "{part}");
             let first = &text.pages[range.start as usize - 1];
@@ -536,6 +542,58 @@ mod tests {
         assert_eq!(run, PresetRun::NeedsAi { reason: Some("This PDF has no bookmarks".into()) });
         let run = run_preset(&path("contract-bundle.pdf"), None, "contracts-by-agreement", &KEEP).unwrap();
         assert_eq!(run, PresetRun::NeedsAi { reason: None });
+    }
+
+    /// Answers like a model would from the excerpts alone: a part starts on each page whose first
+    /// line isn't "Continued", titled with that line.
+    struct ReadsHeadings(std::cell::Cell<u32>);
+
+    impl crate::ai::Provider for ReadsHeadings {
+        async fn complete(&self, request: &crate::ai::AiRequest) -> crate::error::Result<String> {
+            self.0.set(self.0.get() + 1);
+            let mut parts: Vec<serde_json::Value> = Vec::new();
+            for page in &request.pages {
+                let heading = page.head.split(" / ").next().unwrap_or("");
+                if heading.starts_with("Continued") && !parts.is_empty() {
+                    parts.last_mut().unwrap()["end"] = page.page.into();
+                } else {
+                    parts.push(serde_json::json!({ "start": page.page, "end": page.page, "title": heading }));
+                }
+            }
+            Ok(serde_json::Value::from(parts).to_string())
+        }
+    }
+
+    /// #64: an AI preset, or a rule preset that falls back to the AI, splits and exports a sample
+    /// file end to end with a scripted provider standing in for the AI service.
+    #[test]
+    fn ai_presets_split_and_export_with_a_mocked_provider() {
+        use crate::strategy::{AiRun, AiStrategy};
+        for (file, preset, expected) in [
+            (
+                "textbook-no-bookmarks.pdf",
+                "books-by-chapter",
+                &[(1, 2, "Preface"), (3, 6, "Chapter 1 Numbers"), (7, 10, "Chapter 2 Shapes"), (11, 14, "Chapter 3 Patterns")][..],
+            ),
+            (
+                "contract-bundle.pdf",
+                "contracts-by-agreement",
+                &[(1, 3, "Services Agreement"), (4, 5, "Non-Disclosure Agreement"), (6, 6, "Exhibit A: Schedule of Fees")][..],
+            ),
+        ] {
+            let source = path(file);
+            let before = std::fs::read(&source).unwrap();
+            assert!(matches!(run_preset(&source, None, preset, &KEEP).unwrap(), PresetRun::NeedsAi { .. }));
+            let preset = presets::bundled().into_iter().find(|p| p.id == preset).unwrap();
+            let provider = ReadsHeadings(std::cell::Cell::new(0));
+            let strategy = AiStrategy { instruction: preset.prompt };
+            let run = tauri::async_runtime::block_on(strategy.propose(&provider, &extract(&source, None), |_, _| {})).unwrap();
+            let AiRun::Parts { ranges } = run else { panic!("{file}: expected parts, got {run:?}") };
+            let got: Vec<(u32, u32, &str)> = ranges.iter().map(|r| (r.start, r.end, r.title.as_str())).collect();
+            assert_eq!(got, expected, "{file}");
+            assert_eq!(provider.0.get(), 1, "{file}: one chunk, answered first time");
+            export_and_check(file, None, &ranges, &before);
+        }
     }
 
     #[test]

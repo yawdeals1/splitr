@@ -78,7 +78,15 @@ export type PresetRun =
   /** The preset splits with the AI, or falls back to it; `reason` says why the rules found nothing. */
   | { kind: "needsAi"; reason: string | null };
 
-/** The payload of the "extract-progress" event that extract_text sends. */
+/** Mirrors strategy::AiRun, returned by run_ai (#64). */
+export type AiRun =
+  | { kind: "parts"; ranges: Range[] }
+  /** The AI's answer still failed after the retry: the user sets the parts by hand (FR-36). */
+  | { kind: "unusable"; problem: string }
+  /** The user pressed Cancel. */
+  | { kind: "cancelled" };
+
+/** The payload of the "extract-progress" event that extract_text sends, and of "ai-progress" (chunks answered). */
 export interface ExtractProgress {
   done: number;
   total: number;

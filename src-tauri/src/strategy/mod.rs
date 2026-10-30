@@ -7,8 +7,7 @@ mod fixed;
 mod outline;
 mod pattern;
 
-#[allow(unused_imports)]
-pub use ai::AiStrategy;
+pub use ai::{AiRun, AiStrategy, cancelled_is_ok};
 pub use blank::BlankPageStrategy;
 pub use fixed::FixedStrategy;
 pub use outline::OutlineStrategy;
