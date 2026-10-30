@@ -47,7 +47,7 @@ cd src-tauri && cargo test
 
 ## Releasing
 
-Push a tag such as `v0.1.0`. The Release workflow builds `.msi`/`.exe`, `.dmg` (Apple Silicon and Intel), `.AppImage` and `.deb` installers and attaches them to a draft GitHub Release.
+Bump the version in `package.json`, `src-tauri/tauri.conf.json` and `src-tauri/Cargo.toml`, then push a tag such as `v0.1.1`. The Release workflow builds `.msi`/`.exe`, `.dmg` (Apple Silicon and Intel), `.AppImage` and `.deb` installers, plus signed update bundles and `latest.json`, and attaches them to a draft release in the public [splitr-releases](https://github.com/yawdeals1/splitr-releases) repo. Publish the draft there; installed copies then offer the update.
 
 ## Status
 
