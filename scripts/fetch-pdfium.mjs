@@ -13,6 +13,7 @@ import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync,
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { download } from "./download.mjs";
 
 // Must match the pdfium_NNNN feature of pdfium-render in src-tauri/Cargo.toml.
 const VERSION = "chromium/7881";
@@ -53,22 +54,6 @@ function platformFor(triple) {
 function targetArg() {
   const i = process.argv.indexOf("--target");
   return i >= 0 ? process.argv[i + 1] : process.env.TAURI_ENV_TARGET_TRIPLE;
-}
-
-/** Downloads a file, retrying up to four times on network errors. */
-async function download(url) {
-  for (let attempt = 1; ; attempt++) {
-    console.log(`Downloading ${url}`);
-    try {
-      const response = await fetch(url);
-      if (!response.ok) throw new Error(`Download failed: HTTP ${response.status} for ${url}`);
-      return Buffer.from(await response.arrayBuffer());
-    } catch (error) {
-      if (attempt === 5) throw error;
-      console.log(`${error.message}, retrying`);
-      await new Promise((resolve) => setTimeout(resolve, 2000 * attempt));
-    }
-  }
 }
 
 async function main() {

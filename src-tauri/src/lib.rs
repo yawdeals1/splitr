@@ -4,6 +4,7 @@ mod chatgpt;
 mod commands;
 mod error;
 mod export;
+mod files;
 #[cfg(test)]
 mod fixtures;
 mod key_detect;
@@ -46,6 +47,7 @@ pub fn run() {
             Viewer::remove_stale_sessions(&cache_root);
             app.manage(Viewer::new(cache_root));
             app.manage(ai::AiCalls::default());
+            app.manage(ai::SignInCalls::default());
 
             // Load PDFium from the bundled resource folder. A failure is reported by every PDF command.
             match app.path().resource_dir() {
@@ -67,7 +69,6 @@ pub fn run() {
             commands::validate_ranges,
             commands::open_pdf,
             commands::render_page,
-            commands::extract_text,
             commands::run_preset,
             commands::cancel_extract,
             commands::text_note,
@@ -83,8 +84,6 @@ pub fn run() {
             commands::delete_api_key,
             commands::saved_api_keys,
             commands::verify_api_key,
-            commands::ask_ai,
-            commands::ai_split,
             commands::run_ai,
             commands::cancel_ai,
             commands::default_ai_models,
@@ -92,6 +91,7 @@ pub fn run() {
             commands::detect_api_key,
             commands::chatgpt_status,
             commands::chatgpt_connect,
+            commands::cancel_chatgpt_connect,
             commands::chatgpt_disconnect,
         ])
         .build(tauri::generate_context!())

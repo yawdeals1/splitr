@@ -2,14 +2,14 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { aiBlock, aiBlockMessage, aiService, keyChoices, usesAi, usesKey } from "./ai.ts";
+import { aiBlock, aiBlockMessage, aiService, keyChoices, serviceReady, usesKey } from "./ai.ts";
 
-test("usesAi covers AI presets, AI fallbacks and the custom prompt", () => {
-  assert.equal(usesAi({ strategy: "ai" }), true);
-  assert.equal(usesAi({ strategy: "outline", fallback: "ai" }), true);
-  assert.equal(usesAi(null), true);
-  assert.equal(usesAi({ strategy: "pattern", fallback: null }), false);
-  assert.equal(usesAi({ strategy: "blank" }), false);
+test("a service is ready with its account or key, and a local model always is", () => {
+  assert.equal(serviceReady(aiService("local"), false, false), true);
+  assert.equal(serviceReady(aiService("chatgpt"), true, false), true);
+  assert.equal(serviceReady(aiService("chatgpt"), false, true), false);
+  assert.equal(serviceReady(aiService("anthropic"), false, true), true);
+  assert.equal(serviceReady(aiService("anthropic"), true, false), false);
 });
 
 test("aiBlock checks the switch, then the account or key, then consent", () => {

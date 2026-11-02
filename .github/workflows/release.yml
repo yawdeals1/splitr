@@ -17,10 +17,12 @@ on:
     tags: ["v*"]
   workflow_dispatch:
 
+# Releases are written with RELEASES_TOKEN, to the other repo, so this one's token only reads.
+permissions:
+  contents: read
+
 jobs:
   build:
-    permissions:
-      contents: write
     strategy:
       fail-fast: false
       matrix:
@@ -52,11 +54,13 @@ jobs:
           node-version: lts/*
           cache: npm
 
-      - uses: dtolnay/rust-toolchain@stable
+      # Third-party actions are pinned to a commit: this job holds the updater signing key.
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
         with:
+          toolchain: stable
           targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
 
-      - uses: swatinem/rust-cache@v2
+      - uses: swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           workspaces: src-tauri
 
@@ -82,7 +86,7 @@ jobs:
             exit 1
           fi
 
-      - uses: tauri-apps/tauri-action@v0
+      - uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5 # v0
         id: tauri
         env:
           # A branch run uploads nothing, so it doesn't need the releases token.
@@ -102,7 +106,7 @@ jobs:
           prerelease: false
           args: ${{ matrix.args }}
           # Upload latest.json with the platform entries of every build in the matrix.
-          uploadUpdaterJson: true
+          includeUpdaterJson: true
 
       # NFR-13: fail the release if an installer is over 25 MB.
       - name: Check installer sizes

@@ -5,18 +5,23 @@
 //! `scripts/fetch-pdfium.mjs`. The original file is never modified (FR-04).
 
 use std::collections::{HashMap, HashSet};
+use std::collections::BTreeMap;
 use std::io::{Cursor, ErrorKind};
 use std::ops::ControlFlow;
 use std::path::Path;
 use std::sync::OnceLock;
 
 use image::ImageFormat;
-use lopdf::{Dictionary, Document, Object, ObjectId};
+use lopdf::{Dictionary, Document, EncryptionState, Object, ObjectId};
 use pdfium_render::prelude::{PdfBookmark, PdfDocument, PdfRenderConfig, Pdfium, PdfiumError, PdfiumInternalError};
 use serde::Serialize;
 
 use crate::error::{Result, SplitError};
 use crate::strategy::{DocumentText, OutlineEntry};
+
+/// A PDF open in PDFium. Other modules hold one through this name, so this stays the only module
+/// that touches the PDF libraries.
+pub type OpenDocument = PdfDocument<'static>;
 
 /// The PDFium instance loaded at startup, or why it failed to load.
 static ENGINE: OnceLock<std::result::Result<Pdfium, String>> = OnceLock::new();
@@ -67,7 +72,7 @@ pub struct PdfInfo {
 /// so the app stays usable (FR-05, NFR-08). The file is only read, never written (FR-04).
 /// The loaded document is returned too, so its pages can be rendered (FR-10); the password
 /// unlocks it in memory and is not kept.
-pub fn open_document(path: &str, password: Option<&str>) -> Result<(PdfInfo, PdfDocument<'static>)> {
+pub fn open_document(path: &str, password: Option<&str>) -> Result<(PdfInfo, OpenDocument)> {
     let file_path = Path::new(path);
     let file_name = file_path
         .file_name()
@@ -244,6 +249,14 @@ fn load_error(e: PdfiumError, file_name: &str, had_password: bool) -> SplitError
 /// each part is built from a copy, so the original file is never touched (FR-04).
 pub struct Source {
     doc: Document,
+    /// `doc` without its objects, which each part starts from.
+    skeleton: Document,
+    /// The page object of each page number.
+    pages: BTreeMap<u32, ObjectId>,
+    /// Named destinations of the whole PDF, read once rather than for every part.
+    named: NamedDests,
+    /// How the source was encrypted, which its parts keep: same passwords, same permissions.
+    protection: Option<EncryptionState>,
     file_name: String,
 }
 
@@ -258,7 +271,7 @@ pub fn load_source(path: &str, password: Option<&str>) -> Result<Source> {
         Some(p) => Document::load_with_password(path, p),
         None => Document::load(path),
     };
-    let mut doc = loaded.map_err(|e| match e {
+    let doc = loaded.map_err(|e| match e {
         lopdf::Error::IO(io) => io_error(&io, &file_name),
         lopdf::Error::InvalidPassword if password.is_some() => SplitError::WrongPassword,
         lopdf::Error::InvalidPassword => SplitError::PasswordRequired,
@@ -268,27 +281,71 @@ pub fn load_source(path: &str, password: Option<&str>) -> Result<Source> {
     if doc.is_encrypted() {
         return Err(if password.is_some() { SplitError::WrongPassword } else { SplitError::PasswordRequired });
     }
-    // Loading decrypted the objects, so the parts are written without the original's protection.
-    doc.encryption_state = None;
     if doc.get_pages().is_empty() {
         return Err(SplitError::EmptyPdf(file_name));
     }
-    Ok(Source { doc, file_name })
+    Ok(Source::new(doc, file_name))
 }
 
 impl Source {
+    fn new(mut doc: Document, file_name: String) -> Self {
+        // Loading decrypted the objects. Each part is encrypted again as it is written.
+        let protection = doc.encryption_state.take();
+        let objects = std::mem::take(&mut doc.objects);
+        let skeleton = doc.clone();
+        doc.objects = objects;
+        Self { named: named_destinations(&doc), pages: doc.get_pages(), skeleton, doc, protection, file_name }
+    }
+
+    /// A document with the objects a part can use: all those reachable without going through a page
+    /// it leaves out. So a part doesn't copy the images of every other page only to prune them.
+    fn copy_without(&self, removed: &HashSet<ObjectId>) -> Document {
+        fn references(object: &Object, out: &mut Vec<ObjectId>) {
+            match object {
+                Object::Reference(id) => out.push(*id),
+                Object::Array(items) => items.iter().for_each(|item| references(item, out)),
+                Object::Dictionary(dict) => dict.iter().for_each(|(_, value)| references(value, out)),
+                Object::Stream(stream) => stream.dict.iter().for_each(|(_, value)| references(value, out)),
+                _ => {}
+            }
+        }
+        let mut pending = Vec::new();
+        self.doc.trailer.iter().for_each(|(_, value)| references(value, &mut pending));
+        let mut objects = BTreeMap::new();
+        while let Some(id) = pending.pop() {
+            if removed.contains(&id) || objects.contains_key(&id) {
+                continue;
+            }
+            if let Some(object) = self.doc.objects.get(&id) {
+                references(object, &mut pending);
+                objects.insert(id, object.clone());
+            }
+        }
+        let mut doc = self.skeleton.clone();
+        doc.objects = objects;
+        doc
+    }
+
     pub fn page_count(&self) -> u32 {
-        u32::try_from(self.doc.get_pages().len()).unwrap_or(u32::MAX)
+        u32::try_from(self.pages.len()).unwrap_or(u32::MAX)
     }
 
     /// Writes pages `start..=end` (1-based) as a complete PDF to `out` (FR-50). Links and
     /// bookmarks that point inside the part are kept; ones that point to other pages are dropped
-    /// (FR-54). The tagged-PDF structure tree and page labels are dropped, because they describe
-    /// the whole document.
+    /// (FR-54). So are the form fields of other pages, whose values must not travel with this part,
+    /// and the document's attachments and metadata, which aren't about this part's pages either.
+    /// The tagged-PDF structure tree and page labels are dropped, because they describe the whole
+    /// document. A part of an encrypted PDF is encrypted the same way.
     pub fn write_part(&self, start: u32, end: u32, out: &mut impl std::io::Write) -> Result<()> {
-        let mut doc = self.doc.clone();
-        build_part(&mut doc, start, end)
-            .map_err(|e| SplitError::CantSplit(self.file_name.clone(), e.to_string()))?;
+        let kept: Vec<ObjectId> = (start..=end).filter_map(|n| self.pages.get(&n).copied()).collect();
+        let kept_set: HashSet<ObjectId> = kept.iter().copied().collect();
+        let removed: HashSet<ObjectId> = self.pages.values().copied().filter(|id| !kept_set.contains(id)).collect();
+        let mut doc = self.copy_without(&removed);
+        let failed = |e: lopdf::Error| SplitError::CantSplit(self.file_name.clone(), e.to_string());
+        build_part(&mut doc, &kept, &kept_set, &removed, &self.named).map_err(failed)?;
+        if let Some(protection) = &self.protection {
+            doc.encrypt(protection).map_err(failed)?;
+        }
         doc.save_to(out).map_err(|e| SplitError::ExportFailed(e.to_string()))
     }
 }
@@ -305,19 +362,15 @@ enum Target {
 
 type NamedDests = HashMap<Vec<u8>, ObjectId>;
 
-/// Turns `doc` (a copy of the whole source) into a document with only pages `start..=end`.
-fn build_part(doc: &mut Document, start: u32, end: u32) -> lopdf::Result<()> {
-    let pages = doc.get_pages();
-    let kept: Vec<ObjectId> = (start..=end).filter_map(|n| pages.get(&n).copied()).collect();
-    let kept_set: HashSet<ObjectId> = kept.iter().copied().collect();
-    let removed: HashSet<ObjectId> = pages.values().copied().filter(|id| !kept_set.contains(id)).collect();
-    let named = named_destinations(doc);
+/// Turns `doc` (from `Source::copy_without`) into a document with only the pages `kept`.
+fn build_part(doc: &mut Document, kept: &[ObjectId], kept_set: &HashSet<ObjectId>, removed: &HashSet<ObjectId>, named: &NamedDests) -> lopdf::Result<()> {
+    flatten_page_tree(doc, kept)?;
+    drop_outside_links(doc, kept, kept_set, named);
+    rebuild_outline(doc, kept_set, named)?;
+    keep_form_fields(doc, kept)?;
+    drop_document_data(doc)?;
 
-    flatten_page_tree(doc, &kept)?;
-    drop_outside_links(doc, &kept, &kept_set, &named);
-    rebuild_outline(doc, &kept_set, &named)?;
-
-    let open_action = doc.catalog()?.get(b"OpenAction").ok().map(|a| dest_or_action(doc, a, &named));
+    let open_action = doc.catalog()?.get(b"OpenAction").ok().map(|a| dest_or_action(doc, a, named));
     let catalog = doc.catalog_mut()?;
     // The structure tree, page labels and article threads describe every page of the original.
     for key in [b"StructTreeRoot".as_slice(), b"MarkInfo", b"PageLabels", b"Threads"] {
@@ -332,8 +385,8 @@ fn build_part(doc: &mut Document, start: u32, end: u32) -> lopdf::Result<()> {
         catalog.remove(b"OpenAction");
     }
 
-    // Anything else still pointing at a removed page (named destinations, form fields) now points
-    // nowhere, so the removed pages and everything only they use are pruned.
+    // Anything else still pointing at a removed page (named destinations) now points nowhere, so
+    // the removed pages and everything only they use are pruned.
     doc.traverse_objects(|object| {
         if let Object::Reference(id) = object
             && removed.contains(id)
@@ -408,6 +461,93 @@ fn drop_outside_links(doc: &mut Document, kept: &[ObjectId], kept_set: &HashSet<
             page.set("Annots", remaining);
         }
     }
+}
+
+/// Removes what belongs to the document as a whole and would otherwise travel with every part: its
+/// attachments, its XMP metadata, and its title, author and other document information.
+fn drop_document_data(doc: &mut Document) -> lopdf::Result<()> {
+    match doc.catalog()?.get(b"Names").ok().cloned() {
+        Some(Object::Reference(id)) => {
+            if let Ok(names) = doc.get_dictionary_mut(id) {
+                names.remove(b"EmbeddedFiles");
+            }
+        }
+        Some(Object::Dictionary(mut names)) => {
+            names.remove(b"EmbeddedFiles");
+            doc.catalog_mut()?.set("Names", names);
+        }
+        _ => {}
+    }
+    let catalog = doc.catalog_mut()?;
+    for key in [b"AF".as_slice(), b"Collection", b"Metadata"] {
+        catalog.remove(key);
+    }
+    doc.trailer.remove(b"Info");
+    Ok(())
+}
+
+/// Keeps only the form fields with a widget on a kept page. A field stores what was typed into it,
+/// so without this every part would carry the answers on the other parts' pages. XFA holds a copy
+/// of the whole form, so it goes too.
+fn keep_form_fields(doc: &mut Document, kept: &[ObjectId]) -> lopdf::Result<()> {
+    let Ok(form) = doc.catalog()?.get(b"AcroForm") else { return Ok(()) };
+    let Some((form_id, mut form)) = doc.dereference(form).ok().and_then(|(id, f)| Some((id, f.as_dict().ok()?.clone()))) else {
+        return Ok(());
+    };
+    let widgets: HashSet<ObjectId> = kept
+        .iter()
+        .filter_map(|&page| doc.get_dictionary(page).ok()?.get(b"Annots").ok())
+        .filter_map(|annots| doc.dereference(annots).ok()?.1.as_array().ok())
+        .flatten()
+        .filter_map(|annot| annot.as_reference().ok())
+        .collect();
+    let (mut seen, mut live) = (HashSet::new(), HashSet::new());
+    let fields = form.get(b"Fields").ok().and_then(|f| doc.dereference(f).ok()).and_then(|(_, f)| f.as_array().ok()).cloned().unwrap_or_default();
+    let fields: Vec<Object> =
+        fields.into_iter().filter(|field| field.as_reference().is_ok_and(|id| keep_field(doc, id, &widgets, &mut seen, &mut live, 0))).collect();
+    if fields.is_empty() {
+        doc.catalog_mut()?.remove(b"AcroForm");
+        return Ok(());
+    }
+    form.set("Fields", fields);
+    form.remove(b"XFA");
+    // The calculation order names fields too, which would keep the dropped ones alive.
+    if let Some(order) = form.get(b"CO").ok().and_then(|o| doc.dereference(o).ok()).and_then(|(_, o)| o.as_array().ok()).cloned() {
+        let order: Vec<Object> = order.into_iter().filter(|f| f.as_reference().is_ok_and(|id| live.contains(&id))).collect();
+        form.set("CO", order);
+    }
+    match form_id {
+        Some(id) => {
+            doc.objects.insert(id, Object::Dictionary(form));
+        }
+        None => doc.catalog_mut()?.set("AcroForm", form),
+    }
+    Ok(())
+}
+
+/// True if field `id` is a widget in `widgets` or has one below it. Kids without one are removed
+/// from it, and every field kept goes in `live`. `seen` and the depth limit guard against looped
+/// or absurdly deep forms in damaged files.
+fn keep_field(doc: &mut Document, id: ObjectId, widgets: &HashSet<ObjectId>, seen: &mut HashSet<ObjectId>, live: &mut HashSet<ObjectId>, depth: usize) -> bool {
+    if depth >= 64 || !seen.insert(id) {
+        return false;
+    }
+    let is_widget = widgets.contains(&id);
+    let kids = doc.get_dictionary(id).ok().and_then(|f| f.get(b"Kids").ok()).and_then(|k| doc.dereference(k).ok()).and_then(|(_, k)| k.as_array().ok()).cloned();
+    if let Some(kids) = kids {
+        let kept: Vec<Object> =
+            kids.into_iter().filter(|kid| kid.as_reference().is_ok_and(|kid| keep_field(doc, kid, widgets, seen, live, depth + 1))).collect();
+        if kept.is_empty() && !is_widget {
+            return false;
+        }
+        if let Ok(field) = doc.get_dictionary_mut(id) {
+            field.set("Kids", kept);
+        }
+    } else if !is_widget {
+        return false;
+    }
+    live.insert(id);
+    true
 }
 
 /// One bookmark and the bookmarks under it.
@@ -536,25 +676,34 @@ fn target(doc: &Document, item: &Dictionary, named: &NamedDests) -> Target {
     }
 }
 
-/// Resolves a destination (an array or a name) or an action dictionary.
+/// Resolves a destination (an array or a name) or an action dictionary. An action's `/D` can lead
+/// back to itself in a damaged file, so only a few are followed.
 fn dest_or_action(doc: &Document, object: &Object, named: &NamedDests) -> Target {
-    let Ok((_, object)) = doc.dereference(object) else { return Target::Nowhere };
-    match object {
-        Object::Array(dest) => match dest.first() {
-            Some(Object::Reference(id)) => Target::Page(*id),
-            _ => Target::Nowhere,
-        },
-        Object::Name(name) | Object::String(name, _) => named.get(name).map_or(Target::Nowhere, |&id| Target::Page(id)),
-        Object::Dictionary(action) => {
-            let is_goto = action.get(b"S").and_then(Object::as_name).is_ok_and(|s| s == b"GoTo");
-            match action.get(b"D") {
-                Ok(dest) if is_goto => dest_or_action(doc, dest, named),
-                _ if is_goto => Target::Nowhere,
-                _ => Target::Elsewhere,
+    let mut object = object;
+    for _ in 0..8 {
+        let Ok((_, resolved)) = doc.dereference(object) else { return Target::Nowhere };
+        match resolved {
+            Object::Array(dest) => {
+                return match dest.first() {
+                    Some(Object::Reference(id)) => Target::Page(*id),
+                    _ => Target::Nowhere,
+                };
             }
+            Object::Name(name) | Object::String(name, _) => {
+                return named.get(name).map_or(Target::Nowhere, |&id| Target::Page(id));
+            }
+            Object::Dictionary(action) => {
+                let is_goto = action.get(b"S").and_then(Object::as_name).is_ok_and(|s| s == b"GoTo");
+                match action.get(b"D") {
+                    Ok(dest) if is_goto => object = dest,
+                    _ if is_goto => return Target::Nowhere,
+                    _ => return Target::Elsewhere,
+                }
+            }
+            _ => return Target::Nowhere,
         }
-        _ => Target::Nowhere,
     }
+    Target::Nowhere
 }
 
 /// Named destinations from the catalog's `/Dests` dictionary and `/Names /Dests` tree, mapped to
@@ -568,7 +717,14 @@ fn named_destinations(doc: &Document) -> NamedDests {
         };
         dest.as_array().ok()?.first()?.as_reference().ok()
     }
-    fn walk(doc: &Document, node: &Object, out: &mut NamedDests, depth: usize) {
+    // `seen` guards against a damaged tree whose nodes list each other, which without it could take
+    // billions of steps even with the depth limit.
+    fn walk(doc: &Document, node: &Object, out: &mut NamedDests, seen: &mut HashSet<ObjectId>, depth: usize) {
+        if let Object::Reference(id) = node
+            && !seen.insert(*id)
+        {
+            return;
+        }
         let Some(node) = doc.dereference(node).ok().and_then(|(_, n)| n.as_dict().ok()) else { return };
         if let Ok(names) = node.get(b"Names").and_then(Object::as_array) {
             for pair in names.chunks(2) {
@@ -583,7 +739,7 @@ fn named_destinations(doc: &Document) -> NamedDests {
             && let Ok(kids) = node.get(b"Kids").and_then(Object::as_array)
         {
             for kid in kids {
-                walk(doc, kid, out, depth + 1);
+                walk(doc, kid, out, seen, depth + 1);
             }
         }
     }
@@ -604,7 +760,7 @@ fn named_destinations(doc: &Document) -> NamedDests {
         .and_then(|(_, n)| n.as_dict().ok())
         .and_then(|n| n.get(b"Dests").ok())
     {
-        walk(doc, tree, &mut out, 0);
+        walk(doc, tree, &mut out, &mut HashSet::new(), 0);
     }
     out
 }
@@ -826,7 +982,7 @@ pub(crate) mod tests {
     #[test]
     fn password_messages_match_the_frontend() {
         let types = include_str!("../../src/types.ts");
-        for err in [SplitError::PasswordRequired, SplitError::WrongPassword, SplitError::ExtractCancelled] {
+        for err in [SplitError::PasswordRequired, SplitError::WrongPassword, SplitError::ExtractCancelled, SplitError::AiCancelled] {
             assert!(types.contains(&format!("\"{err}\"")), "src/types.ts is missing \"{err}\"");
         }
     }
@@ -893,7 +1049,7 @@ pub(crate) mod tests {
     }
 
     fn source(doc: Document) -> Source {
-        Source { doc, file_name: "test.pdf".into() }
+        Source::new(doc, "test.pdf".into())
     }
 
     /// The text of each page, read by PDFium: a second, independent reader of the written file.
@@ -995,6 +1151,83 @@ pub(crate) mod tests {
         assert_eq!(links(&part(&src, 1, 1)), 1, "only the web link should be left");
     }
 
+    /// `document(4)` with a form: "alice" on page 1, "bob" on page 2, and a group "shared" with
+    /// widgets on pages 1 and 3. Page 4 has no fields.
+    fn form() -> Document {
+        let mut doc = document(4);
+        let pages = doc.get_pages();
+        let widget = |doc: &mut Document, value: &str, page: u32| {
+            doc.add_object(dictionary! {
+                "Type" => "Annot", "Subtype" => "Widget", "T" => Object::string_literal(value),
+                "V" => Object::string_literal(value), "FT" => "Tx", "P" => pages[&page],
+                "Rect" => vec![0.into(), 0.into(), 50.into(), 50.into()],
+            })
+        };
+        let alice = widget(&mut doc, "alice-answer", 1);
+        let bob = widget(&mut doc, "bob-answer", 2);
+        let shared_1 = widget(&mut doc, "shared-1", 1);
+        let shared_3 = widget(&mut doc, "shared-3", 3);
+        let shared = doc.add_object(dictionary! {
+            "T" => Object::string_literal("shared"), "FT" => "Tx", "V" => Object::string_literal("shared-value"),
+            "Kids" => vec![shared_1.into(), shared_3.into()],
+        });
+        for (page, annots) in [(1, vec![alice, shared_1]), (2, vec![bob]), (3, vec![shared_3])] {
+            let annots: Vec<Object> = annots.into_iter().map(Object::Reference).collect();
+            doc.get_dictionary_mut(pages[&page]).unwrap().set("Annots", annots);
+        }
+        let form = doc.add_object(dictionary! {
+            "Fields" => vec![alice.into(), bob.into(), shared.into()],
+            "CO" => vec![bob.into()],
+            "XFA" => Object::string_literal("xfa-copy-of-every-answer"),
+        });
+        doc.catalog_mut().unwrap().set("AcroForm", form);
+        doc
+    }
+
+    #[test]
+    fn a_part_keeps_only_the_form_fields_on_its_pages() {
+        let src = source(form());
+        let fields = |bytes: &[u8]| {
+            let doc = Document::load_mem(bytes).unwrap();
+            let form = doc.catalog().unwrap().get(b"AcroForm").and_then(Object::as_reference).ok();
+            form.map_or(0, |f| doc.get_dictionary(f).unwrap().get(b"Fields").unwrap().as_array().unwrap().len())
+        };
+        let first = part(&src, 1, 1);
+        let text = String::from_utf8_lossy(&first);
+        assert!(text.contains("alice-answer") && text.contains("shared-value"), "the part's own answers were lost");
+        assert!(!text.contains("bob-answer"), "another part's answer was kept");
+        assert!(!text.contains("shared-3"), "a widget on another page was kept");
+        assert!(!text.contains("xfa-copy"), "the XFA copy of the form was kept");
+        assert_eq!(fields(&first), 2);
+
+        let second = part(&src, 2, 2);
+        let text = String::from_utf8_lossy(&second);
+        assert!(text.contains("bob-answer") && !text.contains("alice-answer") && !text.contains("shared-value"));
+        assert_eq!(fields(&second), 1);
+
+        let none = part(&src, 4, 4);
+        assert!(!String::from_utf8_lossy(&none).contains("answer"));
+        assert_eq!(fields(&none), 0);
+        assert_eq!(page_texts(&none), ["Page 4"]);
+    }
+
+    #[test]
+    fn damaged_links_and_destination_trees_cannot_hang_or_crash_an_export() {
+        let mut doc = document(2);
+        let pages = doc.get_pages();
+        // A GoTo action whose destination is the action itself.
+        let looped = doc.new_object_id();
+        doc.objects.insert(looped, Object::Dictionary(dictionary! { "S" => "GoTo", "D" => looped }));
+        let link = doc.add_object(dictionary! { "Type" => "Annot", "Subtype" => "Link", "A" => looped });
+        doc.get_dictionary_mut(pages[&1]).unwrap().set("Annots", vec![Object::Reference(link)]);
+        // A destination tree whose node lists itself twice.
+        let node = doc.new_object_id();
+        doc.objects.insert(node, Object::Dictionary(dictionary! { "Kids" => vec![node.into(), node.into()] }));
+        doc.catalog_mut().unwrap().set("Names", dictionary! { "Dests" => node });
+
+        assert_eq!(page_texts(&part(&source(doc), 1, 1)), ["Page 1"]);
+    }
+
     #[test]
     fn inherited_page_attributes_survive_flattening() {
         let mut doc = document(3);
@@ -1022,7 +1255,103 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn an_encrypted_source_needs_its_password_and_gives_open_parts() {
+    fn parts_of_aes_encrypted_pdfs_keep_their_password() {
+        use lopdf::encryption::crypt_filters::{Aes128CryptFilter, Aes256CryptFilter, CryptFilter};
+        use lopdf::{EncryptionState, EncryptionVersion, Permissions};
+        use std::collections::BTreeMap;
+        use std::sync::Arc;
+
+        start_engine();
+        let filters = |filter: Arc<dyn CryptFilter>| BTreeMap::from([(b"StdCF".to_vec(), filter)]);
+        let plain = document(3);
+        let aes_128 = EncryptionState::try_from(EncryptionVersion::V4 {
+            document: &plain,
+            encrypt_metadata: true,
+            crypt_filters: filters(Arc::new(Aes128CryptFilter)),
+            stream_filter: b"StdCF".to_vec(),
+            string_filter: b"StdCF".to_vec(),
+            owner_password: "owner-secret",
+            user_password: "secret",
+            permissions: Permissions::all(),
+        })
+        .unwrap();
+        let aes_256 = EncryptionState::try_from(EncryptionVersion::V5 {
+            encrypt_metadata: true,
+            crypt_filters: filters(Arc::new(Aes256CryptFilter)),
+            file_encryption_key: &[7; 32],
+            stream_filter: b"StdCF".to_vec(),
+            string_filter: b"StdCF".to_vec(),
+            owner_password: "owner-secret",
+            user_password: "secret",
+            permissions: Permissions::all(),
+        })
+        .unwrap();
+        for state in [aes_128, aes_256] {
+            let dir = tempfile::tempdir().unwrap();
+            let mut doc = document(3);
+            doc.encrypt(&state).unwrap();
+            let src = load_source(&save(&dir, "locked.pdf", doc), Some("secret")).unwrap();
+            let bytes = part(&src, 2, 3);
+            assert!(engine().unwrap().load_pdf_from_byte_slice(&bytes, None).is_err(), "the part opened without the password");
+            let opened = engine().unwrap().load_pdf_from_byte_slice(&bytes, Some("secret")).unwrap();
+            let texts: Vec<String> = opened.pages().iter().map(|page| page.text().unwrap().all().trim().to_string()).collect();
+            assert_eq!(texts, ["Page 2", "Page 3"]);
+            assert_eq!(engine().unwrap().load_pdf_from_byte_slice(&bytes, Some("owner-secret")).unwrap().pages().len(), 2);
+        }
+    }
+
+    #[test]
+    fn a_part_of_a_restricted_pdf_still_opens_without_a_password() {
+        start_engine();
+        let dir = tempfile::tempdir().unwrap();
+        let src = load_source(&save(&dir, "restricted.pdf", encrypted(3, "")), None).unwrap();
+        let bytes = part(&src, 1, 2);
+        assert!(bytes.windows(8).any(|w| w == b"/Encrypt"), "the part lost its restrictions");
+        assert_eq!(engine().unwrap().load_pdf_from_byte_slice(&bytes, None).unwrap().pages().len(), 2);
+    }
+
+    #[test]
+    fn a_part_leaves_out_the_documents_attachments_and_metadata() {
+        let mut doc = document(2);
+        let file = doc.add_object(Stream::new(dictionary! { "Type" => "EmbeddedFile" }, b"attachment-secret".to_vec()));
+        let metadata = doc.add_object(Stream::new(dictionary! { "Type" => "Metadata" }, b"xmp-secret".to_vec()));
+        let info = doc.add_object(dictionary! { "Author" => Object::string_literal("author-secret") });
+        let first = doc.get_pages()[&1];
+        let dest = doc.add_object(Object::Array(vec![first.into(), "Fit".into()]));
+        let catalog = doc.catalog_mut().unwrap();
+        catalog.set("Names", dictionary! {
+            "EmbeddedFiles" => dictionary! { "Names" => vec![Object::string_literal("a.txt"), file.into()] },
+            "Dests" => dictionary! { "Names" => vec![Object::string_literal("one"), dest.into()] },
+        });
+        catalog.set("Metadata", metadata);
+        doc.trailer.set("Info", info);
+
+        let bytes = part(&source(doc), 1, 1);
+        let text = String::from_utf8_lossy(&bytes);
+        for secret in ["attachment-secret", "xmp-secret", "author-secret"] {
+            assert!(!text.contains(secret), "{secret} was kept");
+        }
+        let written = Document::load_mem(&bytes).unwrap();
+        assert!(written.catalog().unwrap().get(b"Names").unwrap().as_dict().unwrap().has(b"Dests"), "named destinations should stay");
+    }
+
+    #[test]
+    fn a_part_copies_only_what_its_pages_can_use() {
+        let doc = document(3);
+        let pages = doc.get_pages();
+        let contents = |doc: &Document, n: u32| doc.get_dictionary(pages[&n]).unwrap().get(b"Contents").unwrap().as_reference().unwrap();
+        let (first, second, third) = (contents(&doc, 1), contents(&doc, 2), contents(&doc, 3));
+        let src = source(doc);
+        let removed = HashSet::from([pages[&2], pages[&3]]);
+        let copy = src.copy_without(&removed);
+        assert!(copy.objects.contains_key(&first) && copy.objects.contains_key(&pages[&1]));
+        for id in [second, third, pages[&2], pages[&3]] {
+            assert!(!copy.objects.contains_key(&id), "{id:?} was copied");
+        }
+    }
+
+    #[test]
+    fn an_encrypted_source_needs_its_password_and_gives_parts_that_do_too() {
         let dir = tempfile::tempdir().unwrap();
         let path = save(&dir, "locked.pdf", encrypted(3, "secret"));
 
@@ -1030,7 +1359,13 @@ pub(crate) mod tests {
         assert!(matches!(load_source(&path, Some("wrong")), Err(SplitError::WrongPassword)));
         let src = load_source(&path, Some("secret")).unwrap();
         assert_eq!(src.page_count(), 3);
-        assert_eq!(page_texts(&part(&src, 2, 3)), ["Page 2", "Page 3"]);
+        let bytes = part(&src, 2, 3);
+        start_engine();
+        assert!(engine().unwrap().load_pdf_from_byte_slice(&bytes, None).is_err(), "the part opened without the password");
+        assert!(engine().unwrap().load_pdf_from_byte_slice(&bytes, Some("wrong")).is_err());
+        let opened = engine().unwrap().load_pdf_from_byte_slice(&bytes, Some("secret")).unwrap();
+        let texts: Vec<String> = opened.pages().iter().map(|page| page.text().unwrap().all().trim().to_string()).collect();
+        assert_eq!(texts, ["Page 2", "Page 3"]);
     }
 
     #[test]

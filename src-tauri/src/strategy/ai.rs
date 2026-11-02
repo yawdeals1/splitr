@@ -33,6 +33,10 @@ impl AiStrategy {
         if instruction.is_empty() {
             return Err(SplitError::Ai("Type an instruction for the AI first".into()));
         }
+        // Without any text the AI would have only page numbers to go on, and would make parts up.
+        if !doc.has_any_text() {
+            return Err(SplitError::NoTextLayer);
+        }
         let chunks = excerpts::chunks(instruction, doc);
         // The AI is asked to cover every page (Appendix A), so gaps are a problem it must fix.
         match response::split_with_progress(provider, &chunks, doc.page_count, false, progress).await {
@@ -103,6 +107,14 @@ mod tests {
         assert_eq!(run("Split", &rejected, &doc(3)).unwrap_err().to_string(), "Your key was rejected");
         let unused = scripted(|_| unreachable!());
         assert_eq!(run(" \n", &unused, &doc(3)).unwrap_err().to_string(), "Type an instruction for the AI first");
+        assert!(unused.requests().is_empty());
+    }
+
+    #[test]
+    fn a_pdf_without_text_is_never_sent() {
+        let unused = scripted(|_| unreachable!());
+        let scan = DocumentText { page_count: 2, pages: vec!["".into(), " \n".into()], outline: Vec::new() };
+        assert!(matches!(run("Split", &unused, &scan), Err(SplitError::NoTextLayer)));
         assert!(unused.requests().is_empty());
     }
 

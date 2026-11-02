@@ -6,8 +6,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { AI_SERVICES, aiService, keyChoices, type KeyChoices, usesKey } from "./ai";
-import type { ChatGptStatus, KeyCheck, KeyDetection, KeyStatus, Settings } from "./types";
+import { AI_SERVICES, aiService, keyChoices, type KeyChoices, serviceReady, usesKey } from "./ai";
+import { AI_CANCELLED, type ChatGptStatus, type KeyCheck, type KeyDetection, type KeyStatus, type Settings } from "./types";
 
 /** The platforms with a saved key (#27): undefined while loading. */
 export function useApiKeys() {
@@ -59,6 +59,7 @@ export function useChatGpt() {
   const [status, setStatus] = useState<ChatGptStatus | undefined>(undefined);
   const [connecting, setConnecting] = useState(false);
   const [signInUrl, setSignInUrl] = useState("");
+  const [browserFailed, setBrowserFailed] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -71,7 +72,7 @@ export function useChatGpt() {
       setStatus(await invoke<ChatGptStatus>(command));
     } catch (e) {
       // Cancel ends the wait for the browser; that isn't a problem to show.
-      if (String(e) !== "The AI request was cancelled") setError(String(e));
+      if (String(e) !== AI_CANCELLED) setError(String(e));
       // A disconnect that couldn't reach OpenAI still disconnected this computer.
       invoke<ChatGptStatus>("chatgpt_status").then(setStatus, () => {});
     }
@@ -81,17 +82,22 @@ export function useChatGpt() {
     status,
     connecting,
     signInUrl,
+    browserFailed,
     error,
     connected: Boolean(status?.connected),
     connect: async () => {
       setConnecting(true);
       setSignInUrl("");
-      const stop = await listen<string>("chatgpt-sign-in", ({ payload }) => setSignInUrl(payload)).catch(() => undefined);
+      setBrowserFailed(false);
+      const stops = await Promise.all([
+        listen<string>("chatgpt-sign-in", ({ payload }) => setSignInUrl(payload)),
+        listen("chatgpt-browser-failed", () => setBrowserFailed(true)),
+      ]).catch(() => []);
       await run("chatgpt_connect");
-      stop?.();
+      stops.forEach((stop) => stop());
       setConnecting(false);
     },
-    cancel: () => invoke("cancel_ai").catch(() => {}),
+    cancel: () => invoke("cancel_chatgpt_connect").catch(() => {}),
     disconnect: () => run("chatgpt_disconnect"),
   };
 }
@@ -102,7 +108,7 @@ function planName(plan: string): string {
 }
 
 /** #31: the sign-in link, for when no browser appeared. Linux can report success without opening one. */
-function SignInLink({ url }: { url: string }) {
+function SignInLink({ url, browserFailed }: { url: string; browserFailed: boolean }) {
   const field = useRef<HTMLInputElement>(null);
   const [copied, setCopied] = useState(false);
 
@@ -122,7 +128,7 @@ function SignInLink({ url }: { url: string }) {
   return (
     <>
       <label htmlFor="chatgpt-sign-in-link" className="muted">
-        Browser didn&rsquo;t open? Paste this link into it:
+        {browserFailed ? "Splitr couldn’t open your browser." : "Browser didn’t open?"} Paste this link into it:
       </label>
       <div className="row sign-in-link">
         <input id="chatgpt-sign-in-link" ref={field} type="text" readOnly value={url} onFocus={(e) => e.target.select()} />
@@ -143,11 +149,12 @@ function ChatGptAccount({ account }: { account: ReturnType<typeof useChatGpt> })
       <>
         <div className="row" role="status">
           <p className="muted">Finish signing in to ChatGPT in your browser…</p>
-          <button type="button" onClick={account.cancel}>
+          {/* The link comes once the sign-in can hear a cancel; one before that would be lost. */}
+          <button type="button" onClick={account.cancel} disabled={!account.signInUrl}>
             Cancel
           </button>
         </div>
-        {account.signInUrl && <SignInLink url={account.signInUrl} />}
+        {account.signInUrl && <SignInLink url={account.signInUrl} browserFailed={account.browserFailed} />}
       </>
     );
   }
@@ -399,7 +406,7 @@ export function AiSettings({ settings, apiKeys, chatGpt, onChange }: Props) {
     const ok = await apiKeys.save(platform, key);
     if (!ok) return false;
     // A new key becomes the service Smart mode uses if the current one can't run yet.
-    if (current.signIn ? !chatGpt.connected : !apiKeys.has(service)) chooseService(platform);
+    if (!serviceReady(current, chatGpt.connected, apiKeys.has(service))) chooseService(platform);
     check(platform);
     return true;
   }
@@ -461,7 +468,8 @@ export function AiSettings({ settings, apiKeys, chatGpt, onChange }: Props) {
           label="Address"
           saved={settings?.aiCustomUrl ?? ""}
           placeholder="https://example.com/v1"
-          onSave={(url) => change({ aiCustomUrl: url })}
+          // FR-61: a new address can be a new company, so it needs a new answer to the notice.
+          onSave={(url) => change({ aiCustomUrl: url, aiConsent: false })}
         />
       )}
 

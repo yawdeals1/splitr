@@ -2,12 +2,12 @@
 import type { AiRun, Preset, PresetRun, Range, StrategyKind } from "./types";
 
 /**
- * True if splitting with this preset reads the page text, so scanned pages need OCR (FR-80):
- * pattern, blank page and AI presets, presets that fall back to one, and the custom prompt (`null`).
+ * True if this result of run_preset comes from the page text, so pages without text matter (FR-80):
+ * parts found by a pattern or blank pages, or a split that goes on to the AI. Parts from bookmarks
+ * or fixed lengths never read the text, whatever the preset falls back to.
  */
-export function usesText(preset: Pick<Preset, "strategy" | "fallback"> | null): boolean {
-  const reads = (kind: StrategyKind | null | undefined) => kind === "pattern" || kind === "blank" || kind === "ai";
-  return preset === null || reads(preset.strategy) || reads(preset.fallback);
+export function readPageText(run: PresetRun): boolean {
+  return run.kind === "needsAi" || run.strategy === "pattern" || run.strategy === "blank" || run.strategy === "ai";
 }
 
 /** The status line while the text is read: the text layer, then OCR of the pages without text. */

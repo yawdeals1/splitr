@@ -43,20 +43,6 @@ export interface PdfInfo {
   sizeBytes: number;
 }
 
-/** Mirrors strategy::OutlineEntry: a top-level bookmark and the page it opens. */
-export interface OutlineEntry {
-  title: string;
-  page: number;
-}
-
-/** Mirrors commands::TextSummary, returned by extract_text (#7). */
-export interface TextSummary {
-  pageCount: number;
-  /** Pages with any visible text. Scanned pages have none. */
-  pagesWithText: number;
-  outline: OutlineEntry[];
-}
-
 /** Mirrors preset_run::RunOptions: what the user set for a Smart split (FR-32). */
 export interface RunOptions {
   blankThreshold: number;
@@ -86,7 +72,7 @@ export type AiRun =
   /** The user pressed Cancel. */
   | { kind: "cancelled" };
 
-/** The payload of the "extract-progress" event that extract_text sends, and of "ai-progress" (chunks answered). */
+/** The payload of the "extract-progress" event sent while the text is read, and of "ai-progress" (chunks answered). */
 export interface ExtractProgress {
   done: number;
   total: number;
@@ -97,6 +83,10 @@ export interface ExtractProgress {
 // The error run_preset ends with when Cancel stops the text read or OCR (FR-80, NFR-02). Must match
 // SplitError::ExtractCancelled in error.rs.
 export const READING_CANCELLED = "Reading the PDF's text was cancelled";
+
+// The error the ChatGPT sign-in ends with when Cancel stops the wait (#31). Must match
+// SplitError::AiCancelled in error.rs.
+export const AI_CANCELLED = "The AI request was cancelled";
 
 // open_pdf errors that mean "ask for the password" (FR-03). Must match SplitError in error.rs.
 export const PASSWORD_REQUIRED = "This PDF is password protected. Enter its password to open it.";

@@ -5,7 +5,7 @@ import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open } from "@tauri-apps/plugin-dialog";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
-import { aiBlock, aiBlockMessage, aiService } from "./ai";
+import { aiBlock, aiBlockMessage, aiService, serviceReady } from "./ai";
 import { AiConsent } from "./AiConsent";
 import { AiSettings, useApiKeys, useChatGpt } from "./AiSettings";
 import { ExportOptions } from "./ExportOptions";
@@ -18,7 +18,8 @@ import { PasswordPrompt } from "./PasswordPrompt";
 import { PresetEditor } from "./PresetEditor";
 import { ReviewScreen } from "./ReviewScreen";
 import { useSettings } from "./settings";
-import { aiReview, aiStatus, readingStatus, smartResult, usesBlank, usesText, type AiReview } from "./smart";
+import { validCount } from "./review";
+import { aiReview, aiStatus, readingStatus, readPageText, smartResult, usesBlank, type AiReview } from "./smart";
 import { showTheme } from "./theme";
 import { UpdateNotice } from "./UpdateNotice";
 import {
@@ -36,6 +37,7 @@ import {
   type PresetRun,
   type Range,
   type RangeMode,
+  type RunOptions,
   type SavedParts,
   type Settings,
   type Theme,
@@ -53,6 +55,8 @@ function App({ initialSettings }: { initialSettings: Settings | null }) {
   const [pdf, setPdf] = useState<PdfInfo | null>(null);
   // Counts successful opens, so reopening the same file shows its pages afresh.
   const [opened, setOpened] = useState(0);
+  // The same count, read when a split finishes: its parts are dropped if another file opened meanwhile.
+  const openCount = useRef(0);
   // FR-11: the page shown in the larger view.
   const [viewing, setViewing] = useState<number | null>(null);
   const [dragging, setDragging] = useState(false);
@@ -148,6 +152,7 @@ function App({ initialSettings }: { initialSettings: Settings | null }) {
     setOpening(true);
     try {
       setPdf(await invoke<PdfInfo>("open_pdf", { path, password: pw }));
+      openCount.current += 1;
       password.current = pw;
       setOpened((n) => n + 1);
       setViewing(null);
@@ -307,10 +312,15 @@ function App({ initialSettings }: { initialSettings: Settings | null }) {
 
   // `consented` is true right after the user agrees, before the saved setting reaches `settings`.
   async function split(consented = false) {
+    // Enter in a range field gets here too, past the disabled button.
+    if (reading || aiStep) return;
     setError("");
     setNotice("");
     setSavedFile(null);
     if (!pdf) return setError("Open a PDF first.");
+    // A split can outlast its file: "Open another" and drops work while it runs.
+    const openedAtStart = openCount.current;
+    const replaced = () => openCount.current !== openedAtStart;
     let next: Range[] | null = null;
     let gaps = mode === "custom";
     let fellBack = "";
@@ -319,22 +329,26 @@ function App({ initialSettings }: { initialSettings: Settings | null }) {
       if (mode === "custom") {
         next = await invoke<Range[]>("parse_custom_ranges", { input: customRanges, pageCount: pdf.pageCount });
       } else if (mode === "fixed") {
+        if (!validCount(fixedCount[fixedBy])) throw "Enter a whole number of 1 or more.";
         next = await invoke<Range[]>("fixed_ranges", { pageCount: pdf.pageCount, [fixedBy]: fixedCount[fixedBy] });
       } else {
         if (!settings) throw "Settings are still loading.";
-        if (reading || aiStep) return;
+        // FR-80: a custom prompt always goes to the AI, which reads the text.
+        let readText = true;
         if (presetId !== CUSTOM_PROMPT) {
           // FR-30: the preset's rules run first; the AI is needed only if they or the preset ask for it.
           setReading({ done: 0, total: pdf.pageCount, ocr: false });
           const stop = listen<ExtractProgress>("extract-progress", ({ payload }) => setReading(payload));
           let run: PresetRun;
           try {
-            const options = { blankThreshold: settings.blankThreshold, dropSeparators };
+            const options: RunOptions = { blankThreshold: settings.blankThreshold, dropSeparators };
             run = await invoke<PresetRun>("run_preset", { path: pdf.path, presetId, options });
           } finally {
             (await stop)();
             setReading(null);
           }
+          if (replaced()) return;
+          readText = readPageText(run);
           const result = smartResult(run);
           if (result.kind === "parts") {
             next = result.ranges;
@@ -344,11 +358,12 @@ function App({ initialSettings }: { initialSettings: Settings | null }) {
         } else if (!customPrompt.trim()) throw "Type an instruction for the AI first.";
         // FR-60 to FR-62: AI runs only when it is on, a key is saved and the user agreed to the notice.
         if (!next) {
-          const ready = aiService(settings.aiPlatform).signIn ? chatGpt.connected : apiKeys.has(settings.aiPlatform);
+          const ready = serviceReady(aiService(settings.aiPlatform), chatGpt.connected, apiKeys.has(settings.aiPlatform));
           const block = aiBlock({ ...settings, aiConsent: settings.aiConsent || consented }, ready);
           if (block === "consent") return setAskConsent(true);
           if (block) throw aiBlockMessage(block, aiService(settings.aiPlatform));
           const review = await runAi(pdf);
+          if (replaced()) return;
           if (!review) {
             // Cancel returns to the options. The Cancel button is gone, so focus goes to Split (NFR-11).
             flushSync(() => setRanges([]));
@@ -359,12 +374,13 @@ function App({ initialSettings }: { initialSettings: Settings | null }) {
           problem = review.problem;
         }
         // FR-80: with OCR off, say which pages had no text to read.
-        if (presetId === CUSTOM_PROMPT || usesText(selectedPreset ?? null)) {
+        if (readText) {
           const note = await invoke<string | null>("text_note", { path: pdf.path });
           if (note) fellBack = [fellBack, `${note}.`].filter(Boolean).join(" ");
         }
       }
     } catch (e) {
+      if (replaced()) return;
       // The parts of an earlier split no longer match the options, so they aren't kept.
       setRanges([]);
       // Cancel while the text is read returns to the options (NFR-02).
@@ -374,6 +390,7 @@ function App({ initialSettings }: { initialSettings: Settings | null }) {
       }
       return setError(String(e));
     }
+    if (replaced()) return;
     // The gap rule and a fresh review screen only change once the new parts have arrived.
     setAllowGaps(gaps);
     setNotice(fellBack);
@@ -408,6 +425,12 @@ function App({ initialSettings }: { initialSettings: Settings | null }) {
   function cancelAi() {
     invoke("cancel_extract").catch(() => {});
     invoke("cancel_ai").catch(() => {});
+  }
+
+  // NFR-11: the notice takes focus with it when it closes, so focus goes back to Split.
+  function consentRefused() {
+    flushSync(() => setAskConsent(false));
+    splitButton.current?.focus();
   }
 
   async function consentGiven() {
@@ -775,7 +798,7 @@ function App({ initialSettings }: { initialSettings: Settings | null }) {
           </div>
         )}
         <UpdateNotice />
-        {askConsent && <AiConsent service={aiService(settings?.aiPlatform)} onAgree={consentGiven} onCancel={() => setAskConsent(false)} />}
+        {askConsent && <AiConsent service={aiService(settings?.aiPlatform)} onAgree={consentGiven} onCancel={consentRefused} />}
 
         <fieldset className="modes theme">
           <legend>Theme</legend>

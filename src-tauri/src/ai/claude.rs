@@ -9,6 +9,7 @@ use reqwest::StatusCode;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
+use super::http::{CONNECT_TIMEOUT, TIMEOUT, same_host_only};
 use super::{AiRequest, Provider, system_prompt, user_message};
 use crate::error::{Result, SplitError};
 
@@ -16,9 +17,6 @@ const API_URL: &str = "https://api.anthropic.com/v1/messages";
 const API_VERSION: &str = "2023-06-01";
 /// A reply is a short JSON list of ranges, so this leaves plenty of room after thinking.
 const MAX_TOKENS: u32 = 16_000;
-const CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
-/// A large chunk can take the model a while to think through.
-const TIMEOUT: Duration = Duration::from_secs(180);
 
 /// Models that accept server-side refusal fallbacks: if the model declines, Anthropic retries the
 /// request on another model inside the same call.
@@ -43,6 +41,7 @@ impl Claude {
         let http = reqwest::Client::builder()
             // Tests talk to a local server over plain HTTP; the app only ever uses HTTPS.
             .https_only(cfg!(not(test)))
+            .redirect(same_host_only())
             .connect_timeout(CONNECT_TIMEOUT)
             .timeout(timeout)
             .build()

@@ -34,6 +34,12 @@ pub enum SplitError {
     Ai(String),
     #[error("The AI request was cancelled")]
     AiCancelled,
+    // The ChatGPT connection can't go on (#31): its refresh token no longer works, or OpenAI no
+    // longer knows the client id. Both end the session; the second also drops the client id.
+    #[error("Your ChatGPT connection has ended. Connect ChatGPT again under AI in Settings")]
+    ChatGptSignedOut,
+    #[error("OpenAI no longer recognizes Splitr's registration. Connect ChatGPT again under AI in Settings")]
+    ChatGptUnregistered,
     // An AI answer still unusable after one retry (FR-36): pages, then the problem.
     #[error("The AI's answer for pages {0} to {1} could not be used: {2}. Set the parts by hand instead")]
     AiReply(u32, u32, String),

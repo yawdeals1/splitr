@@ -11,9 +11,22 @@ use serde_json::Value;
 
 use crate::error::{Result, SplitError};
 
-const CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
+pub const CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
 /// A large chunk can take a model a while to think through.
 pub const TIMEOUT: Duration = Duration::from_secs(180);
+
+/// The redirects a call may follow: only within the same host and port. reqwest drops
+/// `authorization` when a redirect leaves the host, but not `x-api-key` or `x-goog-api-key`, and a
+/// 307 or 308 sends the body again, so following one could hand a key or page text to someone else
+/// (NFR-05, FR-61). Any other redirect comes back as an error status.
+pub fn same_host_only() -> reqwest::redirect::Policy {
+    reqwest::redirect::Policy::custom(|attempt| {
+        let same_host = attempt.previous().last().is_some_and(|from| {
+            from.host_str() == attempt.url().host_str() && from.port_or_known_default() == attempt.url().port_or_known_default()
+        });
+        if same_host && attempt.previous().len() < 10 { attempt.follow() } else { attempt.stop() }
+    })
+}
 
 /// A client for one platform. Deliberately not `Debug`, so nothing it is given can end up in a log.
 pub struct Api {
@@ -37,12 +50,13 @@ impl Api {
     /// Like [`Api::new`]; `local` allows plain HTTP, for an address on this computer that the
     /// caller has checked (a custom platform or local model, #30, #25).
     pub fn build(name: String, timeout: Duration, local: bool) -> Result<Self> {
-        let mut builder = reqwest::Client::builder();
-        if local {
+        let builder = if local {
             // A call to this computer must stay on it (FR-81): no system proxy, and no redirect
             // that a local server could send to another host.
-            builder = builder.no_proxy().redirect(reqwest::redirect::Policy::none());
-        }
+            reqwest::Client::builder().no_proxy().redirect(reqwest::redirect::Policy::none())
+        } else {
+            reqwest::Client::builder().redirect(same_host_only())
+        };
         let http = builder
             // Tests talk to a local server over plain HTTP; the app uses HTTPS except on this computer.
             .https_only(cfg!(not(test)) && !local)
@@ -104,7 +118,7 @@ impl Api {
             ))
         } else if e.is_connect() && self.local {
             SplitError::Ai(format!(
-                "Splitr couldn't reach {name} on this computer. Check that the model server (such as Ollama or LM                  Studio) is running and the address in Settings is right"
+                "Splitr couldn't reach {name} on this computer. Check that the model server (such as Ollama or LM Studio) is running and the address in Settings is right"
             ))
         } else if e.is_connect() {
             SplitError::Ai(format!("Splitr couldn't reach {name}. Check your internet connection and try again"))
@@ -274,6 +288,17 @@ mod tests {
     fn post(url: &str) -> Result<String> {
         let api = Api::new("Example", Duration::from_secs(5)).unwrap();
         tauri::async_runtime::block_on(api.post(url, &[("authorization", "Bearer secret-key")], &json!({"a": 1}), "m-1"))
+    }
+
+    #[test]
+    fn a_redirect_to_another_host_is_not_followed() {
+        let (elsewhere, reached) = serve("/steal", "200 OK", "", "{}");
+        let (url, _) = serve("/v1/x", "307 Temporary Redirect", &format!("location: {elsewhere}\r\n"), "");
+        let api = Api::new("Example", Duration::from_secs(5)).unwrap();
+        let body = json!({"a": 1});
+        let err = tauri::async_runtime::block_on(api.post(&url, &[("x-api-key", "secret-key")], &body, "m-1")).unwrap_err().to_string();
+        assert!(err.contains("307"), "{err}");
+        assert!(reached.recv_timeout(Duration::from_millis(300)).is_err(), "the key went to another host");
     }
 
     #[test]

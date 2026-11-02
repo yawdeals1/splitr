@@ -7,7 +7,7 @@
 // The AppImage is reported but can't fail the check: SRS 8 has it bundle what it needs, WebKitGTK
 // included, which alone is larger than 25 MB. The .deb uses the system's WebKitGTK and is checked.
 
-import { statSync } from "node:fs";
+import { realpathSync, statSync } from "node:fs";
 import { basename } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -71,4 +71,5 @@ function main() {
   }
 }
 
-if (process.argv[1] === fileURLToPath(import.meta.url)) main();
+// Real paths, because a mismatch here would skip the check and pass the build.
+if (process.argv[1] && realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url))) main();

@@ -1,7 +1,7 @@
 // Unit tests for smart.ts. Run with `npm test` (Node's built-in test runner).
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { aiFallbackNotice, aiReview, aiStatus, readingStatus, smartResult, usesBlank, usesText } from "./smart.ts";
+import { aiFallbackNotice, aiReview, aiStatus, readingStatus, readPageText, smartResult, usesBlank } from "./smart.ts";
 
 test("the drop separators option applies to blank presets and blank fallbacks", () => {
   assert.equal(usesBlank({ strategy: "blank", fallback: "ai" }), true);
@@ -63,14 +63,15 @@ test("the status says what the AI step is doing", () => {
   assert.equal(aiStatus({ reading: false, done: 1, total: 3 }), "Asking the AI: 1 of 3 parts of the file answered");
 });
 
-test("only presets that read the page text need OCR", () => {
-  assert.equal(usesText({ strategy: "pattern" }), true);
-  assert.equal(usesText({ strategy: "blank" }), true);
-  assert.equal(usesText({ strategy: "ai" }), true);
-  assert.equal(usesText({ strategy: "outline", fallback: "ai" }), true);
-  assert.equal(usesText(null), true);
-  assert.equal(usesText({ strategy: "outline", fallback: null }), false);
-  assert.equal(usesText({ strategy: "fixed" }), false);
+test("only parts found in the text, or a split going on to the AI, read the page text", () => {
+  const parts = (strategy: "outline" | "pattern" | "blank" | "fixed" | "ai") =>
+    ({ kind: "parts", ranges: [], strategy, allowGaps: false, fallbackReason: null }) as const;
+  assert.equal(readPageText(parts("pattern")), true);
+  assert.equal(readPageText(parts("blank")), true);
+  assert.equal(readPageText(parts("ai")), true);
+  assert.equal(readPageText({ kind: "needsAi", reason: null }), true);
+  assert.equal(readPageText(parts("outline")), false);
+  assert.equal(readPageText(parts("fixed")), false);
 });
 
 test("readingStatus says when OCR is reading scanned pages", () => {

@@ -8,7 +8,7 @@ use serde::Serialize;
 use tauri::ipc::Response;
 use tauri::{AppHandle, Emitter, Manager};
 
-use crate::ai::{self, response, AiCalls, AiRequest, Provider};
+use crate::ai::{self, AiCalls, SignInCalls};
 use crate::browser;
 use crate::chatgpt;
 use crate::error::{Result, SplitError};
@@ -21,7 +21,7 @@ use crate::preset_run::{self, PresetRun, RunOptions};
 use crate::presets::{self, Preset};
 use crate::ranges::{self, Range};
 use crate::settings::{self, Settings};
-use crate::strategy::{AiRun, AiStrategy, DocumentText, FixedStrategy, OutlineEntry, Strategy, cancelled_is_ok};
+use crate::strategy::{AiRun, AiStrategy, DocumentText, FixedStrategy, Strategy, cancelled_is_ok};
 use crate::user_presets::{self, PresetInput, PresetList};
 use crate::viewer::Viewer;
 
@@ -37,7 +37,7 @@ fn user_presets_path(app: &AppHandle) -> Result<PathBuf> {
 async fn blocking<T: Send + 'static>(work: impl FnOnce() -> Result<T> + Send + 'static) -> Result<T> {
     tauri::async_runtime::spawn_blocking(work)
         .await
-        .map_err(|e| SplitError::Presets(format!("Your presets could not be updated ({e}).")))?
+        .map_err(|e| SplitError::Presets(format!("Splitr couldn't finish updating its files ({e}).")))?
 }
 
 /// Bundled presets followed by the user's own (FR-70, FR-71). If the user's presets can't be read,
@@ -133,23 +133,6 @@ pub async fn verify_api_key(app: AppHandle, platform: String) -> Result<ai::veri
     ai::verify::verify(&platform, &settings.ai_custom_url, &key).await
 }
 
-/// Sends one chunk of page excerpts to the chosen AI platform and returns its reply text. `ai_split`
-/// parses and validates replies (FR-33 to FR-36).
-#[tauri::command]
-pub async fn ask_ai(app: AppHandle, request: AiRequest) -> Result<String> {
-    let provider = ai_provider(&app).await?;
-    app.state::<AiCalls>().run(provider.complete(&request)).await
-}
-
-/// Sends every chunk of page excerpts and returns one validated range list for a `page_count`-page
-/// PDF (FR-33 to FR-35). A reply that can't be used is asked for again once; if it still fails,
-/// the error says what was wrong so the user can set the parts by hand (FR-36).
-#[tauri::command]
-pub async fn ai_split(app: AppHandle, chunks: Vec<AiRequest>, page_count: u32, allow_gaps: bool) -> Result<Vec<Range>> {
-    let provider = ai_provider(&app).await?;
-    app.state::<AiCalls>().run(response::split(&provider, &chunks, page_count, allow_gaps)).await
-}
-
 /// The AI provider the user chose. Only when AI is on and, for a service off this computer, the
 /// user accepted the notice (FR-61, FR-62). A local model needs no notice: nothing leaves the
 /// computer (FR-81). The key is read from the credential store for this call only (NFR-05).
@@ -175,7 +158,7 @@ async fn ai_provider(app: &AppHandle) -> Result<ai::Chosen> {
         .model_for(platform)
         .ok_or_else(|| SplitError::Ai("Enter a model name under AI in Settings".into()))?;
     if platform == "chatgpt" {
-        let token = chatgpt_token().await?;
+        let token = chatgpt_token(app).await?;
         return Ok(ai::Chosen::ChatGpt(ai::chatgpt::ChatGpt::new(token, model)?));
     }
     let key = {
@@ -202,8 +185,9 @@ pub async fn chatgpt_status() -> Result<chatgpt::Status> {
 }
 
 /// Connects a ChatGPT account (#31). OpenAI's sign-in page opens in the system browser, never in
-/// Splitr, and the tokens go to the OS credential store. `cancel_ai` stops the wait. The link also
-/// goes to the interface, because no system can promise that a browser appeared. It holds no token.
+/// Splitr, and the tokens go to the OS credential store. `cancel_chatgpt_connect` stops the wait. The
+/// link also goes to the interface, because no system can promise that a browser appeared. It holds
+/// no token.
 #[tauri::command]
 pub async fn chatgpt_connect(app: AppHandle) -> Result<chatgpt::Status> {
     let path = chatgpt_registration_path(&app)?;
@@ -222,7 +206,8 @@ pub async fn chatgpt_connect(app: AppHandle) -> Result<chatgpt::Status> {
         Ok(())
     };
     let result = app
-        .state::<AiCalls>()
+        .state::<SignInCalls>()
+        .0
         .run(chatgpt::connect(&chatgpt::Endpoints::default(), &mut registration, open))
         .await;
     // The client id OpenAI issued is kept even if a later step failed, so the next try reuses it.
@@ -233,6 +218,13 @@ pub async fn chatgpt_connect(app: AppHandle) -> Result<chatgpt::Status> {
         Ok(chatgpt::Status::of(Some(&session)))
     })
     .await
+}
+
+/// Stops the wait for a ChatGPT sign-in. It ends with `SplitError::AiCancelled`; a split in progress
+/// goes on.
+#[tauri::command]
+pub fn cancel_chatgpt_connect(app: AppHandle) {
+    app.state::<SignInCalls>().0.cancel();
 }
 
 /// Ends the ChatGPT connection (#31): revokes the refresh token at OpenAI, then forgets the tokens
@@ -258,7 +250,7 @@ pub async fn chatgpt_disconnect() -> Result<chatgpt::Status> {
 
 /// A current access token for the connected ChatGPT account, refreshed and saved again if it was
 /// about to expire. Refresh tokens rotate, so the new one must replace the old one.
-async fn chatgpt_token() -> Result<String> {
+async fn chatgpt_token(app: &AppHandle) -> Result<String> {
     let session = key_store(|| chatgpt::load_session(&OsStore))
         .await?
         .ok_or_else(|| SplitError::Ai("Connect your ChatGPT account under AI in Settings first".into()))?;
@@ -272,9 +264,14 @@ async fn chatgpt_token() -> Result<String> {
     let (session, changed) = match chatgpt::fresh(&chatgpt::Endpoints::default(), session).await {
         Ok(fresh) => fresh,
         Err(e) => {
-            // A refresh token that no longer works means the connection has ended.
-            if e.to_string() == chatgpt::oauth::SIGNED_OUT {
+            // Either of these means the connection has ended. A client id OpenAI no longer knows
+            // can't sign in again either, so the next sign-in registers Splitr anew.
+            if matches!(e, SplitError::ChatGptSignedOut | SplitError::ChatGptUnregistered) {
                 key_store(|| chatgpt::delete_session(&OsStore)).await?;
+            }
+            if matches!(e, SplitError::ChatGptUnregistered) {
+                let path = chatgpt_registration_path(app)?;
+                blocking(move || chatgpt::Registration::forget_client(&path)).await?;
             }
             return Err(e);
         }
@@ -329,12 +326,18 @@ pub async fn delete_user_preset(app: AppHandle, id: String) -> Result<()> {
 }
 
 /// Opens a PDF off the UI thread (NFR-02). `password` is only needed for encrypted files (FR-03).
-/// The opened PDF becomes the one whose pages `render_page` shows.
+/// The opened PDF becomes the one whose pages `render_page` shows, and AI calls still running for
+/// the PDF it replaces are stopped.
 #[tauri::command]
 pub async fn open_pdf(app: AppHandle, path: String, password: Option<String>) -> Result<PdfInfo> {
-    tauri::async_runtime::spawn_blocking(move || app.state::<Viewer>().open(&path, password.as_deref()))
-        .await
-        .map_err(|e| SplitError::OpenFailed("The PDF".into(), e.to_string()))?
+    let info = {
+        let app = app.clone();
+        tauri::async_runtime::spawn_blocking(move || app.state::<Viewer>().open(&path, password.as_deref()))
+            .await
+            .map_err(|e| SplitError::OpenFailed("The PDF".into(), e.to_string()))??
+    };
+    app.state::<AiCalls>().cancel();
+    Ok(info)
 }
 
 /// Page `page` (1-based) of the open PDF as JPEG bytes `width` pixels wide, rendered off the UI
@@ -347,7 +350,7 @@ pub async fn render_page(app: AppHandle, path: String, page: u32, width: u32) ->
         .map(Response::new)
 }
 
-/// The event `extract_text` sends while it reads pages: `{ done, total }`.
+/// The event sent while the text of the open PDF is read: `{ done, total, ocr }`.
 pub const EXTRACT_PROGRESS: &str = "extract-progress";
 
 #[derive(Clone, Serialize)]
@@ -356,34 +359,6 @@ struct ExtractProgress {
     total: u32,
     /// True while OCR reads the pages that have no text (FR-80); `total` is then those pages.
     ocr: bool,
-}
-
-/// What `extract_text` found. The page text stays in the backend for `run_preset` (#8).
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct TextSummary {
-    page_count: u32,
-    /// Pages with any visible text. Scanned pages have none.
-    pages_with_text: u32,
-    outline: Vec<OutlineEntry>,
-}
-
-/// Reads the page text and top-level bookmarks of the open PDF off the UI thread, sending
-/// `extract-progress` events, so the rule strategies can run on it (FR-30 to FR-32, NFR-02).
-/// `cancel_extract` stops it.
-#[tauri::command]
-pub async fn extract_text(app: AppHandle, path: String) -> Result<TextSummary> {
-    tauri::async_runtime::spawn_blocking(move || {
-        let text = extract_with_progress(&app, &path, false)?;
-        let pages_with_text = text.pages.iter().filter(|p| p.chars().any(|c| !c.is_whitespace())).count();
-        Ok(TextSummary {
-            page_count: text.page_count,
-            pages_with_text: u32::try_from(pages_with_text).unwrap_or(u32::MAX),
-            outline: text.outline.clone(),
-        })
-    })
-    .await
-    .map_err(|e| SplitError::ExtractFailed(e.to_string()))?
 }
 
 /// The open PDF's text, read once and then kept (#7). With `ocr`, the pages without text are then
@@ -421,9 +396,10 @@ pub async fn text_note(app: AppHandle, path: String) -> Result<Option<String>> {
 }
 
 /// Runs the preset `preset_id` on the open PDF at `path`: its strategy, then its fallback when the
-/// first finds nothing (FR-30 to FR-32). Reads the text first if `extract_text` hasn't, off the UI
-/// thread and with `extract-progress` events (NFR-02). The parts have passed `ranges::validate`
-/// (FR-35); an AI preset, or an AI fallback, comes back as `NeedsAi`.
+/// first finds nothing (FR-30 to FR-32). Reads the text first, off the UI thread and with
+/// `extract-progress` events (NFR-02), then runs OCR only if the split will use the text (FR-80). The
+/// parts have passed `ranges::validate` (FR-35); an AI preset, or an AI fallback, comes back as
+/// `NeedsAi`.
 #[tauri::command]
 pub async fn run_preset(app: AppHandle, path: String, preset_id: String, options: RunOptions) -> Result<PresetRun> {
     let preset = list_presets(app.clone())
@@ -432,9 +408,11 @@ pub async fn run_preset(app: AppHandle, path: String, preset_id: String, options
         .into_iter()
         .find(|p| p.id == preset_id)
         .ok_or_else(|| SplitError::Presets("This preset is no longer available. Choose another one".into()))?;
-    let ocr = get_settings(app.clone()).await?.ocr_enabled && preset_run::reads_text(&preset);
+    let ocr_enabled = get_settings(app.clone()).await?.ocr_enabled;
     tauri::async_runtime::spawn_blocking(move || {
-        let text = extract_with_progress(&app, &path, ocr)?;
+        let text = extract_with_progress(&app, &path, false)?;
+        let ocr = ocr_enabled && preset_run::reads_text(&preset, &text);
+        let text = if ocr { extract_with_progress(&app, &path, true)? } else { text };
         match preset_run::run(&preset, &text, &options) {
             Err(SplitError::NoTextLayer) if ocr => Err(SplitError::NoTextEvenWithOcr),
             result => result,
@@ -451,9 +429,11 @@ pub const AI_PROGRESS: &str = "ai-progress";
 /// preset `preset_id`, or with the user's custom `prompt`. Nothing is read or sent unless AI is on
 /// and the user accepted the notice (FR-61, FR-62). Sends `extract-progress` events while it reads
 /// the text, then `ai-progress` events (NFR-02). `cancel_ai` and `cancel_extract` end it with
-/// `AiRun::Cancelled`.
+/// `AiRun::Cancelled`. A PDF with no text at all is an error, since the AI would have nothing to read.
 #[tauri::command]
 pub async fn run_ai(app: AppHandle, path: String, preset_id: Option<String>, prompt: Option<String>) -> Result<AiRun> {
+    // Taken first, so that a Cancel while the key is read or the sign-in refreshed still counts.
+    let cancelled = app.state::<AiCalls>().watch();
     let instruction = match preset_id {
         Some(id) => list_presets(app.clone())
             .await
@@ -467,6 +447,9 @@ pub async fn run_ai(app: AppHandle, path: String, preset_id: Option<String>, pro
     let provider = ai_provider(&app).await?;
     let ocr = get_settings(app.clone()).await?.ocr_enabled;
     let result = async {
+        if cancelled.has_changed().unwrap_or(false) {
+            return Err(SplitError::AiCancelled);
+        }
         let text = {
             let app = app.clone();
             tauri::async_runtime::spawn_blocking(move || extract_with_progress(&app, &path, ocr))
@@ -477,10 +460,13 @@ pub async fn run_ai(app: AppHandle, path: String, preset_id: Option<String>, pro
         let progress = |done, total| {
             let _ = app.emit(AI_PROGRESS, ExtractProgress { done, total, ocr: false });
         };
-        app.state::<AiCalls>().run(strategy.propose(&provider, &text, progress)).await
+        AiCalls::run_until(cancelled, strategy.propose(&provider, &text, progress)).await
     }
     .await;
-    cancelled_is_ok(result)
+    match cancelled_is_ok(result) {
+        Err(SplitError::NoTextLayer) if ocr => Err(SplitError::NoTextEvenWithOcr),
+        other => other,
+    }
 }
 
 /// Stops the text extraction in progress. It ends with `SplitError::ExtractCancelled`.
