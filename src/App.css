@@ -128,6 +128,11 @@ body {
   border-left: 1px solid var(--border);
 }
 
+.panel select {
+  max-width: 100%;
+  min-width: 0;
+}
+
 .panel label {
   display: flex;
   flex-direction: column;
@@ -529,6 +534,8 @@ button.danger {
 
 /* FR-60 to FR-62: the AI section of the panel. */
 .ai-settings {
+  /* A fieldset is otherwise as wide as its widest content, which spills out of the panel. */
+  min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 10px;
