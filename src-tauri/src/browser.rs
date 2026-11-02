@@ -9,7 +9,7 @@ use std::ffi::OsString;
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
-use tauri::AppHandle;
+use tauri::{AppHandle, Emitter};
 use tauri_plugin_opener::OpenerExt;
 
 /// How long a launcher is watched for an immediate failure before it counts as handed off.
@@ -18,8 +18,11 @@ const FAILURE_WINDOW: Duration = Duration::from_millis(500);
 /// Set by the AppImage's launcher, with nothing from the user's own settings in them.
 const APPIMAGE_ONLY: &[&str] = &["APPDIR", "APPIMAGE", "ARGV0", "OWD", "GTK_THEME", "PYTHONDONTWRITEBYTECODE"];
 
-/// Tries to open `url`. Linux launchers can report success with no browser appearing, so the
-/// sign-in always shows the link as well and nothing here is treated as final.
+/// Tells the interface that no launcher could open the browser.
+const BROWSER_FAILED: &str = "chatgpt-browser-failed";
+
+/// Tries to open `url`, and sends `chatgpt-browser-failed` if that fails. Linux launchers can also
+/// report success with no browser appearing, so the sign-in always shows the link as well.
 pub fn open(app: &AppHandle, url: &str) {
     match appimage_dir(std::env::var_os("APPIMAGE"), std::env::var("APPDIR").ok()) {
         Some(appdir) => {
@@ -32,10 +35,17 @@ pub fn open(app: &AppHandle, url: &str) {
                 })
                 .collect();
             // The sign-in runs on an async worker and shouldn't stall while the launchers are watched.
-            std::thread::spawn(move || launch(commands, FAILURE_WINDOW));
+            let app = app.clone();
+            std::thread::spawn(move || {
+                if !launch(commands, FAILURE_WINDOW) {
+                    let _ = app.emit(BROWSER_FAILED, ());
+                }
+            });
         }
         None => {
-            let _ = app.opener().open_url(url, None::<&str>);
+            if app.opener().open_url(url, None::<&str>).is_err() {
+                let _ = app.emit(BROWSER_FAILED, ());
+            }
         }
     }
 }

@@ -59,6 +59,7 @@ export function useChatGpt() {
   const [status, setStatus] = useState<ChatGptStatus | undefined>(undefined);
   const [connecting, setConnecting] = useState(false);
   const [signInUrl, setSignInUrl] = useState("");
+  const [browserFailed, setBrowserFailed] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -81,14 +82,19 @@ export function useChatGpt() {
     status,
     connecting,
     signInUrl,
+    browserFailed,
     error,
     connected: Boolean(status?.connected),
     connect: async () => {
       setConnecting(true);
       setSignInUrl("");
-      const stop = await listen<string>("chatgpt-sign-in", ({ payload }) => setSignInUrl(payload)).catch(() => undefined);
+      setBrowserFailed(false);
+      const stops = await Promise.all([
+        listen<string>("chatgpt-sign-in", ({ payload }) => setSignInUrl(payload)),
+        listen("chatgpt-browser-failed", () => setBrowserFailed(true)),
+      ]).catch(() => []);
       await run("chatgpt_connect");
-      stop?.();
+      stops.forEach((stop) => stop());
       setConnecting(false);
     },
     cancel: () => invoke("cancel_chatgpt_connect").catch(() => {}),
@@ -102,7 +108,7 @@ function planName(plan: string): string {
 }
 
 /** #31: the sign-in link, for when no browser appeared. Linux can report success without opening one. */
-function SignInLink({ url }: { url: string }) {
+function SignInLink({ url, browserFailed }: { url: string; browserFailed: boolean }) {
   const field = useRef<HTMLInputElement>(null);
   const [copied, setCopied] = useState(false);
 
@@ -122,7 +128,7 @@ function SignInLink({ url }: { url: string }) {
   return (
     <>
       <label htmlFor="chatgpt-sign-in-link" className="muted">
-        Browser didn&rsquo;t open? Paste this link into it:
+        {browserFailed ? "Splitr couldn’t open your browser." : "Browser didn’t open?"} Paste this link into it:
       </label>
       <div className="row sign-in-link">
         <input id="chatgpt-sign-in-link" ref={field} type="text" readOnly value={url} onFocus={(e) => e.target.select()} />
@@ -143,11 +149,12 @@ function ChatGptAccount({ account }: { account: ReturnType<typeof useChatGpt> })
       <>
         <div className="row" role="status">
           <p className="muted">Finish signing in to ChatGPT in your browser…</p>
-          <button type="button" onClick={account.cancel}>
+          {/* The link comes once the sign-in can hear a cancel; one before that would be lost. */}
+          <button type="button" onClick={account.cancel} disabled={!account.signInUrl}>
             Cancel
           </button>
         </div>
-        {account.signInUrl && <SignInLink url={account.signInUrl} />}
+        {account.signInUrl && <SignInLink url={account.signInUrl} browserFailed={account.browserFailed} />}
       </>
     );
   }

@@ -414,7 +414,8 @@ mod tests {
         assert_eq!(saved.paths.len(), ranges.len(), "{file}");
         let text = extract(&source, password);
         for (part, range) in saved.paths.iter().zip(ranges) {
-            let exported = extract(part, None);
+            // A part of an encrypted PDF keeps its password (FR-03).
+            let exported = extract(part, password);
             assert_eq!(exported.page_count, range.end - range.start + 1, "{part}");
             let first = &text.pages[range.start as usize - 1];
             assert_eq!(exported.pages[0].trim(), first.trim(), "{part} should start with page {}", range.start);

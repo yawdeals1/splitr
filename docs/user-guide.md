@@ -25,7 +25,7 @@ This splits a PDF into parts of 10 pages each.
 ## Opening a file
 
 - Open one PDF at a time. If you drop several files, or a file that isn't a PDF, Splitr tells you and nothing is opened.
-- **Password-protected PDFs:** Splitr asks for the password. It's only used to read the file and is not saved.
+- **Password-protected PDFs:** Splitr asks for the password. It's only used to read the file and is not saved. The split files keep the same protection, so they open with the same password.
 - If a file is damaged or not supported, Splitr says so and stays open, so you can try another file.
 - To switch files, click **Open another** or drop a new PDF on the window.
 

@@ -123,7 +123,7 @@ fn temp_file(folder: &Path) -> Result<NamedTempFile> {
 fn persist_all(written: Vec<NamedTempFile>, targets: Vec<PathBuf>) -> Result<Vec<PathBuf>> {
     let mut saved: Vec<PathBuf> = Vec::with_capacity(targets.len());
     for (temp, target) in written.into_iter().zip(targets) {
-        match temp.persist_noclobber(&target) {
+        match temp.persist_noclobber(long_path(&target)) {
             Ok(_) => saved.push(target),
             Err(e) => {
                 for path in &saved {
@@ -135,6 +135,30 @@ fn persist_all(written: Vec<NamedTempFile>, targets: Vec<PathBuf>) -> Result<Vec
         }
     }
     Ok(saved)
+}
+
+/// `target` in the form Windows accepts past 260 characters, which the rename needs and doesn't add
+/// itself. Elsewhere, and for a path that can't be made absolute, it's `target` as it is.
+fn long_path(target: &Path) -> PathBuf {
+    if !cfg!(windows) {
+        return target.to_path_buf();
+    }
+    let Some(absolute) = std::path::absolute(target).ok().and_then(|p| p.to_str().map(str::to_owned)) else {
+        return target.to_path_buf();
+    };
+    PathBuf::from(with_long_prefix(&absolute))
+}
+
+/// An absolute Windows path with the prefix that lifts the length limit: `\\?\` for a drive and
+/// `\\?\UNC\` for a network share.
+fn with_long_prefix(absolute: &str) -> String {
+    if absolute.starts_with(r"\\?\") {
+        absolute.to_string()
+    } else if let Some(share) = absolute.strip_prefix(r"\\") {
+        format!(r"\\?\UNC\{share}")
+    } else {
+        format!(r"\\?\{absolute}")
+    }
 }
 
 /// The final path of each part: the sanitized name plus ".pdf", with " (2)", " (3)"... added when
@@ -360,6 +384,28 @@ mod tests {
         fs::rename(&zip, out.path().join("Book.ZIP")).unwrap();
         let again = export_zip(&job, "book").unwrap();
         assert_eq!(again, out.path().join("book (2).zip").to_string_lossy());
+    }
+
+    #[test]
+    fn long_paths_get_the_prefix_windows_needs() {
+        assert_eq!(with_long_prefix(r"C:\a\b.pdf"), r"\\?\C:\a\b.pdf");
+        assert_eq!(with_long_prefix(r"\\server\share\b.pdf"), r"\\?\UNC\server\share\b.pdf");
+        assert_eq!(with_long_prefix(r"\\?\C:\a\b.pdf"), r"\\?\C:\a\b.pdf");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_part_can_be_saved_past_the_old_path_limit() {
+        start_engine();
+        let dir = tempfile::tempdir().unwrap();
+        let source = save(&dir, "a.pdf", outlined());
+        let deep = dir.path().join("d".repeat(120)).join("e".repeat(60));
+        fs::create_dir_all(&deep).unwrap();
+        let folder = deep.to_string_lossy().into_owned();
+        let name = "n".repeat(200);
+        let saved = export(&request(&source, None, &[Range::new(1, 1)], &folder, &[name.as_str()])).unwrap();
+        assert!(saved.paths[0].len() > 260, "the path should be past the limit: {}", saved.paths[0].len());
+        assert!(Path::new(&saved.paths[0]).is_file());
     }
 
     #[test]

@@ -83,7 +83,7 @@ The backend is the hub: it loads presets, asks the PDF engine for pages, and han
 | --- | --- |
 | FR-01 | The system shall open a PDF by drag and drop or a file picker. |
 | FR-02 | The system shall show the file name, page count and file size after opening. |
-| FR-03 | The system shall prompt for a password when a PDF is encrypted, and report an error if it is wrong. |
+| FR-03 | The system shall prompt for a password when a PDF is encrypted, and report an error if it is wrong. Parts of an encrypted PDF shall keep its passwords and permissions. |
 | FR-04 | The system shall never modify the original file. |
 | FR-05 | The system shall report a clear error for corrupt or unsupported files. |
 
@@ -109,7 +109,7 @@ The backend is the hub: it loads presets, asks the PDF engine for pages, and han
 | ID | Requirement |
 | --- | --- |
 | FR-30 | Outline strategy: the system shall read PDF bookmarks and propose a range per top-level bookmark. If no bookmarks exist, it shall fall back to the AI strategy or report that none were found. |
-| FR-31 | Pattern strategy: the system shall extract page text and start a new range where a regex or keyword matches. |
+| FR-31 | Pattern strategy: the system shall extract page text and start a new range where a regex or keyword matches. A page that repeats the identifier that started the current range (a match containing a digit, such as an account number in every page header) continues that range. |
 | FR-32 | Blank page strategy: the system shall treat a page with no visible content (below a configurable threshold) as a separator and optionally drop it from the output. |
 | FR-33 | AI strategy: the system shall build per-page excerpts, send them with the preset or custom prompt to the AI provider, and parse a JSON list of ranges. |
 | FR-34 | For large files the AI strategy shall send pages in overlapping chunks and merge the results into one non-overlapping list. |
@@ -132,7 +132,7 @@ The backend is the hub: it loads presets, asks the PDF engine for pages, and han
 | FR-51 | The user shall set a file name template using tokens such as {index}, {title} and {original}. |
 | FR-52 | The system shall sanitize file names for all three operating systems and avoid overwriting by adding a numeric suffix. |
 | FR-53 | The system shall offer to bundle the outputs into a ZIP file. |
-| FR-54 | The system shall preserve page content, links and bookmarks that fall inside each part where the PDF library allows. |
+| FR-54 | The system shall preserve page content, links and bookmarks that fall inside each part where the PDF library allows. Form fields on other pages, and the document's attachments and metadata, shall not be kept. |
 | FR-55 | After export, the system shall offer to open the output folder. |
 
 **4.7 Settings and AI configuration**
