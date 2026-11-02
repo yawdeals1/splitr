@@ -1,6 +1,6 @@
 [package]
 name = "splitr"
-version = "0.1.2"
+version = "0.1.3"
 description = "Smart PDF Splitter: split one PDF into several by chapter, invoice, student and more"
 authors = ["Caleb Mensah"]
 edition = "2024"
