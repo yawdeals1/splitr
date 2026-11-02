@@ -107,7 +107,7 @@ Status as of commit 5353d03 on `main` (2026-10-30), with phases 0 to 3 and #24, 
 | NFR-10 a new user splits without the docs | Ask someone who hasn't used Splitr to split a PDF, and note where they get stuck | ⏳ manual |
 | NFR-11 everything reachable by keyboard | Keyboard pass (#20, #54); manual | ✅ (manual ⏳) |
 | NFR-12 builds for all three OSes | Release workflow builds Windows, macOS and Linux | ⏳ first release (#83) |
-| NFR-12 platform-specific code isolated | Review: OS differences go through crates (`keyring`, `tauri-plugin-opener`, PDFium's library name in `pdf.rs`); the only `cfg(unix)` block is the session folder permissions in `viewer.rs` | ✅ |
+| NFR-12 platform-specific code isolated | Review: OS differences go through crates (`keyring`, `tauri-plugin-opener`, `open`, PDFium's library name in `pdf.rs`); the only `cfg(unix)` block outside tests is the session folder permissions in `viewer.rs` | ✅ |
 | NFR-14 strategies share one interface | `Strategy` trait | ✅ |
 | NFR-15 presets are data | `presets/presets.json` | ✅ |
 | NFR-16 up to 2,000 pages and 500 MB | No fixture this large: the generated file has 1,000 pages and is small. Build a 2,000-page file of about 500 MB (for example scanned pages) and open, preview, split and export it | ⏳ manual, needs a large file |
