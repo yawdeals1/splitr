@@ -242,6 +242,8 @@ button.primary {
   /* Skip layout and paint for tiles far off screen (NFR-03). */
   content-visibility: auto;
   contain-intrinsic-size: auto 220px;
+  /* WebKit (Linux, macOS) ignores the size above in a grid row and collapses the tiles to nothing. */
+  min-height: 220px;
 }
 
 .page-grid button {
