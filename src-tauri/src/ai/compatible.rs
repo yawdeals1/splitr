@@ -216,8 +216,22 @@ struct Choice {
 
 #[derive(Deserialize)]
 struct Message {
-    content: Option<String>,
+    /// A string, or on some platforms (Mistral's reasoning models) a list of typed blocks.
+    content: Option<Value>,
     refusal: Option<String>,
+}
+
+/// The answer in a message's content. Blocks that aren't text, such as thinking, are skipped.
+fn content_text(content: Option<Value>) -> String {
+    match content {
+        Some(Value::String(text)) => text,
+        Some(Value::Array(blocks)) => blocks
+            .iter()
+            .filter(|block| block.get("type").and_then(Value::as_str) == Some("text"))
+            .filter_map(|block| block.get("text").and_then(Value::as_str))
+            .collect(),
+        _ => String::new(),
+    }
 }
 
 /// The text of a successful reply from `name`.
@@ -243,7 +257,7 @@ fn reply_text(name: &str, body: &str) -> Result<String> {
         Some("content_filter") => return Err(declined()),
         _ => {}
     }
-    let text = message.content.unwrap_or_default();
+    let text = content_text(message.content);
     if text.trim().is_empty() {
         return Err(SplitError::Ai(format!("{name} sent an empty answer. Try again")));
     }
@@ -270,6 +284,12 @@ fn model_ids(body: &str) -> Option<Vec<String>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_answer_in_typed_blocks_is_read_without_the_thinking() {
+        let body = r#"{"choices":[{"message":{"content":[{"type":"thinking","thinking":[{"type":"text","text":"hmm"}]},{"type":"text","text":"[1"},{"type":"text","text":"]"}]}}]}"#;
+        assert_eq!(reply_text("Mistral", body).unwrap(), "[1]");
+    }
     use crate::ai::PageExcerpt;
     use crate::ai::http::test_server::{body, serve};
 

@@ -4,7 +4,7 @@
 
 use serde_json::{Value, json};
 
-use super::http::TIMEOUT;
+use super::http::{CONNECT_TIMEOUT, TIMEOUT, same_host_only};
 use super::{AiRequest, Provider, system_prompt, user_message};
 use crate::error::{Result, SplitError};
 
@@ -26,6 +26,8 @@ impl ChatGpt {
     fn with_url(url: String, token: String, model: String) -> Result<Self> {
         let http = reqwest::Client::builder()
             .https_only(cfg!(not(test)))
+            .redirect(same_host_only())
+            .connect_timeout(CONNECT_TIMEOUT)
             .timeout(TIMEOUT)
             .build()
             .map_err(|e| SplitError::Ai(format!("Splitr couldn't set up its connection to ChatGPT ({e})")))?;
@@ -127,6 +129,8 @@ fn error_for(status: u16, e: &ErrorBody) -> SplitError {
             "ChatGPT doesn't offer this model to your account. Check the model name under AI in Settings".into()
         }
         (_, 500..=599) => format!("ChatGPT had a problem on its side (error {status}). Try again in a minute"),
+        // A stream that failed after the 200 it started with: that status says nothing.
+        (_, 200) => format!("ChatGPT couldn't finish its answer{detail}. Try again"),
         _ => format!("ChatGPT couldn't answer (error {status}){detail}"),
     })
 }

@@ -6,7 +6,7 @@
     "strategy": "pattern",
     "fallback": "ai",
     "prompt": "Split this batch so each invoice is one part. Use the invoice number as the part title.",
-    "pattern": "(?i)invoice\\s*(no\\.?|number|#)\\s*[:#]?\\s*[A-Z0-9-]+"
+    "pattern": "(?i)invoice\\s*(no\\.?|number|#)\\s*[:#]?\\s*[A-Z0-9-]*[0-9][A-Z0-9-]*"
   },
   {
     "id": "invoices-by-vendor",
@@ -36,7 +36,7 @@
     "strategy": "pattern",
     "fallback": "ai",
     "prompt": "Split so each bank account is one part. Use the account name or last four digits as the part title.",
-    "pattern": "(?i)account\\s*(no\\.?|number|#)\\s*[:#]?\\s*[0-9* -]{4,}"
+    "pattern": "(?i)account\\s*(no\\.?|number|#)\\s*[:#]?\\s*[0-9* -]{3,}[0-9]"
   },
   {
     "id": "statements-by-month",
@@ -95,7 +95,7 @@
     "strategy": "pattern",
     "fallback": "ai",
     "prompt": "Split so each employee is one part. Use the employee name or ID as the part title.",
-    "pattern": "(?i)employee\\s*(id|no\\.?|number)\\s*[:#]?\\s*[A-Z0-9-]+"
+    "pattern": "(?i)employee\\s*(id|no\\.?|number)\\s*[:#]?\\s*[A-Z0-9-]*[0-9][A-Z0-9-]*"
   },
   {
     "id": "insurance-by-policy",
@@ -104,7 +104,7 @@
     "strategy": "pattern",
     "fallback": "ai",
     "prompt": "Split so each policy or claim is one part. Use the policy or claim number as the part title.",
-    "pattern": "(?i)(policy|claim)\\s*(no\\.?|number|#)\\s*[:#]?\\s*[A-Z0-9-]+"
+    "pattern": "(?i)(policy|claim)\\s*(no\\.?|number|#)\\s*[:#]?\\s*[A-Z0-9-]*[0-9][A-Z0-9-]*"
   },
   {
     "id": "shipping-by-shipment",
@@ -113,7 +113,7 @@
     "strategy": "pattern",
     "fallback": "ai",
     "prompt": "Split so each shipment or bill of lading is one part. Use the B/L or shipment number as the part title.",
-    "pattern": "(?i)(bill of lading|b/l)\\s*(no\\.?|number|#)?\\s*[:#]?\\s*[A-Z0-9-]+"
+    "pattern": "(?i)(bill of lading|b/l)\\s*(no\\.?|number|#)?\\s*[:#]?\\s*[A-Z0-9-]*[0-9][A-Z0-9-]*"
   },
   {
     "id": "government-by-form",

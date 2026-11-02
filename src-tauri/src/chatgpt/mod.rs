@@ -16,6 +16,7 @@ use serde::{Deserialize, Serialize};
 use tokio::net::TcpListener;
 
 use crate::error::{Result, SplitError};
+use crate::files;
 use crate::keystore::SecretStore;
 
 pub const FILE_NAME: &str = "chatgpt.json";
@@ -61,12 +62,15 @@ impl Registration {
     }
 
     pub fn save(&self, path: &Path) -> Result<()> {
-        let fail = |e: std::io::Error| SplitError::Ai(format!("Splitr couldn't save its ChatGPT registration ({e})"));
-        if let Some(dir) = path.parent() {
-            std::fs::create_dir_all(dir).map_err(fail)?;
-        }
         // Serializing two strings can't fail.
-        std::fs::write(path, serde_json::to_string_pretty(self).unwrap_or_default()).map_err(fail)
+        files::write_atomically(path, serde_json::to_string_pretty(self).unwrap_or_default().as_bytes())
+            .map_err(|e| SplitError::Ai(format!("Splitr couldn't save its ChatGPT registration ({e})")))
+    }
+
+    /// Forgets the client id OpenAI issued, so the next sign-in registers Splitr again. The host
+    /// id stays. For when OpenAI says it no longer knows that client id.
+    pub fn forget_client(path: &Path) -> Result<()> {
+        Self { client_id: None, ..Self::load(path)? }.save(path)
     }
 }
 
@@ -224,7 +228,17 @@ pub async fn connect(
     )?;
     open_browser(&url)?;
 
-    let callback = tokio::time::timeout(oauth::SIGN_IN_TIMEOUT, oauth::wait_for_callback(&listener))
+    let wait = async {
+        // Anything on this computer can reach the loopback address, so a reply that isn't for this
+        // sign-in is ignored rather than ending it.
+        loop {
+            let callback = oauth::wait_for_callback(&listener).await?;
+            if callback.state.as_deref() == Some(state.as_str()) {
+                return Ok::<_, SplitError>(callback);
+            }
+        }
+    };
+    let callback = tokio::time::timeout(oauth::SIGN_IN_TIMEOUT, wait)
         .await
         .map_err(|_| SplitError::Ai("The ChatGPT sign-in timed out. Try connecting again".into()))??;
     let code = oauth::code_from(&callback, &state)?;
@@ -237,7 +251,13 @@ pub async fn connect(
     registration.client_id = Some(client_id.clone());
 
     let http = oauth::client()?;
-    let tokens = oauth::exchange(&http, &endpoints.token, &client_id, &code, &pkce.verifier, &redirect_uri).await?;
+    let tokens = oauth::exchange(&http, &endpoints.token, &client_id, &code, &pkce.verifier, &redirect_uri)
+        .await
+        .inspect_err(|e| {
+            if matches!(e, SplitError::ChatGptUnregistered) {
+                registration.client_id = None;
+            }
+        })?;
     let id_token = tokens.id_token.clone().ok_or_else(|| SplitError::Ai("ChatGPT didn't say which account signed in. Try again".into()))?;
     let keys = oauth::signing_keys(&http, &endpoints.discovery).await?;
     let payload = jwt::verify_signature(&id_token, &keys)?;
@@ -252,7 +272,7 @@ pub async fn fresh(endpoints: &Endpoints, session: Session) -> Result<(Session, 
     if session.expires_at > now() + 120 {
         return Ok((session, false));
     }
-    let refresh_token = session.refresh_token.clone().ok_or_else(|| SplitError::Ai(oauth::SIGNED_OUT.into()))?;
+    let refresh_token = session.refresh_token.clone().ok_or(SplitError::ChatGptSignedOut)?;
     let tokens = oauth::refresh(&oauth::client()?, &endpoints.token, &session.client_id, &refresh_token).await?;
     Ok((Session::new(&session.client_id.clone(), tokens, session.account.clone(), Some(&session)), true))
 }
@@ -336,6 +356,36 @@ mod tests {
         let saved = Registration { host_id: fresh.host_id.clone(), client_id: Some("oaiapp_1".into()) };
         saved.save(&path).unwrap();
         assert_eq!(Registration::load(&path).unwrap(), saved);
+
+        Registration::forget_client(&path).unwrap();
+        assert_eq!(Registration::load(&path).unwrap(), Registration { client_id: None, ..saved });
+    }
+
+    /// OpenAI no longer knows the saved client id, and a stray request reaches the loopback address
+    /// first. The stray one is ignored, and the next sign-in registers Splitr again.
+    #[test]
+    fn a_stale_client_id_is_forgotten_and_a_stray_reply_is_ignored() {
+        use crate::ai::http::test_server::serve;
+        let (token_url, token_request) = serve("/token", "401 Unauthorized", "", r#"{"error":"invalid_client"}"#);
+        let endpoints = Endpoints { token: token_url, authorize: "https://auth.example/authorize".into(), ..Endpoints::default() };
+        let mut registration = Registration { host_id: "urn:uuid:test".into(), client_id: Some("oaiapp_old".into()) };
+        let result = tauri::async_runtime::block_on(connect(&endpoints, &mut registration, |url| {
+            let p: HashMap<String, String> = reqwest::Url::parse(url).unwrap().query_pairs().into_owned().collect();
+            let addr = p["redirect_uri"].trim_start_matches("http://").split('/').next().unwrap().to_string();
+            let state = p["state"].clone();
+            std::thread::spawn(move || {
+                use std::io::{Read, Write};
+                for query in ["code=forged&state=not-this-one".to_string(), format!("code=code-1&state={state}")] {
+                    let mut s = std::net::TcpStream::connect(&addr).unwrap();
+                    write!(s, "GET /auth/callback?{query} HTTP/1.1\r\n\r\n").unwrap();
+                    let _ = s.read_to_string(&mut String::new());
+                }
+            });
+            Ok(())
+        }));
+        assert!(matches!(result, Err(SplitError::ChatGptUnregistered)));
+        assert!(token_request.recv().unwrap().contains("code=code-1"));
+        assert_eq!(registration.client_id, None);
     }
 
     #[test]

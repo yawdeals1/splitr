@@ -15,7 +15,6 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 use std::time::{Duration, SystemTime};
 
-use pdfium_render::prelude::PdfDocument;
 use tempfile::TempDir;
 
 use crate::error::{Result, SplitError};
@@ -38,7 +37,7 @@ const UNLOCKED_GRACE: Duration = Duration::from_secs(60);
 struct OpenPdf {
     path: String,
     page_count: u32,
-    document: PdfDocument<'static>,
+    document: pdf::OpenDocument,
     /// This PDF's own cache folder. A new one is made for every open.
     cache_dir: PathBuf,
     /// The page text and bookmarks, read once for the rule strategies (#7).

@@ -4,12 +4,14 @@
 use std::fs;
 use std::io::ErrorKind;
 use std::path::Path;
+use std::sync::{Mutex, MutexGuard};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::error::{Result, SplitError};
+use crate::files;
 use crate::presets::{self, Preset, StrategyKind};
 
 pub const FILE_NAME: &str = "user-presets.json";
@@ -105,22 +107,19 @@ fn read_for_change(path: &Path) -> Result<Vec<Stored>> {
     Ok(read.presets)
 }
 
-/// Writes to a temp file and renames it, so a failed write keeps the old list.
+/// Saves the list so that a failed write keeps the old one.
 fn write(path: &Path, presets: &[Stored]) -> Result<()> {
-    let fail = |e: std::io::Error| {
-        SplitError::Presets(format!("Could not save your presets to {} ({e}).", path.display()))
-    };
-    if let Some(dir) = path.parent() {
-        fs::create_dir_all(dir).map_err(fail)?;
-    }
     let json = serde_json::to_string_pretty(presets)
         .map_err(|e| SplitError::Presets(format!("Could not save your presets ({e}).")))?;
-    let tmp = path.with_extension(format!("json.{}.tmp", std::process::id()));
-    fs::write(&tmp, json).map_err(fail)?;
-    fs::rename(&tmp, path).map_err(|e| {
-        let _ = fs::remove_file(&tmp);
-        fail(e)
-    })
+    files::write_atomically(path, json.as_bytes())
+        .map_err(|e| SplitError::Presets(format!("Could not save your presets to {} ({e}).", path.display())))
+}
+
+/// Held while a change reads the file and writes it back, so that two changes at once can't lose
+/// one of them.
+fn changing() -> MutexGuard<'static, ()> {
+    static CHANGING: Mutex<()> = Mutex::new(());
+    CHANGING.lock().unwrap_or_else(|e| e.into_inner())
 }
 
 /// User presets. A missing file gives an empty list, and entries that can't be used are left out.
@@ -152,6 +151,7 @@ pub fn save(path: &Path, input: PresetInput) -> Result<Preset> {
         return Err(SplitError::Presets(format!("Keep the instruction to {MAX_PROMPT} characters or fewer.")));
     }
 
+    let _changing = changing();
     let mut presets = read_for_change(path)?;
     // Names are compared in any letter case, including non-English letters, against the bundled
     // presets too, so the list never shows two names that look the same.
@@ -188,6 +188,7 @@ pub fn save(path: &Path, input: PresetInput) -> Result<Preset> {
 
 /// Removes a user preset. Bundled presets can't be deleted.
 pub fn delete(path: &Path, id: &str) -> Result<()> {
+    let _changing = changing();
     let mut presets = read_for_change(path)?;
     let before = presets.len();
     presets.retain(|p| p.id != id);
@@ -226,6 +227,21 @@ mod tests {
 
     fn input(name: &str, prompt: &str) -> PresetInput {
         PresetInput { id: None, category: "My presets".into(), name: name.into(), prompt: prompt.into() }
+    }
+
+    #[test]
+    fn changes_at_the_same_time_are_all_kept() {
+        let path = temp_file("user-presets-overlap.json");
+        let threads: Vec<_> = (0..8)
+            .map(|n| {
+                let path = path.clone();
+                std::thread::spawn(move || save(&path, input(&format!("Preset {n}"), "Split it")).unwrap())
+            })
+            .collect();
+        for thread in threads {
+            thread.join().unwrap();
+        }
+        assert_eq!(load(&path).unwrap().len(), 8);
     }
 
     #[test]

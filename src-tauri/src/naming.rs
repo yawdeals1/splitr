@@ -50,10 +50,11 @@ pub fn render(template: &str, index: usize, total: usize, title: &str, original:
             "{original}" => name.push_str(original),
             _ if !title.is_empty() => name.push_str(title),
             _ => {
-                let close = match name.ends_with('(') {
-                    true => Some(')'),
-                    false if name.ends_with('[') => Some(']'),
-                    false => None,
+                // Only the template's own text counts: the end of the PDF's name is never trimmed.
+                let close = match name[text_start..].chars().next_back() {
+                    Some('(') => Some(')'),
+                    Some('[') => Some(']'),
+                    _ => None,
                 };
                 if let Some(close) = close.filter(|&c| rest.starts_with(c)) {
                     name.pop();
@@ -114,7 +115,8 @@ pub fn sanitize(name: &str) -> String {
         .chars()
         .map(|c| if matches!(c, '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*') || c.is_control() { '_' } else { c })
         .collect();
-    let mut result = tidy(truncate(cleaned.trim().trim_start_matches('.'), MAX_NAME_BYTES)).to_string();
+    let start_trimmed = cleaned.trim_start_matches(|c: char| c == '.' || c.is_whitespace());
+    let mut result = tidy(truncate(start_trimmed.trim_end(), MAX_NAME_BYTES)).to_string();
     if result.is_empty() {
         result = "part".into();
     }
@@ -207,6 +209,8 @@ mod tests {
         assert_eq!(render("{title}{index} - {original}", 1, 1, "", "book"), "01 - book");
         // Only a matching pair of brackets is removed.
         assert_eq!(render("{original} [{title})", 1, 1, "", "book"), "book [)");
+        // A bracket at the end of the PDF's name isn't the template's to remove.
+        assert_eq!(render("{original}{title})", 1, 1, "", "book ("), "book ()");
     }
 
     #[test]
@@ -247,6 +251,11 @@ mod tests {
         // A leading dot hides a file on macOS and Linux.
         assert_eq!(sanitize(".notes"), "notes");
         assert_eq!(sanitize("..."), "part");
+        // Sanitizing twice gives the same name, so the preview matches the saved file.
+        for name in [". x", " . .x", ".. y ."] {
+            assert_eq!(sanitize(&sanitize(name)), sanitize(name), "{name}");
+        }
+        assert_eq!(sanitize(". x"), "x");
     }
 
     #[test]

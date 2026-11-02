@@ -10,6 +10,7 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { download } from "./download.mjs";
 
 const BASE = "https://ocrs-models.s3-accelerate.amazonaws.com";
 
@@ -32,22 +33,6 @@ const outDir = join(dirname(fileURLToPath(import.meta.url)), "..", "src-tauri", 
 
 function sha256(bytes) {
   return createHash("sha256").update(bytes).digest("hex");
-}
-
-/** Downloads a file, retrying up to four times on network errors. */
-async function download(url) {
-  for (let attempt = 1; ; attempt++) {
-    console.log(`Downloading ${url}`);
-    try {
-      const response = await fetch(url);
-      if (!response.ok) throw new Error(`Download failed: HTTP ${response.status} for ${url}`);
-      return Buffer.from(await response.arrayBuffer());
-    } catch (error) {
-      if (attempt === 5) throw error;
-      console.log(`${error.message}, retrying`);
-      await new Promise((resolve) => setTimeout(resolve, 2000 * attempt));
-    }
-  }
 }
 
 async function main() {

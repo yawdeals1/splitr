@@ -126,6 +126,12 @@ fn clean(platform: &str, key: &str) -> Result<String> {
             "An API key can't contain spaces or line breaks. Copy the key again".into(),
         ));
     }
+    // It goes in an HTTP header, which can't hold anything else.
+    if key.chars().any(|c| !c.is_ascii_graphic()) {
+        return Err(SplitError::ApiKey(
+            "An API key only has plain letters, numbers and symbols. Copy the key again".into(),
+        ));
+    }
     let len = key.chars().count();
     if !(MIN_LEN..=MAX_LEN).contains(&len) {
         return Err(SplitError::ApiKey(format!(
@@ -280,7 +286,7 @@ mod tests {
     #[test]
     fn rejects_bad_pastes_without_echoing_them() {
         let store = MemoryStore::default();
-        for bad in ["", "   ", "short", "sk-ant has spaces in it", &"x".repeat(MAX_LEN + 1)] {
+        for bad in ["", "   ", "short", "sk-ant has spaces in it", "sk-ant-caf\u{e9}-0123456789", &"x".repeat(MAX_LEN + 1)] {
             let err = save(&store, "anthropic", bad).unwrap_err().to_string();
             assert!(bad.trim().is_empty() || !err.contains(bad.trim()), "{err}");
         }

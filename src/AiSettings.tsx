@@ -6,8 +6,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { AI_SERVICES, aiService, keyChoices, type KeyChoices, usesKey } from "./ai";
-import type { ChatGptStatus, KeyCheck, KeyDetection, KeyStatus, Settings } from "./types";
+import { AI_SERVICES, aiService, keyChoices, type KeyChoices, serviceReady, usesKey } from "./ai";
+import { AI_CANCELLED, type ChatGptStatus, type KeyCheck, type KeyDetection, type KeyStatus, type Settings } from "./types";
 
 /** The platforms with a saved key (#27): undefined while loading. */
 export function useApiKeys() {
@@ -71,7 +71,7 @@ export function useChatGpt() {
       setStatus(await invoke<ChatGptStatus>(command));
     } catch (e) {
       // Cancel ends the wait for the browser; that isn't a problem to show.
-      if (String(e) !== "The AI request was cancelled") setError(String(e));
+      if (String(e) !== AI_CANCELLED) setError(String(e));
       // A disconnect that couldn't reach OpenAI still disconnected this computer.
       invoke<ChatGptStatus>("chatgpt_status").then(setStatus, () => {});
     }
@@ -91,7 +91,7 @@ export function useChatGpt() {
       stop?.();
       setConnecting(false);
     },
-    cancel: () => invoke("cancel_ai").catch(() => {}),
+    cancel: () => invoke("cancel_chatgpt_connect").catch(() => {}),
     disconnect: () => run("chatgpt_disconnect"),
   };
 }
@@ -399,7 +399,7 @@ export function AiSettings({ settings, apiKeys, chatGpt, onChange }: Props) {
     const ok = await apiKeys.save(platform, key);
     if (!ok) return false;
     // A new key becomes the service Smart mode uses if the current one can't run yet.
-    if (current.signIn ? !chatGpt.connected : !apiKeys.has(service)) chooseService(platform);
+    if (!serviceReady(current, chatGpt.connected, apiKeys.has(service))) chooseService(platform);
     check(platform);
     return true;
   }
@@ -461,7 +461,8 @@ export function AiSettings({ settings, apiKeys, chatGpt, onChange }: Props) {
           label="Address"
           saved={settings?.aiCustomUrl ?? ""}
           placeholder="https://example.com/v1"
-          onSave={(url) => change({ aiCustomUrl: url })}
+          // FR-61: a new address can be a new company, so it needs a new answer to the notice.
+          onSave={(url) => change({ aiCustomUrl: url, aiConsent: false })}
         />
       )}
 

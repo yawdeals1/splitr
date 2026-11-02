@@ -1,5 +1,5 @@
 // When Smart mode needs the AI, and what stops it from running (FR-60 to FR-62).
-import type { KeyDetection, Preset, Settings } from "./types";
+import type { KeyDetection, Settings } from "./types";
 
 /** A service Smart mode can use. Key platforms match the backend's `keystore` and `ai` ids. */
 export interface AiService {
@@ -73,6 +73,15 @@ export function usesKey(service: AiService): boolean {
   return !service.signIn && !service.local;
 }
 
+/**
+ * True if `service` has what it needs to run: a local model needs nothing, the ChatGPT account must
+ * be `connected`, and any other service needs a saved key.
+ */
+export function serviceReady(service: AiService, connected: boolean, hasKey: boolean): boolean {
+  if (service.local) return true;
+  return service.signIn ? connected : hasKey;
+}
+
 /** What to offer after a pasted key's prefix was checked (#27). */
 export interface KeyChoices {
   /** True when the prefix named one platform. */
@@ -97,14 +106,6 @@ export function keyChoices(detection: KeyDetection): KeyChoices {
       // Never guessed: a key goes only to the platform the user picks (NFR-05).
       return { detected: false, platform: "", options: first(detection.options), problem: "" };
   }
-}
-
-/**
- * True if splitting with this preset may call the AI: AI presets, presets that fall back to the
- * AI, and the custom prompt (`null`).
- */
-export function usesAi(preset: Pick<Preset, "strategy" | "fallback"> | null): boolean {
-  return preset === null || preset.strategy === "ai" || preset.fallback === "ai";
 }
 
 /** What has to happen before the AI may run, in the order the user meets it. */

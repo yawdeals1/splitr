@@ -18,6 +18,10 @@ use serde::Serialize;
 use crate::error::{Result, SplitError};
 use crate::strategy::{DocumentText, OutlineEntry};
 
+/// A PDF open in PDFium. Other modules hold one through this name, so this stays the only module
+/// that touches the PDF libraries.
+pub type OpenDocument = PdfDocument<'static>;
+
 /// The PDFium instance loaded at startup, or why it failed to load.
 static ENGINE: OnceLock<std::result::Result<Pdfium, String>> = OnceLock::new();
 
@@ -67,7 +71,7 @@ pub struct PdfInfo {
 /// so the app stays usable (FR-05, NFR-08). The file is only read, never written (FR-04).
 /// The loaded document is returned too, so its pages can be rendered (FR-10); the password
 /// unlocks it in memory and is not kept.
-pub fn open_document(path: &str, password: Option<&str>) -> Result<(PdfInfo, PdfDocument<'static>)> {
+pub fn open_document(path: &str, password: Option<&str>) -> Result<(PdfInfo, OpenDocument)> {
     let file_path = Path::new(path);
     let file_name = file_path
         .file_name()
@@ -244,6 +248,8 @@ fn load_error(e: PdfiumError, file_name: &str, had_password: bool) -> SplitError
 /// each part is built from a copy, so the original file is never touched (FR-04).
 pub struct Source {
     doc: Document,
+    /// Named destinations of the whole PDF, read once rather than for every part.
+    named: NamedDests,
     file_name: String,
 }
 
@@ -273,21 +279,26 @@ pub fn load_source(path: &str, password: Option<&str>) -> Result<Source> {
     if doc.get_pages().is_empty() {
         return Err(SplitError::EmptyPdf(file_name));
     }
-    Ok(Source { doc, file_name })
+    Ok(Source::new(doc, file_name))
 }
 
 impl Source {
+    fn new(doc: Document, file_name: String) -> Self {
+        Self { named: named_destinations(&doc), doc, file_name }
+    }
+
     pub fn page_count(&self) -> u32 {
         u32::try_from(self.doc.get_pages().len()).unwrap_or(u32::MAX)
     }
 
     /// Writes pages `start..=end` (1-based) as a complete PDF to `out` (FR-50). Links and
     /// bookmarks that point inside the part are kept; ones that point to other pages are dropped
-    /// (FR-54). The tagged-PDF structure tree and page labels are dropped, because they describe
-    /// the whole document.
+    /// (FR-54). So are the form fields of other pages, whose values must not travel with this part.
+    /// The tagged-PDF structure tree and page labels are dropped, because they describe the whole
+    /// document.
     pub fn write_part(&self, start: u32, end: u32, out: &mut impl std::io::Write) -> Result<()> {
         let mut doc = self.doc.clone();
-        build_part(&mut doc, start, end)
+        build_part(&mut doc, start, end, &self.named)
             .map_err(|e| SplitError::CantSplit(self.file_name.clone(), e.to_string()))?;
         doc.save_to(out).map_err(|e| SplitError::ExportFailed(e.to_string()))
     }
@@ -306,18 +317,18 @@ enum Target {
 type NamedDests = HashMap<Vec<u8>, ObjectId>;
 
 /// Turns `doc` (a copy of the whole source) into a document with only pages `start..=end`.
-fn build_part(doc: &mut Document, start: u32, end: u32) -> lopdf::Result<()> {
+fn build_part(doc: &mut Document, start: u32, end: u32, named: &NamedDests) -> lopdf::Result<()> {
     let pages = doc.get_pages();
     let kept: Vec<ObjectId> = (start..=end).filter_map(|n| pages.get(&n).copied()).collect();
     let kept_set: HashSet<ObjectId> = kept.iter().copied().collect();
     let removed: HashSet<ObjectId> = pages.values().copied().filter(|id| !kept_set.contains(id)).collect();
-    let named = named_destinations(doc);
 
     flatten_page_tree(doc, &kept)?;
-    drop_outside_links(doc, &kept, &kept_set, &named);
-    rebuild_outline(doc, &kept_set, &named)?;
+    drop_outside_links(doc, &kept, &kept_set, named);
+    rebuild_outline(doc, &kept_set, named)?;
+    keep_form_fields(doc, &kept)?;
 
-    let open_action = doc.catalog()?.get(b"OpenAction").ok().map(|a| dest_or_action(doc, a, &named));
+    let open_action = doc.catalog()?.get(b"OpenAction").ok().map(|a| dest_or_action(doc, a, named));
     let catalog = doc.catalog_mut()?;
     // The structure tree, page labels and article threads describe every page of the original.
     for key in [b"StructTreeRoot".as_slice(), b"MarkInfo", b"PageLabels", b"Threads"] {
@@ -332,8 +343,8 @@ fn build_part(doc: &mut Document, start: u32, end: u32) -> lopdf::Result<()> {
         catalog.remove(b"OpenAction");
     }
 
-    // Anything else still pointing at a removed page (named destinations, form fields) now points
-    // nowhere, so the removed pages and everything only they use are pruned.
+    // Anything else still pointing at a removed page (named destinations) now points nowhere, so
+    // the removed pages and everything only they use are pruned.
     doc.traverse_objects(|object| {
         if let Object::Reference(id) = object
             && removed.contains(id)
@@ -408,6 +419,70 @@ fn drop_outside_links(doc: &mut Document, kept: &[ObjectId], kept_set: &HashSet<
             page.set("Annots", remaining);
         }
     }
+}
+
+/// Keeps only the form fields with a widget on a kept page. A field stores what was typed into it,
+/// so without this every part would carry the answers on the other parts' pages. XFA holds a copy
+/// of the whole form, so it goes too.
+fn keep_form_fields(doc: &mut Document, kept: &[ObjectId]) -> lopdf::Result<()> {
+    let Ok(form) = doc.catalog()?.get(b"AcroForm") else { return Ok(()) };
+    let Some((form_id, mut form)) = doc.dereference(form).ok().and_then(|(id, f)| Some((id, f.as_dict().ok()?.clone()))) else {
+        return Ok(());
+    };
+    let widgets: HashSet<ObjectId> = kept
+        .iter()
+        .filter_map(|&page| doc.get_dictionary(page).ok()?.get(b"Annots").ok())
+        .filter_map(|annots| doc.dereference(annots).ok()?.1.as_array().ok())
+        .flatten()
+        .filter_map(|annot| annot.as_reference().ok())
+        .collect();
+    let (mut seen, mut live) = (HashSet::new(), HashSet::new());
+    let fields = form.get(b"Fields").ok().and_then(|f| doc.dereference(f).ok()).and_then(|(_, f)| f.as_array().ok()).cloned().unwrap_or_default();
+    let fields: Vec<Object> =
+        fields.into_iter().filter(|field| field.as_reference().is_ok_and(|id| keep_field(doc, id, &widgets, &mut seen, &mut live, 0))).collect();
+    if fields.is_empty() {
+        doc.catalog_mut()?.remove(b"AcroForm");
+        return Ok(());
+    }
+    form.set("Fields", fields);
+    form.remove(b"XFA");
+    // The calculation order names fields too, which would keep the dropped ones alive.
+    if let Some(order) = form.get(b"CO").ok().and_then(|o| doc.dereference(o).ok()).and_then(|(_, o)| o.as_array().ok()).cloned() {
+        let order: Vec<Object> = order.into_iter().filter(|f| f.as_reference().is_ok_and(|id| live.contains(&id))).collect();
+        form.set("CO", order);
+    }
+    match form_id {
+        Some(id) => {
+            doc.objects.insert(id, Object::Dictionary(form));
+        }
+        None => doc.catalog_mut()?.set("AcroForm", form),
+    }
+    Ok(())
+}
+
+/// True if field `id` is a widget in `widgets` or has one below it. Kids without one are removed
+/// from it, and every field kept goes in `live`. `seen` and the depth limit guard against looped
+/// or absurdly deep forms in damaged files.
+fn keep_field(doc: &mut Document, id: ObjectId, widgets: &HashSet<ObjectId>, seen: &mut HashSet<ObjectId>, live: &mut HashSet<ObjectId>, depth: usize) -> bool {
+    if depth >= 64 || !seen.insert(id) {
+        return false;
+    }
+    let is_widget = widgets.contains(&id);
+    let kids = doc.get_dictionary(id).ok().and_then(|f| f.get(b"Kids").ok()).and_then(|k| doc.dereference(k).ok()).and_then(|(_, k)| k.as_array().ok()).cloned();
+    if let Some(kids) = kids {
+        let kept: Vec<Object> =
+            kids.into_iter().filter(|kid| kid.as_reference().is_ok_and(|kid| keep_field(doc, kid, widgets, seen, live, depth + 1))).collect();
+        if kept.is_empty() && !is_widget {
+            return false;
+        }
+        if let Ok(field) = doc.get_dictionary_mut(id) {
+            field.set("Kids", kept);
+        }
+    } else if !is_widget {
+        return false;
+    }
+    live.insert(id);
+    true
 }
 
 /// One bookmark and the bookmarks under it.
@@ -536,25 +611,34 @@ fn target(doc: &Document, item: &Dictionary, named: &NamedDests) -> Target {
     }
 }
 
-/// Resolves a destination (an array or a name) or an action dictionary.
+/// Resolves a destination (an array or a name) or an action dictionary. An action's `/D` can lead
+/// back to itself in a damaged file, so only a few are followed.
 fn dest_or_action(doc: &Document, object: &Object, named: &NamedDests) -> Target {
-    let Ok((_, object)) = doc.dereference(object) else { return Target::Nowhere };
-    match object {
-        Object::Array(dest) => match dest.first() {
-            Some(Object::Reference(id)) => Target::Page(*id),
-            _ => Target::Nowhere,
-        },
-        Object::Name(name) | Object::String(name, _) => named.get(name).map_or(Target::Nowhere, |&id| Target::Page(id)),
-        Object::Dictionary(action) => {
-            let is_goto = action.get(b"S").and_then(Object::as_name).is_ok_and(|s| s == b"GoTo");
-            match action.get(b"D") {
-                Ok(dest) if is_goto => dest_or_action(doc, dest, named),
-                _ if is_goto => Target::Nowhere,
-                _ => Target::Elsewhere,
+    let mut object = object;
+    for _ in 0..8 {
+        let Ok((_, resolved)) = doc.dereference(object) else { return Target::Nowhere };
+        match resolved {
+            Object::Array(dest) => {
+                return match dest.first() {
+                    Some(Object::Reference(id)) => Target::Page(*id),
+                    _ => Target::Nowhere,
+                };
             }
+            Object::Name(name) | Object::String(name, _) => {
+                return named.get(name).map_or(Target::Nowhere, |&id| Target::Page(id));
+            }
+            Object::Dictionary(action) => {
+                let is_goto = action.get(b"S").and_then(Object::as_name).is_ok_and(|s| s == b"GoTo");
+                match action.get(b"D") {
+                    Ok(dest) if is_goto => object = dest,
+                    _ if is_goto => return Target::Nowhere,
+                    _ => return Target::Elsewhere,
+                }
+            }
+            _ => return Target::Nowhere,
         }
-        _ => Target::Nowhere,
     }
+    Target::Nowhere
 }
 
 /// Named destinations from the catalog's `/Dests` dictionary and `/Names /Dests` tree, mapped to
@@ -568,7 +652,14 @@ fn named_destinations(doc: &Document) -> NamedDests {
         };
         dest.as_array().ok()?.first()?.as_reference().ok()
     }
-    fn walk(doc: &Document, node: &Object, out: &mut NamedDests, depth: usize) {
+    // `seen` guards against a damaged tree whose nodes list each other, which without it could take
+    // billions of steps even with the depth limit.
+    fn walk(doc: &Document, node: &Object, out: &mut NamedDests, seen: &mut HashSet<ObjectId>, depth: usize) {
+        if let Object::Reference(id) = node
+            && !seen.insert(*id)
+        {
+            return;
+        }
         let Some(node) = doc.dereference(node).ok().and_then(|(_, n)| n.as_dict().ok()) else { return };
         if let Ok(names) = node.get(b"Names").and_then(Object::as_array) {
             for pair in names.chunks(2) {
@@ -583,7 +674,7 @@ fn named_destinations(doc: &Document) -> NamedDests {
             && let Ok(kids) = node.get(b"Kids").and_then(Object::as_array)
         {
             for kid in kids {
-                walk(doc, kid, out, depth + 1);
+                walk(doc, kid, out, seen, depth + 1);
             }
         }
     }
@@ -604,7 +695,7 @@ fn named_destinations(doc: &Document) -> NamedDests {
         .and_then(|(_, n)| n.as_dict().ok())
         .and_then(|n| n.get(b"Dests").ok())
     {
-        walk(doc, tree, &mut out, 0);
+        walk(doc, tree, &mut out, &mut HashSet::new(), 0);
     }
     out
 }
@@ -826,7 +917,7 @@ pub(crate) mod tests {
     #[test]
     fn password_messages_match_the_frontend() {
         let types = include_str!("../../src/types.ts");
-        for err in [SplitError::PasswordRequired, SplitError::WrongPassword, SplitError::ExtractCancelled] {
+        for err in [SplitError::PasswordRequired, SplitError::WrongPassword, SplitError::ExtractCancelled, SplitError::AiCancelled] {
             assert!(types.contains(&format!("\"{err}\"")), "src/types.ts is missing \"{err}\"");
         }
     }
@@ -893,7 +984,7 @@ pub(crate) mod tests {
     }
 
     fn source(doc: Document) -> Source {
-        Source { doc, file_name: "test.pdf".into() }
+        Source::new(doc, "test.pdf".into())
     }
 
     /// The text of each page, read by PDFium: a second, independent reader of the written file.
@@ -993,6 +1084,83 @@ pub(crate) mod tests {
         assert_eq!(links(&part(&src, 1, 4)), 3);
         assert_eq!(links(&part(&src, 1, 2)), 2, "the link to page 4 should be gone");
         assert_eq!(links(&part(&src, 1, 1)), 1, "only the web link should be left");
+    }
+
+    /// `document(4)` with a form: "alice" on page 1, "bob" on page 2, and a group "shared" with
+    /// widgets on pages 1 and 3. Page 4 has no fields.
+    fn form() -> Document {
+        let mut doc = document(4);
+        let pages = doc.get_pages();
+        let widget = |doc: &mut Document, value: &str, page: u32| {
+            doc.add_object(dictionary! {
+                "Type" => "Annot", "Subtype" => "Widget", "T" => Object::string_literal(value),
+                "V" => Object::string_literal(value), "FT" => "Tx", "P" => pages[&page],
+                "Rect" => vec![0.into(), 0.into(), 50.into(), 50.into()],
+            })
+        };
+        let alice = widget(&mut doc, "alice-answer", 1);
+        let bob = widget(&mut doc, "bob-answer", 2);
+        let shared_1 = widget(&mut doc, "shared-1", 1);
+        let shared_3 = widget(&mut doc, "shared-3", 3);
+        let shared = doc.add_object(dictionary! {
+            "T" => Object::string_literal("shared"), "FT" => "Tx", "V" => Object::string_literal("shared-value"),
+            "Kids" => vec![shared_1.into(), shared_3.into()],
+        });
+        for (page, annots) in [(1, vec![alice, shared_1]), (2, vec![bob]), (3, vec![shared_3])] {
+            let annots: Vec<Object> = annots.into_iter().map(Object::Reference).collect();
+            doc.get_dictionary_mut(pages[&page]).unwrap().set("Annots", annots);
+        }
+        let form = doc.add_object(dictionary! {
+            "Fields" => vec![alice.into(), bob.into(), shared.into()],
+            "CO" => vec![bob.into()],
+            "XFA" => Object::string_literal("xfa-copy-of-every-answer"),
+        });
+        doc.catalog_mut().unwrap().set("AcroForm", form);
+        doc
+    }
+
+    #[test]
+    fn a_part_keeps_only_the_form_fields_on_its_pages() {
+        let src = source(form());
+        let fields = |bytes: &[u8]| {
+            let doc = Document::load_mem(bytes).unwrap();
+            let form = doc.catalog().unwrap().get(b"AcroForm").and_then(Object::as_reference).ok();
+            form.map_or(0, |f| doc.get_dictionary(f).unwrap().get(b"Fields").unwrap().as_array().unwrap().len())
+        };
+        let first = part(&src, 1, 1);
+        let text = String::from_utf8_lossy(&first);
+        assert!(text.contains("alice-answer") && text.contains("shared-value"), "the part's own answers were lost");
+        assert!(!text.contains("bob-answer"), "another part's answer was kept");
+        assert!(!text.contains("shared-3"), "a widget on another page was kept");
+        assert!(!text.contains("xfa-copy"), "the XFA copy of the form was kept");
+        assert_eq!(fields(&first), 2);
+
+        let second = part(&src, 2, 2);
+        let text = String::from_utf8_lossy(&second);
+        assert!(text.contains("bob-answer") && !text.contains("alice-answer") && !text.contains("shared-value"));
+        assert_eq!(fields(&second), 1);
+
+        let none = part(&src, 4, 4);
+        assert!(!String::from_utf8_lossy(&none).contains("answer"));
+        assert_eq!(fields(&none), 0);
+        assert_eq!(page_texts(&none), ["Page 4"]);
+    }
+
+    #[test]
+    fn damaged_links_and_destination_trees_cannot_hang_or_crash_an_export() {
+        let mut doc = document(2);
+        let pages = doc.get_pages();
+        // A GoTo action whose destination is the action itself.
+        let looped = doc.new_object_id();
+        doc.objects.insert(looped, Object::Dictionary(dictionary! { "S" => "GoTo", "D" => looped }));
+        let link = doc.add_object(dictionary! { "Type" => "Annot", "Subtype" => "Link", "A" => looped });
+        doc.get_dictionary_mut(pages[&1]).unwrap().set("Annots", vec![Object::Reference(link)]);
+        // A destination tree whose node lists itself twice.
+        let node = doc.new_object_id();
+        doc.objects.insert(node, Object::Dictionary(dictionary! { "Kids" => vec![node.into(), node.into()] }));
+        doc.catalog_mut().unwrap().set("Names", dictionary! { "Dests" => node });
+
+        assert_eq!(page_texts(&part(&source(doc), 1, 1)), ["Page 1"]);
     }
 
     #[test]

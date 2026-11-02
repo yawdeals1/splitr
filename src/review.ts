@@ -92,6 +92,11 @@ export function parsePage(text: string, total: number): number | null {
   return page >= 1 && page <= total ? page : null;
 }
 
+/** True if `count` can be sent as the number of pages or parts in Fixed mode: a whole number the backend can hold. */
+export function validCount(count: number): boolean {
+  return Number.isInteger(count) && count >= 1 && count <= 0xffffffff;
+}
+
 /** Sorted, non-overlapping spans covering the same pages as `spans`, clamped to 1..`total`. */
 function union(spans: Span[], total: number): Span[] {
   const sorted = spans

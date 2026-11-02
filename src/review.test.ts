@@ -15,6 +15,7 @@ import {
   splitAt,
   uncoveredPages,
   within,
+  validCount,
 } from "./review.ts";
 import type { Range } from "./types.ts";
 
@@ -112,4 +113,9 @@ test("focusAfter moves focus to the part an edit leaves in place", () => {
   assert.equal(focusAfter({ kind: "delete", part: 0, parts: 3 }), "title-0");
   assert.equal(focusAfter({ kind: "delete", part: 2, parts: 3 }), "title-1");
   assert.equal(focusAfter({ kind: "close-split", part: 4 }), "add-split-4");
+});
+
+test("a count for Fixed mode is a whole number the backend can hold", () => {
+  for (const good of [1, 10, 0xffffffff]) assert.equal(validCount(good), true, String(good));
+  for (const bad of [0, -1, 2.5, Number.NaN, Number.POSITIVE_INFINITY, 0x100000000]) assert.equal(validCount(bad), false, String(bad));
 });

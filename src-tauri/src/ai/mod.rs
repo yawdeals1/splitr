@@ -159,10 +159,22 @@ impl Default for AiCalls {
 impl AiCalls {
     /// Runs `work` until it finishes or `cancel` is called.
     pub async fn run<T>(&self, work: impl Future<Output = Result<T>>) -> Result<T> {
-        let mut cancelled = self.cancel.subscribe();
+        Self::run_until(self.watch(), work).await
+    }
+
+    /// What `run_until` waits on. Taken before the steps that lead up to a call, it also sees a
+    /// cancel that comes during those steps.
+    pub fn watch(&self) -> watch::Receiver<u64> {
+        self.cancel.subscribe()
+    }
+
+    /// Runs `work` until it finishes or a cancel since `cancelled` was taken. After a cancel it
+    /// doesn't start at all, so nothing is sent.
+    pub async fn run_until<T>(mut cancelled: watch::Receiver<u64>, work: impl Future<Output = Result<T>>) -> Result<T> {
         tokio::select! {
-            result = work => result,
+            biased;
             _ = cancelled.changed() => Err(SplitError::AiCancelled),
+            result = work => result,
         }
     }
 
@@ -171,6 +183,11 @@ impl AiCalls {
         self.cancel.send_modify(|n| *n = n.wrapping_add(1));
     }
 }
+
+/// The wait for a ChatGPT sign-in (#31), cancelled on its own so that stopping one doesn't stop a
+/// split, or the other way round.
+#[derive(Default)]
+pub struct SignInCalls(pub AiCalls);
 
 /// The system prompt: the task, then the fixed rules (SRS Appendix A).
 pub fn system_prompt(task: &str) -> String {
@@ -248,6 +265,20 @@ mod tests {
         // A call that starts after the cancel runs normally.
         let later = tauri::async_runtime::block_on(calls.run(async { Ok(7) }));
         assert_eq!(later.unwrap(), 7);
+    }
+
+    #[test]
+    fn a_cancel_before_the_call_starts_means_it_never_starts() {
+        let calls = AiCalls::default();
+        let watching = calls.watch();
+        calls.cancel();
+        let started = std::cell::Cell::new(false);
+        let result = tauri::async_runtime::block_on(AiCalls::run_until(watching, async {
+            started.set(true);
+            Ok(7)
+        }));
+        assert!(matches!(result, Err(SplitError::AiCancelled)));
+        assert!(!started.get());
     }
 
     #[test]

@@ -6,7 +6,6 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::io::ErrorKind;
 use std::path::Path;
-use std::sync::atomic::{AtomicU64, Ordering};
 
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
@@ -14,6 +13,7 @@ use serde_json::{Map, Value};
 
 use crate::ai;
 use crate::error::{Result, SplitError};
+use crate::files;
 
 pub const FILE_NAME: &str = "settings.json";
 
@@ -151,24 +151,12 @@ fn field<T: DeserializeOwned>(fields: &Map<String, Value>, key: &str, default: T
         .unwrap_or(default)
 }
 
-/// Writes settings to a temp file and renames it, so a failed write never leaves a half file.
-/// Each save uses its own temp name, so saves that overlap can't write into the same file.
+/// Saves settings so that a failed write never leaves a half file.
 pub fn save(path: &Path, settings: &Settings) -> Result<Settings> {
-    static NEXT_TMP: AtomicU64 = AtomicU64::new(0);
     let settings = settings.clone().normalized();
-    let fail = |e: std::io::Error| SplitError::SettingsSave(describe(path, &e));
-    if let Some(dir) = path.parent() {
-        fs::create_dir_all(dir).map_err(fail)?;
-    }
     let json = serde_json::to_string_pretty(&settings)
         .map_err(|e| SplitError::SettingsSave(format!("they could not be converted to JSON ({e})")))?;
-    let n = NEXT_TMP.fetch_add(1, Ordering::Relaxed);
-    let tmp = path.with_extension(format!("json.{}-{n}.tmp", std::process::id()));
-    fs::write(&tmp, json).map_err(fail)?;
-    fs::rename(&tmp, path).map_err(|e| {
-        let _ = fs::remove_file(&tmp);
-        fail(e)
-    })?;
+    files::write_atomically(path, json.as_bytes()).map_err(|e| SplitError::SettingsSave(describe(path, &e)))?;
     Ok(settings)
 }
 

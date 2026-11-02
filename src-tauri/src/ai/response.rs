@@ -25,9 +25,10 @@ pub struct ChunkReply {
 }
 
 /// Parses a reply in the SRS 6.3 shape and checks it against the chunk's pages `first` to `last`
-/// (FR-35). The only text allowed around the JSON array is a Markdown code fence.
+/// (FR-35). The only text allowed around the JSON array is a Markdown code fence, and before it a
+/// `<think>` block, where open models on local servers and some platforms put their reasoning.
 pub fn parse(reply: &str, first: u32, last: u32, allow_gaps: bool) -> Result<Vec<Range>> {
-    let parts: Vec<Part> = serde_json::from_str(strip_fence(reply)).map_err(|e| {
+    let parts: Vec<Part> = serde_json::from_str(strip_fence(strip_thinking(reply))).map_err(|e| {
         SplitError::InvalidRanges(if e.is_data() {
             "each part needs a whole-number start and end and a title".into()
         } else {
@@ -40,6 +41,12 @@ pub fn parse(reply: &str, first: u32, last: u32, allow_gaps: bool) -> Result<Vec
         .collect();
     ranges::validate_within(&ranges, first, last, allow_gaps)?;
     Ok(ranges)
+}
+
+/// The reply after a leading `<think>...</think>` block, or the whole reply if there is none.
+fn strip_thinking(reply: &str) -> &str {
+    let reply = reply.trim();
+    reply.strip_prefix("<think>").and_then(|rest| rest.split_once("</think>")).map_or(reply, |(_, answer)| answer)
 }
 
 /// The text inside a ```json fence, or the whole reply if there is none.
@@ -86,18 +93,9 @@ fn cut(earlier: &ChunkReply, later: &ChunkReply) -> u32 {
 /// Sends every chunk, retrying a chunk once if its answer can't be used (FR-36), then merges the
 /// answers and validates the result for a `page_count`-page PDF (FR-34, FR-35). Errors from the
 /// provider itself, such as a bad key, are returned at once. An answer that still fails becomes
-/// `SplitError::AiReply`, so the user can set the parts by hand.
-pub async fn split<P: Provider>(
-    provider: &P,
-    chunks: &[AiRequest],
-    page_count: u32,
-    allow_gaps: bool,
-) -> Result<Vec<Range>> {
-    split_with_progress(provider, chunks, page_count, allow_gaps, |_, _| {}).await
-}
-
-/// `split`, calling `progress(done, total)` with the chunks answered so far: once before the first
-/// request and after each chunk, for a progress bar (NFR-02).
+/// `SplitError::AiReply`, so the user can set the parts by hand. `progress(done, total)` gets the
+/// chunks answered so far: once before the first request and after each chunk, for a progress bar
+/// (NFR-02).
 pub async fn split_with_progress<P: Provider>(
     provider: &P,
     chunks: &[AiRequest],
@@ -158,6 +156,10 @@ mod tests {
     use super::*;
     use crate::ai::PageExcerpt;
 
+    async fn split<P: Provider>(provider: &P, chunks: &[AiRequest], page_count: u32, allow_gaps: bool) -> Result<Vec<Range>> {
+        split_with_progress(provider, chunks, page_count, allow_gaps, |_, _| {}).await
+    }
+
     fn range(start: u32, end: u32, title: &str) -> Range {
         Range { start, end, title: title.into() }
     }
@@ -180,6 +182,16 @@ mod tests {
         assert!(parse(bare_fence, 1, 3, false).is_ok());
         let chatty = "Here are the parts:\n[{\"start\":1,\"end\":3,\"title\":\"A\"}]";
         assert!(parse(chatty, 1, 3, false).is_err());
+    }
+
+    #[test]
+    fn a_leading_think_block_is_not_part_of_the_answer() {
+        let answer = "[{\"start\":1,\"end\":3,\"title\":\"A\"}]";
+        assert!(parse(&format!("<think>\nPage 1 starts it [1]\n</think>\n\n{answer}"), 1, 3, false).is_ok());
+        assert!(parse(&format!("<think>hmm</think>\n```json\n{answer}\n```"), 1, 3, false).is_ok());
+        // Only before the answer, and only a finished one.
+        assert!(parse(&format!("{answer}<think>hmm</think>"), 1, 3, false).is_err());
+        assert!(parse(&format!("<think>{answer}"), 1, 3, false).is_err());
     }
 
     #[test]

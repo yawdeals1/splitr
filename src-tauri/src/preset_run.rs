@@ -95,21 +95,20 @@ fn attempt(
     Ok(PresetRun::Parts { ranges, strategy: kind, allow_gaps, fallback_reason })
 }
 
-/// True if `preset`, or its fallback, splits by the page text: the strategies that OCR reads
-/// scanned pages for (FR-80). Bookmarks and fixed lengths don't need the text.
-pub fn reads_text(preset: &Preset) -> bool {
-    let reads = |kind: StrategyKind| matches!(kind, StrategyKind::Pattern | StrategyKind::Blank | StrategyKind::Ai);
-    reads(preset.strategy) || preset.fallback.is_some_and(reads)
+/// True if running `preset` on `doc` splits by the page text, so OCR must read scanned pages first
+/// (FR-80). Bookmarks and fixed lengths don't need the text, so a scanned book with bookmarks isn't
+/// read for nothing. The fallback only matters when `doc` has no bookmarks. The AI step does its
+/// own OCR when it runs (`run_ai`), since it may yet be turned off or have no key.
+pub fn reads_text(preset: &Preset, doc: &DocumentText) -> bool {
+    let reads = |kind: StrategyKind| matches!(kind, StrategyKind::Pattern | StrategyKind::Blank);
+    let falls_back = preset.strategy == StrategyKind::Outline && doc.outline.is_empty();
+    reads(preset.strategy) || (falls_back && preset.fallback.is_some_and(reads))
 }
 
 /// Text-based strategies can't read a PDF with no text at all, such as a scan without OCR
 /// (FR-80). Without this check every page of a scan would count as blank.
 fn needs_text(doc: &DocumentText) -> Result<()> {
-    if doc.pages.iter().any(|p| p.chars().any(|c| !c.is_whitespace())) {
-        Ok(())
-    } else {
-        Err(SplitError::NoTextLayer)
-    }
+    if doc.has_any_text() { Ok(()) } else { Err(SplitError::NoTextLayer) }
 }
 
 #[cfg(test)]
@@ -234,12 +233,19 @@ mod tests {
 
     #[test]
     fn only_text_strategies_need_ocr() {
-        assert!(reads_text(&preset(StrategyKind::Pattern, None)));
-        assert!(reads_text(&preset(StrategyKind::Blank, None)));
-        assert!(reads_text(&preset(StrategyKind::Ai, None)));
-        assert!(reads_text(&preset(StrategyKind::Outline, Some(StrategyKind::Ai))));
-        assert!(!reads_text(&preset(StrategyKind::Outline, None)));
-        assert!(!reads_text(&preset(StrategyKind::Fixed, Some(StrategyKind::Outline))));
+        let plain = doc(&["", ""]);
+        let mut bookmarked = doc(&["", ""]);
+        bookmarked.outline = vec![OutlineEntry { title: "One".into(), page: 1 }];
+        assert!(reads_text(&preset(StrategyKind::Pattern, None), &plain));
+        assert!(reads_text(&preset(StrategyKind::Blank, None), &bookmarked));
+        assert!(!reads_text(&preset(StrategyKind::Outline, None), &plain));
+        assert!(!reads_text(&preset(StrategyKind::Fixed, Some(StrategyKind::Outline)), &plain));
+        // The AI step reads the text itself, only once it is sure to run.
+        assert!(!reads_text(&preset(StrategyKind::Ai, None), &plain));
+        assert!(!reads_text(&preset(StrategyKind::Outline, Some(StrategyKind::Ai)), &plain));
+        // A rule fallback reads the text only when there are no bookmarks to split at.
+        assert!(reads_text(&preset(StrategyKind::Outline, Some(StrategyKind::Blank)), &plain));
+        assert!(!reads_text(&preset(StrategyKind::Outline, Some(StrategyKind::Blank)), &bookmarked));
     }
 
     #[test]

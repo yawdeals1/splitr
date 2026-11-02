@@ -61,7 +61,7 @@ pub fn is_cloud(model: &str) -> bool {
 pub fn client(url: &str, model: String) -> Result<ChatCompletions> {
     if is_cloud(&model) {
         return Err(SplitError::Ai(format!(
-            "\"{}\" is an Ollama cloud model, which runs on Ollama's servers rather than this computer. Choose a model              that runs locally",
+            "\"{}\" is an Ollama cloud model, which runs on Ollama's servers rather than this computer. Choose a model that runs locally",
             model.trim()
         )));
     }

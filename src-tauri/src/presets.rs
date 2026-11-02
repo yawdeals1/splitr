@@ -1,8 +1,13 @@
 //! Preset library (FR-70, FR-72, SRS 6.1). Presets are data: edit presets/presets.json, not this file.
 
+use std::sync::LazyLock;
+
 use serde::{Deserialize, Serialize};
 
-const BUNDLED: &str = include_str!("../../presets/presets.json");
+/// Read once. The `bundled_presets_are_valid` test checks the file, so it can't be empty in a build
+/// that passed CI.
+static BUNDLED: LazyLock<Vec<Preset>> =
+    LazyLock::new(|| serde_json::from_str(include_str!("../../presets/presets.json")).unwrap_or_default());
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -34,13 +39,34 @@ pub struct Preset {
 }
 
 pub fn bundled() -> Vec<Preset> {
-    serde_json::from_str(BUNDLED).expect("presets/presets.json is invalid")
+    BUNDLED.clone()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::collections::HashSet;
+
+    /// A word after "number" or "no" isn't a number: a match needs a digit.
+    #[test]
+    fn bundled_patterns_match_numbers_not_words() {
+        let pattern = |id: &str| {
+            let presets = bundled();
+            let preset = presets.iter().find(|p| p.id == id).unwrap();
+            regex::Regex::new(preset.pattern.as_deref().unwrap()).unwrap()
+        };
+        let cases = [
+            ("invoices-by-number", "Invoice No: INV-1001", "Your invoice number is below. Invoice note"),
+            ("statements-by-account", "Account Number: **** 0098", "Account number    (see above) ****"),
+            ("hr-by-employee", "Employee ID: E-204", "Employee identification and employee number here"),
+            ("insurance-by-policy", "Policy No. P-77", "This policy notice and claim notification"),
+            ("shipping-by-shipment", "B/L No: MAEU123", "The bill of lading shall state the b/l date"),
+        ];
+        for (id, number, words) in cases {
+            assert!(pattern(id).is_match(number), "{id} should match {number:?}");
+            assert!(!pattern(id).is_match(words), "{id} should not match {words:?}");
+        }
+    }
 
     #[test]
     fn bundled_presets_are_valid() {

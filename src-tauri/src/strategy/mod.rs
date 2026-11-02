@@ -28,6 +28,13 @@ pub struct DocumentText {
     pub outline: Vec<OutlineEntry>,
 }
 
+impl DocumentText {
+    /// True if any page has visible text. A scan without OCR has none.
+    pub fn has_any_text(&self) -> bool {
+        self.pages.iter().any(|page| crate::ocr::has_text(page))
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct OutlineEntry {
     pub title: String,

@@ -29,6 +29,9 @@ pub const RESOURCE: &str = "https://api.openai.com/v1";
 pub const CALLBACK_PATH: &str = "/auth/callback";
 /// How long the browser may take before the sign-in gives up.
 pub const SIGN_IN_TIMEOUT: Duration = Duration::from_secs(300);
+/// How long a connection to the loopback address may stay silent. Connections are served one at a
+/// time, and browsers open spare ones they may never use, which must not hold up the real request.
+const SILENT_CONNECTION: Duration = Duration::from_secs(2);
 
 fn random(bytes: usize) -> Result<Vec<u8>> {
     let mut out = vec![0; bytes];
@@ -160,9 +163,9 @@ pub async fn wait_for_callback(listener: &TcpListener) -> Result<Callback> {
         let mut head = Vec::new();
         let mut buf = [0; 2048];
         while !head.windows(4).any(|w| w == b"\r\n\r\n") && head.len() < 16 * 1024 {
-            match stream.read(&mut buf).await {
-                Ok(0) | Err(_) => break,
-                Ok(n) => head.extend_from_slice(&buf[..n]),
+            match tokio::time::timeout(SILENT_CONNECTION, stream.read(&mut buf)).await {
+                Ok(Ok(n)) if n > 0 => head.extend_from_slice(&buf[..n]),
+                _ => break,
             }
         }
         let text = String::from_utf8_lossy(&head);
@@ -201,6 +204,7 @@ pub struct Tokens {
 pub fn client() -> Result<reqwest::Client> {
     reqwest::Client::builder()
         .https_only(cfg!(not(test)))
+        .redirect(crate::ai::http::same_host_only())
         .connect_timeout(Duration::from_secs(15))
         .timeout(Duration::from_secs(60))
         .build()
@@ -215,9 +219,6 @@ fn unreachable(e: &reqwest::Error) -> SplitError {
     }
 }
 
-/// Why a refresh token can't be used any more, so the user must connect again.
-pub const SIGNED_OUT: &str = "Your ChatGPT connection has ended. Connect ChatGPT again under AI in Settings";
-
 /// POSTs `form` to the token endpoint at `url`.
 async fn token_call(http: &reqwest::Client, url: &str, form: &[(&str, &str)]) -> Result<Tokens> {
     let response = http.post(url).form(form).send().await.map_err(|e| unreachable(&e))?;
@@ -228,12 +229,12 @@ async fn token_call(http: &reqwest::Client, url: &str, form: &[(&str, &str)]) ->
     }
     let error = serde_json::from_str::<Value>(&body).ok();
     let code = error.as_ref().and_then(|v| v.get("error")).and_then(Value::as_str).unwrap_or("");
-    Err(SplitError::Ai(match code {
+    Err(match code {
         "invalid_grant" | "invalid_refresh_token" | "token_expired" | "refresh_token_expired"
-        | "refresh_token_invalidated" | "refresh_token_reused" => SIGNED_OUT.into(),
-        "invalid_client" => "OpenAI no longer recognizes Splitr's registration. Disconnect and connect ChatGPT again".into(),
-        _ => format!("ChatGPT's sign-in failed (error {}). Try again", status.as_u16()),
-    }))
+        | "refresh_token_invalidated" | "refresh_token_reused" => SplitError::ChatGptSignedOut,
+        "invalid_client" => SplitError::ChatGptUnregistered,
+        _ => SplitError::Ai(format!("ChatGPT's sign-in failed (error {}). Try again", status.as_u16())),
+    })
 }
 
 /// Trades the authorization code for tokens.
@@ -372,12 +373,34 @@ mod tests {
     }
 
     #[test]
+    fn a_silent_connection_does_not_hold_up_the_browser() {
+        use std::io::{Read, Write};
+        tauri::async_runtime::block_on(async {
+            let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let port = listener.local_addr().unwrap().port();
+            let browser = std::thread::spawn(move || {
+                // A spare connection that never sends anything, opened first and kept open.
+                let spare = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
+                let mut s = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
+                write!(s, "GET /auth/callback?code=c1&state=s1 HTTP/1.1\r\n\r\n").unwrap();
+                let mut reply = String::new();
+                s.read_to_string(&mut reply).unwrap();
+                drop(spare);
+                reply
+            });
+            let cb = tokio::time::timeout(SILENT_CONNECTION * 3, wait_for_callback(&listener)).await.unwrap().unwrap();
+            assert_eq!(cb.code.as_deref(), Some("c1"));
+            assert!(browser.join().unwrap().starts_with("HTTP/1.1 200"));
+        });
+    }
+
+    #[test]
     fn token_errors_say_what_to_do() {
         use crate::ai::http::test_server::serve;
         let http = client().unwrap();
         let (url, got) = serve("/token", "400 Bad Request", "", r#"{"error":"invalid_grant"}"#);
         let err = tauri::async_runtime::block_on(refresh(&http, &url, "oaiapp_1", "rt-secret")).err().unwrap();
-        assert_eq!(err.to_string(), SIGNED_OUT);
+        assert!(matches!(err, SplitError::ChatGptSignedOut), "{err}");
         let raw = got.recv().unwrap();
         assert!(raw.contains("grant_type=refresh_token") && raw.contains("client_id=oaiapp_1"));
         let (url, _) = serve("/token", "200 OK", "", r#"{"access_token":"at","refresh_token":"rt2","expires_in":3600,"scope":"openid"}"#);

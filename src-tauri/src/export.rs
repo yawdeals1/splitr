@@ -21,8 +21,9 @@ use crate::pdf;
 use crate::ranges::{self, Range};
 
 /// What to export: which parts of which PDF, where, and under which names (one per part, without
-/// ".pdf"). Mirrored by `ExportRequest` in `src/types.ts`.
-#[derive(Debug, Clone, Deserialize)]
+/// ".pdf"). Mirrored by `ExportRequest` in `src/types.ts`. Deliberately not `Debug`, so the PDF's
+/// password can't end up in a log.
+#[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ExportRequest {
     pub path: String,
@@ -143,14 +144,14 @@ fn persist_all(written: Vec<NamedTempFile>, targets: Vec<PathBuf>) -> Result<Vec
 fn output_paths(folder: &Path, names: &[String]) -> Result<(Vec<PathBuf>, usize)> {
     let mut taken = taken_names(folder, "pdf")?;
     let safe: Vec<String> = names.iter().map(|name| naming::sanitize(name)).collect();
-    let wanted: HashSet<String> = safe.iter().map(|name| name.to_lowercase()).collect();
+    // What a number must not give a part: a name in the folder, or the name of any part.
+    let mut blocked: HashSet<String> = safe.iter().map(|name| name.to_lowercase()).chain(taken.iter().cloned()).collect();
     let mut renamed = 0;
     let paths = safe
         .iter()
         .map(|name| {
             let mut final_name = name.clone();
             if !taken.insert(name.to_lowercase()) {
-                let mut blocked: HashSet<String> = taken.union(&wanted).cloned().collect();
                 final_name = naming::dedupe(name, &mut blocked);
                 taken.insert(final_name.to_lowercase());
                 renamed += 1;
