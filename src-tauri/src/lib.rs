@@ -1,4 +1,5 @@
 mod ai;
+mod browser;
 mod chatgpt;
 mod commands;
 mod error;

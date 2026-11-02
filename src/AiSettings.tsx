@@ -3,8 +3,9 @@
 // status (FR-61).
 // A pasted key goes straight to the backend, which keeps it in the OS credential store. After
 // saving, the interface only ever sees its last 4 characters (NFR-05).
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { AI_SERVICES, aiService, keyChoices, type KeyChoices, usesKey } from "./ai";
 import type { ChatGptStatus, KeyCheck, KeyDetection, KeyStatus, Settings } from "./types";
 
@@ -57,6 +58,7 @@ export function useApiKeys() {
 export function useChatGpt() {
   const [status, setStatus] = useState<ChatGptStatus | undefined>(undefined);
   const [connecting, setConnecting] = useState(false);
+  const [signInUrl, setSignInUrl] = useState("");
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -78,11 +80,15 @@ export function useChatGpt() {
   return {
     status,
     connecting,
+    signInUrl,
     error,
     connected: Boolean(status?.connected),
     connect: async () => {
       setConnecting(true);
+      setSignInUrl("");
+      const stop = await listen<string>("chatgpt-sign-in", ({ payload }) => setSignInUrl(payload)).catch(() => undefined);
       await run("chatgpt_connect");
+      stop?.();
       setConnecting(false);
     },
     cancel: () => invoke("cancel_ai").catch(() => {}),
@@ -95,18 +101,51 @@ function planName(plan: string): string {
   return plan.charAt(0).toUpperCase() + plan.slice(1);
 }
 
+/** #31: the sign-in link, for when no browser appeared. Linux can report success without opening one. */
+function SignInLink({ url }: { url: string }) {
+  const field = useRef<HTMLInputElement>(null);
+  const [copied, setCopied] = useState(false);
+
+  async function copy() {
+    field.current?.select();
+    // WebKitGTK may not offer the clipboard API here; the older command copies the selected text.
+    const done = await navigator.clipboard?.writeText(url).then(
+      () => true,
+      () => false,
+    );
+    setCopied(done || document.execCommand("copy"));
+  }
+
+  return (
+    <>
+      <label htmlFor="chatgpt-sign-in-link" className="muted">
+        Browser didn&rsquo;t open? Paste this link into it:
+      </label>
+      <div className="row sign-in-link">
+        <input id="chatgpt-sign-in-link" ref={field} type="text" readOnly value={url} onFocus={(e) => e.target.select()} />
+        <button type="button" onClick={copy}>
+          {copied ? "Copied" : "Copy link"}
+        </button>
+      </div>
+    </>
+  );
+}
+
 /** #31: connect, show and disconnect the ChatGPT account. */
 function ChatGptAccount({ account }: { account: ReturnType<typeof useChatGpt> }) {
   const { status, connecting } = account;
   if (!status) return null;
   if (connecting) {
     return (
-      <div className="row" role="status">
-        <p className="muted">Finish signing in to ChatGPT in your browser…</p>
-        <button type="button" onClick={account.cancel}>
-          Cancel
-        </button>
-      </div>
+      <>
+        <div className="row" role="status">
+          <p className="muted">Finish signing in to ChatGPT in your browser…</p>
+          <button type="button" onClick={account.cancel}>
+            Cancel
+          </button>
+        </div>
+        {account.signInUrl && <SignInLink url={account.signInUrl} />}
+      </>
     );
   }
   if (!status.connected) {

@@ -371,6 +371,11 @@ button.primary {
   gap: 8px;
 }
 
+.sign-in-link input {
+  flex: 1 1 12em;
+  min-width: 0;
+}
+
 .muted {
   color: var(--muted);
 }

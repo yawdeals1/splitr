@@ -9,6 +9,7 @@ use tauri::ipc::Response;
 use tauri::{AppHandle, Emitter, Manager};
 
 use crate::ai::{self, response, AiCalls, AiRequest, Provider};
+use crate::browser;
 use crate::chatgpt;
 use crate::error::{Result, SplitError};
 use crate::export::{self, ExportRequest, SavedParts};
@@ -191,6 +192,9 @@ fn chatgpt_registration_path(app: &AppHandle) -> Result<PathBuf> {
     Ok(dir.join(chatgpt::FILE_NAME))
 }
 
+/// Carries the sign-in link to the interface.
+const CHATGPT_SIGN_IN: &str = "chatgpt-sign-in";
+
 /// Whether a ChatGPT account is connected (#31), with its name, email and plan. Never a token (NFR-05).
 #[tauri::command]
 pub async fn chatgpt_status() -> Result<chatgpt::Status> {
@@ -198,10 +202,10 @@ pub async fn chatgpt_status() -> Result<chatgpt::Status> {
 }
 
 /// Connects a ChatGPT account (#31). OpenAI's sign-in page opens in the system browser, never in
-/// Splitr, and the tokens go to the OS credential store. `cancel_ai` stops the wait.
+/// Splitr, and the tokens go to the OS credential store. `cancel_ai` stops the wait. The link also
+/// goes to the interface, because no system can promise that a browser appeared. It holds no token.
 #[tauri::command]
 pub async fn chatgpt_connect(app: AppHandle) -> Result<chatgpt::Status> {
-    use tauri_plugin_opener::OpenerExt;
     let path = chatgpt_registration_path(&app)?;
     let mut registration = {
         let path = path.clone();
@@ -213,9 +217,9 @@ pub async fn chatgpt_connect(app: AppHandle) -> Result<chatgpt::Status> {
         blocking(move || registration.save(&path)).await?;
     }
     let open = |url: &str| {
-        app.opener()
-            .open_url(url, None::<&str>)
-            .map_err(|e| SplitError::Ai(format!("Splitr couldn't open your browser to sign in to ChatGPT ({e})")))
+        let _ = app.emit(CHATGPT_SIGN_IN, url);
+        browser::open(&app, url);
+        Ok(())
     };
     let result = app
         .state::<AiCalls>()

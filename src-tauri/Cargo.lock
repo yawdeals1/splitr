@@ -4420,6 +4420,7 @@ dependencies = [
  "keyring",
  "lopdf",
  "ocrs",
+ "open",
  "pdfium-render",
  "regex",
  "reqwest 0.12.28",
