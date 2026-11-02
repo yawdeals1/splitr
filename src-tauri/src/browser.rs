@@ -21,20 +21,30 @@ const APPIMAGE_ONLY: &[&str] = &["APPDIR", "APPIMAGE", "ARGV0", "OWD", "GTK_THEM
 /// Tries to open `url`. Linux launchers can report success with no browser appearing, so the
 /// sign-in always shows the link as well and nothing here is treated as final.
 pub fn open(app: &AppHandle, url: &str) {
-    let appimage = std::env::var_os("APPIMAGE").and(std::env::var("APPDIR").ok());
-    match appimage {
+    match appimage_dir(std::env::var_os("APPIMAGE"), std::env::var("APPDIR").ok()) {
         Some(appdir) => {
             let vars = outside_appimage(std::env::vars_os(), &appdir);
-            let commands = open::commands(url).into_iter().map(|mut command| {
-                command.env_clear().envs(vars.iter().cloned());
-                command
-            });
-            launch(commands);
+            let commands: Vec<Command> = open::commands(url)
+                .into_iter()
+                .map(|mut command| {
+                    command.env_clear().envs(vars.iter().cloned());
+                    command
+                })
+                .collect();
+            // The sign-in runs on an async worker and shouldn't stall while the launchers are watched.
+            std::thread::spawn(move || launch(commands, FAILURE_WINDOW));
         }
         None => {
             let _ = app.opener().open_url(url, None::<&str>);
         }
     }
+}
+
+/// The AppImage's mount folder without a trailing slash, if Splitr runs from one. An empty `APPDIR`
+/// gives none, since every absolute path would count as inside it.
+fn appimage_dir(appimage: Option<OsString>, appdir: Option<String>) -> Option<String> {
+    appimage?;
+    Some(appdir?.trim_end_matches('/').to_owned()).filter(|dir| !dir.is_empty())
 }
 
 /// The environment without what the AppImage's launcher added: paths inside `appdir` are removed
@@ -44,18 +54,23 @@ fn outside_appimage(vars: impl IntoIterator<Item = (OsString, OsString)>, appdir
     vars.into_iter()
         .filter(|(name, _)| !name.to_str().is_some_and(|name| APPIMAGE_ONLY.contains(&name)))
         .filter_map(|(name, value)| {
-            let Some(text) = value.to_str().filter(|text| text.contains(appdir)) else {
+            let text = value.to_string_lossy();
+            if !text.contains(appdir) {
                 return Some((name, value));
-            };
-            let kept: Vec<&str> = text.split(':').filter(|entry| !entry.is_empty() && !inside(entry)).collect();
+            }
+            // An entry that isn't valid Unicode is lost here, which is better than keeping the AppImage's.
+            let kept: Vec<&str> = text
+                .split(':')
+                .filter(|entry| !entry.is_empty() && !inside(entry) && !entry.contains(char::REPLACEMENT_CHARACTER))
+                .collect();
             (!kept.is_empty()).then(|| (name, OsString::from(kept.join(":"))))
         })
         .collect()
 }
 
-/// Runs the launchers in order until one exits cleanly or is still running after the failure
-/// window. False if all of them failed.
-fn launch(commands: impl IntoIterator<Item = Command>) -> bool {
+/// Runs the launchers in order until one exits cleanly or is still running after `window`. False if
+/// all of them failed.
+fn launch(commands: impl IntoIterator<Item = Command>, window: Duration) -> bool {
     commands.into_iter().any(|mut command| {
         let spawned = command.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).spawn();
         let Ok(mut child) = spawned else { return false };
@@ -64,7 +79,7 @@ fn launch(commands: impl IntoIterator<Item = Command>) -> bool {
             match child.try_wait() {
                 Ok(Some(status)) => return status.success(),
                 Err(_) => return false,
-                Ok(None) if start.elapsed() >= FAILURE_WINDOW => {
+                Ok(None) if start.elapsed() >= window => {
                     // xdg-open can stay until the browser closes. Collect it then.
                     std::thread::spawn(move || child.wait());
                     return true;
@@ -144,6 +159,25 @@ mod tests {
         assert_eq!(cleaned, vars(&[("MY_DIRS", "/tmp/.mount_Splitr12/lib:/opt/a"), ("LANG", "en_US.UTF-8")]));
     }
 
+    #[test]
+    fn the_appimage_dir_needs_both_variables_and_a_real_folder() {
+        let dir = |appimage: Option<&str>, appdir: Option<&str>| appimage_dir(appimage.map(Into::into), appdir.map(Into::into));
+        assert_eq!(dir(Some("/a/Splitr.AppImage"), Some(APPDIR)).as_deref(), Some(APPDIR));
+        assert_eq!(dir(Some("/a/Splitr.AppImage"), Some("/tmp/.mount_Splitr1/")).as_deref(), Some(APPDIR));
+        assert_eq!(dir(None, Some(APPDIR)), None);
+        assert_eq!(dir(Some("/a/Splitr.AppImage"), None), None);
+        assert_eq!(dir(Some("/a/Splitr.AppImage"), Some("")), None);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_path_that_isnt_unicode_doesnt_keep_the_appimages_entries() {
+        use std::os::unix::ffi::OsStringExt;
+        let value = OsString::from_vec(b"/tmp/.mount_Splitr1/usr/lib:/opt/\xFF:/opt/mine".to_vec());
+        let cleaned = outside_appimage([("LD_LIBRARY_PATH".into(), value)], APPDIR);
+        assert_eq!(cleaned, vars(&[("LD_LIBRARY_PATH", "/opt/mine")]));
+    }
+
     /// This test binary: `--list` exits cleanly and an unknown flag fails.
     fn test_binary(arg: &str) -> Command {
         let mut command = Command::new(std::env::current_exe().unwrap());
@@ -154,8 +188,10 @@ mod tests {
     #[test]
     fn launchers_are_tried_until_one_works() {
         let missing = || Command::new("splitr-no-such-launcher");
-        assert!(launch([missing(), test_binary("--no-such-flag"), test_binary("--list")]));
-        assert!(!launch([missing(), test_binary("--no-such-flag")]));
-        assert!(!launch([]));
+        // Long enough that a slow start, as on a busy CI machine, doesn't count as handed off.
+        let window = Duration::from_secs(60);
+        assert!(launch([missing(), test_binary("--no-such-flag"), test_binary("--list")], window));
+        assert!(!launch([missing(), test_binary("--no-such-flag")], window));
+        assert!(!launch([], window));
     }
 }

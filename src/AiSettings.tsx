@@ -108,12 +108,15 @@ function SignInLink({ url }: { url: string }) {
 
   async function copy() {
     field.current?.select();
-    // WebKitGTK may not offer the clipboard API here; the older command copies the selected text.
-    const done = await navigator.clipboard?.writeText(url).then(
-      () => true,
-      () => false,
-    );
-    setCopied(done || document.execCommand("copy"));
+    // WebKitGTK may not offer the clipboard API here. The older command copies the selected text, and
+    // runs first because it only works straight from the click, before anything is awaited.
+    const done =
+      document.execCommand("copy") ||
+      (await navigator.clipboard?.writeText(url).then(
+        () => true,
+        () => false,
+      ));
+    setCopied(Boolean(done));
   }
 
   return (
