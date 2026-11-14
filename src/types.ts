@@ -96,9 +96,13 @@ export type RangeMode = "custom" | "fixed" | "smart";
 
 export type Theme = "system" | "light" | "dark";
 
+/** Mirrors settings::Palette: the colour set used in both themes (FR-63). */
+export type Palette = "classic" | "steel" | "forest" | "ember" | "rose" | "lavender" | "plum";
+
 /** Mirrors settings::Settings (SRS 6.4). API keys are never part of this. */
 export interface Settings {
   theme: Theme;
+  palette: Palette;
   lastOutputFolder: string | null;
   nameTemplate: string;
   blankThreshold: number;
