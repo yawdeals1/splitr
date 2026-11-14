@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { type CSSProperties, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
@@ -830,7 +830,7 @@ function App({ initialSettings }: { initialSettings: Settings | null }) {
         </fieldset>
         <fieldset className="palettes">
           <legend>Colours</legend>
-          {PALETTES.map(({ value, label, swatch }) => (
+          {PALETTES.map(({ value, label, swatch, swatchDark }) => (
             <label key={value} className={(palette ?? "classic") === value ? "active" : ""}>
               <input
                 type="radio"
@@ -840,7 +840,11 @@ function App({ initialSettings }: { initialSettings: Settings | null }) {
                 disabled={!settings}
                 onChange={() => choosePalette(value)}
               />
-              <span className="swatch" style={{ background: swatch }} aria-hidden="true" />
+              <span
+                className="swatch"
+                style={{ "--swatch": swatch, "--swatch-dark": swatchDark } as CSSProperties}
+                aria-hidden="true"
+              />
               {label}
             </label>
           ))}
