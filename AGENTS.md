@@ -123,6 +123,7 @@ Status key: [x] done, [ ] to do. Each phase ends when its exit criterion is met 
 - [x] Download page with SmartScreen and Gatekeeper instructions, and a user guide (#23)
 - [x] Replace the default Tauri app icon with a Splitr icon on every platform (#99)
 - [x] Colour sets for the light and dark themes: Classic, Steel, Forest, Ember, Rose, Lavender, Plum (FR-63) (#100)
+- [x] Checkboxes and dark-mode swatches follow the colour set (FR-63) (#103)
 - [ ] After #24 and #25: review and merge the open contributor PRs, publish the first release and check that an installed copy updates (FR-64) (#83)
 - **Exit:** no open critical bugs.
 

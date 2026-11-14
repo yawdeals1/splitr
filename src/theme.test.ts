@@ -118,9 +118,20 @@ test("App.css: every colour set has a light, an OS dark and a forced dark palett
     assert.ok(Object.keys(light).length > 0, value);
     assert.deepEqual(Object.keys(forced).sort(), Object.keys(light).sort(), value);
     assert.deepEqual(os, forced, value);
-    const swatch = PALETTES.find((p) => p.value === value)?.swatch;
-    assert.equal(light["--accent"], swatch, `${value}: the panel swatch is the light accent`);
+    const set = PALETTES.find((p) => p.value === value);
+    assert.equal(light["--accent"], set?.swatch, `${value}: the light swatch is the light accent`);
+    assert.equal(forced["--accent"], set?.swatchDark, `${value}: the dark swatch is the dark accent`);
   }
+});
+
+test("App.css: Classic's swatches are its light and dark accents", () => {
+  const classic = PALETTES[0];
+  assert.equal(tokens(declarations(":root"))["--accent"], classic.swatch);
+  assert.equal(tokens(declarations(':root[data-theme="dark"]'))["--accent"], classic.swatchDark);
+});
+
+test("App.css: native controls take the accent colour", () => {
+  assert.equal(declarations(":root").get("accent-color"), "var(--accent)");
 });
 
 test("App.css: every colour set keeps WCAG AA contrast in both themes", () => {
