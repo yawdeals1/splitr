@@ -30,11 +30,27 @@ pub enum Theme {
     Dark,
 }
 
+/// The colour set shown in both the light and dark theme (FR-63). App.css holds the colours.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Palette {
+    #[default]
+    Classic,
+    Steel,
+    Forest,
+    Ember,
+    Rose,
+    Lavender,
+    Plum,
+}
+
 /// Everything in SRS 6.4. Missing fields take their default, so older files keep loading.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct Settings {
     pub theme: Theme,
+    /// The colour set (FR-63).
+    pub palette: Palette,
     pub last_output_folder: Option<String>,
     /// File name template (FR-51).
     pub name_template: String,
@@ -61,6 +77,7 @@ impl Default for Settings {
     fn default() -> Self {
         Self {
             theme: Theme::System,
+            palette: Palette::Classic,
             last_output_folder: None,
             name_template: "{original} - {index} - {title}".into(),
             blank_threshold: 0,
@@ -129,6 +146,7 @@ pub fn load(path: &Path) -> Result<Settings> {
     let defaults = Settings::default();
     Ok(Settings {
         theme: field(&fields, "theme", defaults.theme),
+        palette: field(&fields, "palette", defaults.palette),
         last_output_folder: field(&fields, "lastOutputFolder", defaults.last_output_folder),
         name_template: field(&fields, "nameTemplate", defaults.name_template),
         blank_threshold: field(&fields, "blankThreshold", defaults.blank_threshold),
@@ -195,6 +213,7 @@ mod tests {
         let path = dir.join(FILE_NAME);
         let settings = Settings {
             theme: Theme::Dark,
+            palette: Palette::Lavender,
             last_output_folder: Some("out".into()),
             name_template: "{index} - {title}".into(),
             blank_threshold: 5,
@@ -233,12 +252,13 @@ mod tests {
         fs::create_dir_all(&dir).unwrap();
         fs::write(
             &path,
-            r#"{"theme": "sepia", "nameTemplate": "my {index}", "lastOutputFolder": "D:/x",
+            r#"{"theme": "sepia", "palette": "neon", "nameTemplate": "my {index}", "lastOutputFolder": "D:/x",
                 "aiConsent": true, "aiEnabled": "no", "blankThreshold": -1}"#,
         )
         .unwrap();
         let loaded = load(&path).unwrap();
         assert_eq!(loaded.theme, Theme::System);
+        assert_eq!(loaded.palette, Palette::Classic, "an unknown colour set falls back to Classic");
         assert_eq!(loaded.blank_threshold, 0);
         assert_eq!(loaded.name_template, "my {index}");
         assert_eq!(loaded.last_output_folder.as_deref(), Some("D:/x"));
@@ -266,12 +286,13 @@ mod tests {
         fs::create_dir_all(&dir).unwrap();
         fs::write(
             &path,
-            r#"{"theme": "light", "nameTemplate": "  ", "aiPlatform": "nope", "aiLocalUrl": " ",
+            r#"{"theme": "light", "palette": "rose", "nameTemplate": "  ", "aiPlatform": "nope", "aiLocalUrl": " ",
                 "aiModels": {"anthropic": " ", "openai": " gpt-x ", "nope": "m"}}"#,
         )
         .unwrap();
         let loaded = load(&path).unwrap();
         assert_eq!(loaded.theme, Theme::Light);
+        assert_eq!(loaded.palette, Palette::Rose);
         assert_eq!(loaded.name_template, Settings::default().name_template);
         assert_eq!(loaded.ai_platform, "chatgpt");
         assert_eq!(loaded.ai_models, BTreeMap::from([("openai".into(), "gpt-x".into())]));

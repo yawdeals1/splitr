@@ -20,7 +20,7 @@ import { ReviewScreen } from "./ReviewScreen";
 import { useSettings } from "./settings";
 import { validCount } from "./review";
 import { aiReview, aiStatus, readingStatus, readPageText, smartResult, usesBlank, type AiReview } from "./smart";
-import { showTheme } from "./theme";
+import { applyPalette, PALETTES, showTheme } from "./theme";
 import { UpdateNotice } from "./UpdateNotice";
 import {
   PASSWORD_REQUIRED,
@@ -39,6 +39,7 @@ import {
   type RangeMode,
   type RunOptions,
   type SavedParts,
+  type Palette,
   type Settings,
   type Theme,
 } from "./types";
@@ -117,6 +118,7 @@ function App({ initialSettings }: { initialSettings: Settings | null }) {
   const apiKeys = useApiKeys();
   const chatGpt = useChatGpt();
   const theme = settings?.theme;
+  const palette = settings?.palette;
   const typedTemplate = template ?? settings?.nameTemplate ?? DEFAULT_TEMPLATE;
   // A blank field names files with the default, and the default is what gets saved.
   const nameTemplate = usableTemplate(typedTemplate);
@@ -128,9 +130,19 @@ function App({ initialSettings }: { initialSettings: Settings | null }) {
     if (theme) showTheme(theme);
   }, [theme]);
 
+  // FR-63: the colour set, shown the same way as the theme.
+  useLayoutEffect(() => {
+    if (palette) applyPalette(document.documentElement, palette);
+  }, [palette]);
+
   async function chooseTheme(value: Theme) {
     const problem = await updateSettings({ theme: value });
     if (problem) setError(`The theme could not be saved: ${problem}`);
+  }
+
+  async function choosePalette(value: Palette) {
+    const problem = await updateSettings({ palette: value });
+    if (problem) setError(`The colours could not be saved: ${problem}`);
   }
 
   const loadPresets = () =>
@@ -815,12 +827,29 @@ function App({ initialSettings }: { initialSettings: Settings | null }) {
               {label}
             </label>
           ))}
-          {loadError && (
-            <p className="error" role="alert">
-              Settings could not be loaded, so the theme can't be changed: {loadError}
-            </p>
-          )}
         </fieldset>
+        <fieldset className="palettes">
+          <legend>Colours</legend>
+          {PALETTES.map(({ value, label, swatch }) => (
+            <label key={value} className={(palette ?? "classic") === value ? "active" : ""}>
+              <input
+                type="radio"
+                name="palette"
+                value={value}
+                checked={(palette ?? "classic") === value}
+                disabled={!settings}
+                onChange={() => choosePalette(value)}
+              />
+              <span className="swatch" style={{ background: swatch }} aria-hidden="true" />
+              {label}
+            </label>
+          ))}
+        </fieldset>
+        {loadError && (
+          <p className="error" role="alert">
+            Settings could not be loaded, so the theme and colours can't be changed: {loadError}
+          </p>
+        )}
       </aside>
     </main>
   );

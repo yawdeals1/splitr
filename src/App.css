@@ -46,6 +46,203 @@
   --error: #f97066;
 }
 
+/*
+ * FR-63: colour sets. Classic is the :root palette above. Each other set gives a light palette, a dark
+ * palette for the OS dark theme and the same dark palette for the forced dark theme (theme.ts sets
+ * data-palette). Every pair keeps WCAG AA contrast; theme.test.ts checks it.
+ */
+:root[data-palette="steel"] {
+  --bg: #f3f5f7;
+  --surface: #ffffff;
+  --border: #d5dbe1;
+  --text: #151b22;
+  --muted: #56616d;
+  --accent: #3d5a73;
+  --accent-text: #ffffff;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root[data-palette="steel"]:not([data-theme="light"]) {
+    --bg: #121619;
+    --surface: #1a2025;
+    --border: #2c353d;
+    --text: #e6ebf0;
+    --muted: #97a3ae;
+    --accent: #8fb3d1;
+    --accent-text: #0d1114;
+  }
+}
+
+:root[data-palette="steel"][data-theme="dark"] {
+  --bg: #121619;
+  --surface: #1a2025;
+  --border: #2c353d;
+  --text: #e6ebf0;
+  --muted: #97a3ae;
+  --accent: #8fb3d1;
+  --accent-text: #0d1114;
+}
+
+:root[data-palette="forest"] {
+  --bg: #f3f5f1;
+  --surface: #ffffff;
+  --border: #d4dccf;
+  --text: #18201a;
+  --muted: #56635a;
+  --accent: #2d6a3e;
+  --accent-text: #ffffff;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root[data-palette="forest"]:not([data-theme="light"]) {
+    --bg: #111512;
+    --surface: #192019;
+    --border: #2b362c;
+    --text: #e5ece5;
+    --muted: #97a598;
+    --accent: #7fc490;
+    --accent-text: #0c110d;
+  }
+}
+
+:root[data-palette="forest"][data-theme="dark"] {
+  --bg: #111512;
+  --surface: #192019;
+  --border: #2b362c;
+  --text: #e5ece5;
+  --muted: #97a598;
+  --accent: #7fc490;
+  --accent-text: #0c110d;
+}
+
+:root[data-palette="ember"] {
+  --bg: #f7f4f1;
+  --surface: #ffffff;
+  --border: #e0d8d0;
+  --text: #211a16;
+  --muted: #685c54;
+  --accent: #ad4219;
+  --accent-text: #ffffff;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root[data-palette="ember"]:not([data-theme="light"]) {
+    --bg: #171310;
+    --surface: #201b17;
+    --border: #382f29;
+    --text: #efe7e1;
+    --muted: #a89c93;
+    --accent: #f2925f;
+    --accent-text: #140e0b;
+  }
+}
+
+:root[data-palette="ember"][data-theme="dark"] {
+  --bg: #171310;
+  --surface: #201b17;
+  --border: #382f29;
+  --text: #efe7e1;
+  --muted: #a89c93;
+  --accent: #f2925f;
+  --accent-text: #140e0b;
+}
+
+:root[data-palette="rose"] {
+  --bg: #fbf5f7;
+  --surface: #ffffff;
+  --border: #ecd9e0;
+  --text: #2a1820;
+  --muted: #745a65;
+  --accent: #bb336a;
+  --accent-text: #ffffff;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root[data-palette="rose"]:not([data-theme="light"]) {
+    --bg: #1a1216;
+    --surface: #241a1f;
+    --border: #3d2d35;
+    --text: #f3e6ec;
+    --muted: #b59ca8;
+    --accent: #f28ab3;
+    --accent-text: #1a0d13;
+  }
+}
+
+:root[data-palette="rose"][data-theme="dark"] {
+  --bg: #1a1216;
+  --surface: #241a1f;
+  --border: #3d2d35;
+  --text: #f3e6ec;
+  --muted: #b59ca8;
+  --accent: #f28ab3;
+  --accent-text: #1a0d13;
+}
+
+:root[data-palette="lavender"] {
+  --bg: #f7f5fb;
+  --surface: #ffffff;
+  --border: #e0dbee;
+  --text: #1f1a2b;
+  --muted: #655d7b;
+  --accent: #6b45c2;
+  --accent-text: #ffffff;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root[data-palette="lavender"]:not([data-theme="light"]) {
+    --bg: #15121c;
+    --surface: #1e1a27;
+    --border: #352e45;
+    --text: #ece8f5;
+    --muted: #a9a1bf;
+    --accent: #b6a0f5;
+    --accent-text: #120d1c;
+  }
+}
+
+:root[data-palette="lavender"][data-theme="dark"] {
+  --bg: #15121c;
+  --surface: #1e1a27;
+  --border: #352e45;
+  --text: #ece8f5;
+  --muted: #a9a1bf;
+  --accent: #b6a0f5;
+  --accent-text: #120d1c;
+}
+
+:root[data-palette="plum"] {
+  --bg: #faf4f8;
+  --surface: #ffffff;
+  --border: #e8d6e3;
+  --text: #261623;
+  --muted: #715a6b;
+  --accent: #8a3479;
+  --accent-text: #ffffff;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root[data-palette="plum"]:not([data-theme="light"]) {
+    --bg: #181116;
+    --surface: #22181f;
+    --border: #3a2b36;
+    --text: #f2e6ef;
+    --muted: #b39ead;
+    --accent: #e29bd4;
+    --accent-text: #170c14;
+  }
+}
+
+:root[data-palette="plum"][data-theme="dark"] {
+  --bg: #181116;
+  --surface: #22181f;
+  --border: #3a2b36;
+  --text: #f2e6ef;
+  --muted: #b39ead;
+  --accent: #e29bd4;
+  --accent-text: #170c14;
+}
+
 * {
   box-sizing: border-box;
 }
@@ -189,6 +386,59 @@ body {
 
 .modes.theme {
   font-size: 13px;
+}
+
+/* FR-63: the colour set picker, a grid of swatches under the theme switch. */
+.palettes {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(88px, 1fr));
+  gap: 4px;
+  padding: 4px;
+  margin: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 13px;
+}
+
+.palettes legend {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+}
+
+.panel .palettes label {
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  padding: 6px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.palettes label.active {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+  font-weight: 600;
+}
+
+.palettes input {
+  position: absolute;
+  opacity: 0;
+}
+
+.palettes label:has(input:focus-visible) {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.swatch {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1px rgb(0 0 0 / 15%);
 }
 
 input,
